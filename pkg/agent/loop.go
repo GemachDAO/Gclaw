@@ -140,6 +140,22 @@ func registerSharedTools(
 		agent.Tools.Register(tools.NewFindSkillsTool(registryMgr, searchCache))
 		agent.Tools.Register(tools.NewInstallSkillTool(registryMgr, agent.Workspace))
 
+		// GDEX trading tools — registered when GDEX is configured
+		if cfg.Tools.GDEX.Enabled || cfg.Tools.GDEX.APIKey != "" {
+			agent.Tools.Register(&tools.GDEXBuyTool{})
+			agent.Tools.Register(&tools.GDEXSellTool{})
+			agent.Tools.Register(&tools.GDEXLimitBuyTool{})
+			agent.Tools.Register(&tools.GDEXLimitSellTool{})
+			agent.Tools.Register(&tools.GDEXTrendingTool{})
+			agent.Tools.Register(&tools.GDEXSearchTool{})
+			agent.Tools.Register(&tools.GDEXPriceTool{})
+			agent.Tools.Register(&tools.GDEXHoldingsTool{})
+			agent.Tools.Register(&tools.GDEXScanTool{})
+			agent.Tools.Register(&tools.GDEXCopyTradeTool{})
+			agent.Tools.Register(&tools.GDEXHLBalanceTool{})
+			agent.Tools.Register(&tools.GDEXHLPositionsTool{})
+		}
+
 		// Spawn tool with allowlist checker
 		subagentManager := tools.NewSubagentManager(provider, agent.Model, agent.Workspace, msgBus)
 		subagentManager.SetLLMOptions(agent.MaxTokens, agent.Temperature)
