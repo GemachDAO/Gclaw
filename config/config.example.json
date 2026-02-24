@@ -252,6 +252,19 @@
     "enabled": true,
     "interval": 30
   },
+  "metabolism": {
+    "enabled": false,
+    "initial_gmac": 1000,
+    "heartbeat_cost": 0.1,
+    "inference_cost_per_1k_tokens": 0.5,
+    "survival_threshold": 50,
+    "thresholds": {
+      "replicate": 50,
+      "self_recode": 100,
+      "swarm_leader": 200,
+      "architect": 500
+    }
+  },
   "devices": {
     "enabled": false,
     "monitor_usb": true
