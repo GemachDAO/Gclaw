@@ -1,6 +1,6 @@
 # 企业微信自建应用 (WeCom App) 配置指南
 
-本文档介绍如何在 PicoClaw 中配置企业微信自建应用 (wecom-app) 通道。
+本文档介绍如何在 Gclaw 中配置企业微信自建应用 (wecom-app) 通道。
 
 ## 功能特性
 
@@ -31,7 +31,7 @@
    - **EncodingAESKey**: 点击"随机生成"生成43字符的密钥
 3. 点击"保存"时，企业微信会发送验证请求
 
-### 3. PicoClaw 配置
+### 3. Gclaw 配置
 
 在 `config.json` 中添加以下配置：
 
@@ -64,7 +64,7 @@
 **检查项**:
 - 确认服务器防火墙已开放 18792 端口
 - 确认 `corp_id`、`token`、`encoding_aes_key` 配置正确
-- 查看 PicoClaw 日志是否有请求到达
+- 查看 Gclaw 日志是否有请求到达
 
 ### 2. 中文消息解密失败
 
@@ -72,7 +72,7 @@
 
 **原因**: 企业微信使用非标准的 PKCS7 填充（32字节块大小）
 
-**解决**: 确保使用最新版本的 PicoClaw，已修复此问题。
+**解决**: 确保使用最新版本的 Gclaw，已修复此问题。
 
 ### 3. 端口冲突
 
@@ -104,7 +104,7 @@ random(16B) + msg_len(4B) + msg + receiveid
 启用调试模式查看详细日志：
 
 ```bash
-picoclaw gateway --debug
+gclaw gateway --debug
 ```
 
 关键日志标识：
