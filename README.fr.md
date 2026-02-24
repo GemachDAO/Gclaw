@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.jpg" alt="Gclaw" width="512">
+  <img src="https://github.com/user-attachments/assets/5ac761b8-df1b-4edc-b116-421eca942175" alt="Gclaw" width="512">
 
   <h1>Gclaw : Assistant IA Ultra-Efficace en Go</h1>
 
