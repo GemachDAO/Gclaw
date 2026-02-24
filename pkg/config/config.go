@@ -47,16 +47,17 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
-	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Gateway   GatewayConfig   `json:"gateway"`
-	Tools     ToolsConfig     `json:"tools"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
+	Agents     AgentsConfig     `json:"agents"`
+	Bindings   []AgentBinding   `json:"bindings,omitempty"`
+	Session    SessionConfig    `json:"session,omitempty"`
+	Channels   ChannelsConfig   `json:"channels"`
+	Providers  ProvidersConfig  `json:"providers,omitempty"`
+	ModelList  []ModelConfig    `json:"model_list"` // New model-centric provider configuration
+	Gateway    GatewayConfig    `json:"gateway"`
+	Tools      ToolsConfig      `json:"tools"`
+	Heartbeat  HeartbeatConfig  `json:"heartbeat"`
+	Devices    DevicesConfig    `json:"devices"`
+	Metabolism MetabolismConfig `json:"metabolism"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -473,6 +474,21 @@ type ToolsConfig struct {
 	Exec   ExecConfig        `json:"exec"`
 	Skills SkillsToolsConfig `json:"skills"`
 	GDEX   GDEXConfig        `json:"gdex"`
+}
+
+// MetabolismConfig holds configuration for the GMAC metabolism engine.
+type MetabolismConfig struct {
+	Enabled            bool    `json:"enabled"                  env:"GCLAW_METABOLISM_ENABLED"`
+	InitialGMAC        float64 `json:"initial_gmac"             env:"GCLAW_METABOLISM_INITIAL_GMAC"`
+	HeartbeatCost      float64 `json:"heartbeat_cost"           env:"GCLAW_METABOLISM_HEARTBEAT_COST"`
+	InferenceCostPer1k float64 `json:"inference_cost_per_1k_tokens" env:"GCLAW_METABOLISM_INFERENCE_COST_PER_1K"`
+	SurvivalThreshold  float64 `json:"survival_threshold"       env:"GCLAW_METABOLISM_SURVIVAL_THRESHOLD"`
+	Thresholds         struct {
+		Replicate   int `json:"replicate"`
+		SelfRecode  int `json:"self_recode"`
+		SwarmLeader int `json:"swarm_leader"`
+		Architect   int `json:"architect"`
+	} `json:"thresholds"`
 }
 
 // GDEXConfig holds configuration for GDEX DeFi trading tools.

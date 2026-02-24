@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +23,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/config"
 	"github.com/GemachDAO/Gclaw/pkg/constants"
 	"github.com/GemachDAO/Gclaw/pkg/logger"
+	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
 	"github.com/GemachDAO/Gclaw/pkg/routing"
 	"github.com/GemachDAO/Gclaw/pkg/skills"
@@ -166,9 +169,42 @@ func registerSharedTools(
 		})
 		agent.Tools.Register(spawnTool)
 
+		// Metabolism gating — initialize if enabled
+		if cfg.Metabolism.Enabled {
+			met := loadOrCreateMetabolism(cfg, agent.Workspace)
+			agent.Tools.SetMetabolism(met)
+			for name, cost := range tools.DefaultToolCosts {
+				agent.Tools.SetToolCost(name, cost)
+			}
+			logger.InfoCF("agent", "Metabolism initialized",
+				map[string]any{
+					"agent":   agentID,
+					"balance": met.GetBalance(),
+				})
+		}
+
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
+}
+
+// loadOrCreateMetabolism loads persisted metabolism state or creates a new one.
+func loadOrCreateMetabolism(cfg *config.Config, workspace string) *metabolism.Metabolism {
+	statePath := filepath.Join(workspace, "metabolism", "state.json")
+	if _, err := os.Stat(statePath); err == nil {
+		if m, err := metabolism.LoadFromFile(statePath); err == nil {
+			return m
+		}
+	}
+
+	thresholds := metabolism.Thresholds{
+		Hibernate:   cfg.Metabolism.SurvivalThreshold,
+		Replicate:   cfg.Metabolism.Thresholds.Replicate,
+		SelfRecode:  cfg.Metabolism.Thresholds.SelfRecode,
+		SwarmLeader: cfg.Metabolism.Thresholds.SwarmLeader,
+		Architect:   cfg.Metabolism.Thresholds.Architect,
+	}
+	return metabolism.NewMetabolism(cfg.Metabolism.InitialGMAC, thresholds)
 }
 
 func (al *AgentLoop) Run(ctx context.Context) error {
@@ -274,6 +310,17 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 // Each heartbeat is independent and doesn't accumulate context.
 func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, chatID string) (string, error) {
 	agent := al.registry.GetDefaultAgent()
+
+	// Deduct heartbeat cost from metabolism if enabled
+	if al.cfg.Metabolism.Enabled && al.cfg.Metabolism.HeartbeatCost > 0 && agent != nil {
+		if met := agent.Tools.GetMetabolism(); met != nil {
+			if err := met.Debit(al.cfg.Metabolism.HeartbeatCost, "heartbeat", "periodic heartbeat"); err != nil {
+				logger.WarnCF("agent", "Heartbeat metabolism debit failed",
+					map[string]any{"error": err.Error()})
+			}
+		}
+	}
+
 	return al.runAgentLoop(ctx, agent, processOptions{
 		SessionKey:      "heartbeat",
 		Channel:         channel,
