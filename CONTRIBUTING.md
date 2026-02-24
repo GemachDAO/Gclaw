@@ -293,9 +293,9 @@ When in doubt, open an issue before writing code. It costs little and prevents w
 
 ---
 
-## A Note on the Project's AI-Driven Origin
+## A Note on the Project's Origin
 
-Gclaw's architecture was substantially designed and implemented with AI assistance, guided by human oversight. If you find something that looks odd or over-engineered, it may be an artifact of that process — opening an issue to discuss it is always welcome.
+Gclaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw), which was substantially designed and implemented with AI assistance, guided by human oversight. If you find something that looks odd or over-engineered, it may be an artifact of that process — opening an issue to discuss it is always welcome.
 
 We believe AI-assisted development done responsibly produces great results. We also believe humans must remain accountable for what they ship. These two beliefs are not in conflict.
 

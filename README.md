@@ -23,9 +23,11 @@
 
 ---
 
-🦐 Gclaw is an ultra-lightweight personal AI Assistant inspired by [nanobot](https://github.com/HKUDS/nanobot), refactored from the ground up in Go through a self-bootstrapping process, where the AI agent itself drove the entire architectural migration and code optimization.
+🦐 Gclaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw), an ultra-lightweight personal AI Assistant written in Go. It is now maintained by [GemachDAO](https://github.com/GemachDAO) with integration support for [gdex-trading](https://github.com/GemachDAO/gdex-trading-).
 
 ⚡️ Runs on $10 hardware with <10MB RAM: That's 99% less memory than OpenClaw and 98% cheaper than a Mac mini!
+
+> PicoClaw was originally inspired by [nanobot](https://github.com/HKUDS/nanobot) and refactored in Go through an AI-driven self-bootstrapping process.
 
 <table align="center">
   <tr align="center">
@@ -54,14 +56,7 @@
 
 ## 📢 News
 
-2026-02-24 🔗 Gclaw is now maintained by [GemachDAO](https://github.com/GemachDAO) with integration support for [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Community contributions welcome!
-
-2026-02-16 🎉 Gclaw hit 12K stars in one week! Thank you all for your support! Gclaw is growing faster than we ever imagined. Given the high volume of PRs, we urgently need community maintainers. Our volunteer roles and roadmap are officially posted [here](docs/ROADMAP.md) —we can’t wait to have you on board!
-
-2026-02-13 🎉 Gclaw hit 5000 stars in 4days! Thank you for the community! There are so many PRs & issues coming in (during Chinese New Year holidays), we are finalizing the Project Roadmap and setting up the Developer Group to accelerate Gclaw's development.  
-🚀 Call to Action: Please submit your feature requests in GitHub Discussions. We will review and prioritize them during our upcoming weekly meeting.
-
-2026-02-09 🎉 Gclaw Launched! Built in 1 day to bring AI Agents to $10 hardware with <10MB RAM. 🦐 Gclaw，Let's Go！
+2026-02-24 🔗 Gclaw is forked from [PicoClaw](https://github.com/sipeed/picoclaw) and is now maintained by [GemachDAO](https://github.com/GemachDAO) with integration support for [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Community contributions welcome!
 
 ## ✨ Features
 

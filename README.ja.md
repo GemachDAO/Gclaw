@@ -19,7 +19,9 @@
 
 ---
 
-🦐 Gclaw は [nanobot](https://github.com/HKUDS/nanobot) にインスパイアされた超軽量パーソナル AI アシスタントです。Go でゼロからリファクタリングされ、AI エージェント自身がアーキテクチャの移行とコード最適化を推進するセルフブートストラッピングプロセスで構築されました。
+🦐 **Gclaw** は [PicoClaw](https://github.com/sipeed/picoclaw) からフォークされた超軽量パーソナル AI アシスタントです。Go で書かれており、現在は [GemachDAO](https://github.com/GemachDAO) が [gdex-trading](https://github.com/GemachDAO/gdex-trading-) との統合サポートとともにメンテナンスしています。
+
+> PicoClaw は [nanobot](https://github.com/HKUDS/nanobot) にインスパイアされ、AI エージェント自身がアーキテクチャの移行とコード最適化を推進するセルフブートストラッピングプロセスで Go にリファクタリングされました。
 
 ⚡️ $10 のハードウェアで 10MB 未満の RAM で動作：OpenClaw より 99% 少ないメモリ、Mac mini より 98% 安い！
 
@@ -39,7 +41,8 @@
 </table>
 
 ## 📢 ニュース
-2026-02-09 🎉 Gclaw リリース！$10 ハードウェアで 10MB 未満の RAM で動く AI エージェントを 1 日で構築。🦐 行くぜ、シャコ！
+
+2026-02-24 🔗 Gclaw は [PicoClaw](https://github.com/sipeed/picoclaw) からフォークされ、現在は [GemachDAO](https://github.com/GemachDAO) が [gdex-trading](https://github.com/GemachDAO/gdex-trading-) との統合サポートとともにメンテナンスしています。コミュニティの貢献を歓迎します！
 
 ## ✨ 特徴
 

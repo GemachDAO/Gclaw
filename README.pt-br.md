@@ -19,7 +19,9 @@
 
 ---
 
-🦐 **Gclaw** é um assistente pessoal de IA ultra-leve inspirado no [nanobot](https://github.com/HKUDS/nanobot), reescrito do zero em **Go** por meio de um processo de "auto-inicialização" (self-bootstrapping) — onde o próprio agente de IA conduziu toda a migração de arquitetura e otimização de código.
+🦐 **Gclaw** é um fork do [PicoClaw](https://github.com/sipeed/picoclaw), um assistente pessoal de IA ultra-leve escrito em **Go**, agora mantido por [GemachDAO](https://github.com/GemachDAO) com suporte de integração para [gdex-trading](https://github.com/GemachDAO/gdex-trading-).
+
+> PicoClaw foi originalmente inspirado no [nanobot](https://github.com/HKUDS/nanobot) e reescrito em Go por meio de um processo de auto-inicialização orientado por IA.
 
 ⚡️ **Extremamente leve:** Roda em hardware de apenas **$10** com **<10MB** de RAM. Isso é 99% menos memória que o OpenClaw e 98% mais barato que um Mac mini!
 
@@ -50,13 +52,7 @@
 
 ## 📢 Novidades
 
-2026-02-16 🎉 Gclaw atingiu 12K stars em uma semana! Obrigado a todos pelo apoio! O Gclaw está crescendo mais rápido do que jamais imaginamos. Dado o alto volume de PRs, precisamos urgentemente de maintainers da comunidade. Nossos papéis de voluntários e roadmap foram publicados oficialmente [aqui](docs/ROADMAP.md) — estamos ansiosos para ter você a bordo!
-
-2026-02-13 🎉 Gclaw atingiu 5000 stars em 4 dias! Obrigado à comunidade! Estamos finalizando o **Roadmap do Projeto** e configurando o **Grupo de Desenvolvedores** para acelerar o desenvolvimento do Gclaw.
-
-🚀 **Chamada para Ação:** Envie suas solicitações de funcionalidades nas GitHub Discussions. Revisaremos e priorizaremos na próxima reunião semanal.
-
-2026-02-09 🎉 Gclaw lançado oficialmente! Construído em 1 dia para trazer Agentes de IA para hardware de $10 com <10MB de RAM. 🦐 Gclaw, Partiu!
+2026-02-24 🔗 Gclaw é um fork do [PicoClaw](https://github.com/sipeed/picoclaw) e agora é mantido por [GemachDAO](https://github.com/GemachDAO) com suporte de integração para [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Contribuições da comunidade são bem-vindas!
 
 ## ✨ Funcionalidades
 
