@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Gclaw - Ultra-lightweight personal AI agent
 // License: MIT
 
 package main
@@ -27,12 +27,12 @@ func skillsHelp() {
 	fmt.Println("  show <name>             Show skill details")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  picoclaw skills list")
-	fmt.Println("  picoclaw skills install sipeed/picoclaw-skills/weather")
-	fmt.Println("  picoclaw skills install-builtin")
-	fmt.Println("  picoclaw skills list-builtin")
-	fmt.Println("  picoclaw skills remove weather")
-	fmt.Println("  picoclaw skills install --registry clawhub github")
+	fmt.Println("  gclaw skills list")
+	fmt.Println("  gclaw skills install GemachDAO/gclaw-skills/weather")
+	fmt.Println("  gclaw skills install-builtin")
+	fmt.Println("  gclaw skills list-builtin")
+	fmt.Println("  gclaw skills remove weather")
+	fmt.Println("  gclaw skills install --registry clawhub github")
 }
 
 func skillsListCmd(loader *skills.SkillsLoader) {
@@ -55,16 +55,16 @@ func skillsListCmd(loader *skills.SkillsLoader) {
 
 func skillsInstallCmd(installer *skills.SkillInstaller, cfg *config.Config) {
 	if len(os.Args) < 4 {
-		fmt.Println("Usage: picoclaw skills install <github-repo>")
-		fmt.Println("       picoclaw skills install --registry <name> <slug>")
+		fmt.Println("Usage: gclaw skills install <github-repo>")
+		fmt.Println("       gclaw skills install --registry <name> <slug>")
 		return
 	}
 
 	// Check for --registry flag.
 	if os.Args[3] == "--registry" {
 		if len(os.Args) < 6 {
-			fmt.Println("Usage: picoclaw skills install --registry <name> <slug>")
-			fmt.Println("Example: picoclaw skills install --registry clawhub github")
+			fmt.Println("Usage: gclaw skills install --registry <name> <slug>")
+			fmt.Println("Example: gclaw skills install --registry clawhub github")
 			return
 		}
 		registryName := os.Args[4]
@@ -172,7 +172,7 @@ func skillsRemoveCmd(installer *skills.SkillInstaller, skillName string) {
 }
 
 func skillsInstallBuiltinCmd(workspace string) {
-	builtinSkillsDir := "./picoclaw/skills"
+	builtinSkillsDir := "./gclaw/skills"
 	workspaceSkillsDir := filepath.Join(workspace, "skills")
 
 	fmt.Printf("Copying builtin skills to workspace...\n")
@@ -213,7 +213,7 @@ func skillsListBuiltinCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		return
 	}
-	builtinSkillsDir := filepath.Join(filepath.Dir(cfg.WorkspacePath()), "picoclaw", "skills")
+	builtinSkillsDir := filepath.Join(filepath.Dir(cfg.WorkspacePath()), "gclaw", "skills")
 
 	fmt.Println("\nAvailable Builtin Skills:")
 	fmt.Println("-----------------------")

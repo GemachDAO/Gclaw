@@ -125,7 +125,7 @@ func resolveAgentWorkspace(agentCfg *config.AgentConfig, defaults *config.AgentD
 	}
 	home, _ := os.UserHomeDir()
 	id := routing.NormalizeAgentID(agentCfg.ID)
-	return filepath.Join(home, ".picoclaw", "workspace-"+id)
+	return filepath.Join(home, ".gclaw", "workspace-"+id)
 }
 
 // resolveAgentModel resolves the primary model for an agent.
