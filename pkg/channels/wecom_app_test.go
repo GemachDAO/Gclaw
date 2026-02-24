@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Gclaw - Ultra-lightweight personal AI agent
 // WeCom App (企业微信自建应用) channel tests
 
 package channels
@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/bus"
+	"github.com/GemachDAO/Gclaw/pkg/config"
 )
 
 // generateTestAESKeyApp generates a valid test AES key for WeCom App

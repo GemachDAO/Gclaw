@@ -1,4 +1,4 @@
-// PicoClaw - Ultra-lightweight personal AI agent
+// Gclaw - Ultra-lightweight personal AI agent
 // License: MIT
 
 package main
@@ -13,19 +13,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/devices"
-	"github.com/sipeed/picoclaw/pkg/health"
-	"github.com/sipeed/picoclaw/pkg/heartbeat"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/voice"
+	"github.com/GemachDAO/Gclaw/pkg/agent"
+	"github.com/GemachDAO/Gclaw/pkg/bus"
+	"github.com/GemachDAO/Gclaw/pkg/channels"
+	"github.com/GemachDAO/Gclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/cron"
+	"github.com/GemachDAO/Gclaw/pkg/devices"
+	"github.com/GemachDAO/Gclaw/pkg/health"
+	"github.com/GemachDAO/Gclaw/pkg/heartbeat"
+	"github.com/GemachDAO/Gclaw/pkg/logger"
+	"github.com/GemachDAO/Gclaw/pkg/providers"
+	"github.com/GemachDAO/Gclaw/pkg/state"
+	"github.com/GemachDAO/Gclaw/pkg/tools"
+	"github.com/GemachDAO/Gclaw/pkg/voice"
 )
 
 func gatewayCmd() {

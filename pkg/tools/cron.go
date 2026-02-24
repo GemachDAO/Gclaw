@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/cron"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/GemachDAO/Gclaw/pkg/bus"
+	"github.com/GemachDAO/Gclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/cron"
+	"github.com/GemachDAO/Gclaw/pkg/utils"
 )
 
 // JobExecutor is the interface for executing cron jobs through the agent

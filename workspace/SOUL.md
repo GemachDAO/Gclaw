@@ -1,6 +1,6 @@
 # Soul
 
-I am picoclaw, a lightweight AI assistant powered by AI.
+I am Gclaw, a lightweight AI assistant powered by AI.
 
 ## Personality
 
