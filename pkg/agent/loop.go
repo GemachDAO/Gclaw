@@ -22,6 +22,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/channels"
 	"github.com/GemachDAO/Gclaw/pkg/config"
 	"github.com/GemachDAO/Gclaw/pkg/constants"
+	"github.com/GemachDAO/Gclaw/pkg/dashboard"
 	"github.com/GemachDAO/Gclaw/pkg/logger"
 	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
@@ -209,6 +210,46 @@ func registerSharedTools(
 				)
 				agent.Tools.Register(swarmTool)
 			}
+		}
+
+		// Dashboard tool — always registered when dashboard is enabled
+		if cfg.Dashboard.Enabled {
+			startedAt := time.Now().UnixMilli()
+			currentAgentIDForDash := agentID
+			agentMet := agent.Tools.GetMetabolism()
+			dash := dashboard.NewDashboard(dashboard.DashboardOptions{
+				AgentID:   currentAgentIDForDash,
+				StartedAt: startedAt,
+				GetMetabolism: func() *dashboard.MetabolismSnapshot {
+					if agentMet == nil {
+						return nil
+					}
+					status := agentMet.GetStatus()
+					ledger := agentMet.GetLedger()
+					recent := ledger
+					if len(recent) > 20 {
+						recent = recent[len(recent)-20:]
+					}
+					entries := make([]dashboard.LedgerEntry, len(recent))
+					for i, e := range recent {
+						entries[i] = dashboard.LedgerEntry{
+							Timestamp: e.Timestamp,
+							Action:    e.Action,
+							Amount:    e.Amount,
+							Balance:   e.Balance,
+							Details:   e.Details,
+						}
+					}
+					return &dashboard.MetabolismSnapshot{
+						Balance:      status.Balance,
+						Goodwill:     status.Goodwill,
+						SurvivalMode: status.SurvivalMode,
+						Abilities:    status.Abilities,
+						RecentLedger: entries,
+					}
+				},
+			})
+			agent.Tools.Register(tools.NewDashboardTool(dash))
 		}
 
 		// Update context builder with the complete tools registry

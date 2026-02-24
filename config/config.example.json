@@ -278,6 +278,11 @@
     "rebalance_interval": 60,
     "shared_wallet_mode": false
   },
+  "dashboard": {
+    "enabled": true,
+    "web_enabled": true,
+    "refresh_interval": 10
+  },
   "gateway": {
     "host": "127.0.0.1",
     "port": 18790

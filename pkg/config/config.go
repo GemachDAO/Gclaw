@@ -59,6 +59,7 @@ type Config struct {
 	Devices    DevicesConfig    `json:"devices"`
 	Metabolism MetabolismConfig `json:"metabolism"`
 	Swarm      SwarmConfig      `json:"swarm"`
+	Dashboard  DashboardConfig  `json:"dashboard"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -501,6 +502,13 @@ type SwarmConfig struct {
 	StrategyRotation   bool    `json:"strategy_rotation"`   // rotate strategies among agents (default true)
 	RebalanceInterval  int     `json:"rebalance_interval"`  // minutes between strategy rebalance (default 60)
 	SharedWalletMode   bool    `json:"shared_wallet_mode"`  // all agents trade from same wallet (default false)
+}
+
+// DashboardConfig holds configuration for the living agent dashboard.
+type DashboardConfig struct {
+	Enabled         bool `json:"enabled"          env:"GCLAW_DASHBOARD_ENABLED"`
+	WebEnabled      bool `json:"web_enabled"      env:"GCLAW_DASHBOARD_WEB_ENABLED"`
+	RefreshInterval int  `json:"refresh_interval" env:"GCLAW_DASHBOARD_REFRESH_INTERVAL"` // seconds, default 10
 }
 
 // GDEXConfig holds configuration for GDEX DeFi trading tools.
