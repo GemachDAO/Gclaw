@@ -1,116 +1,67 @@
 
-# 🦐 Gclaw Roadmap
+# 🦞 Gclaw Roadmap
 
-> **Vision**: To build the ultimate lightweight, secure, and fully autonomous AI Agent infrastructure.automate the mundane, unleash your creativity
+> **Vision**: An AI agent that must trade to survive — ultra-lightweight, self-evolving, and economically autonomous.
 
 ---
 
-## 🚀 1. Core Optimization: Extreme Lightweight
+## ✅ Epic #3 — Living Agent (Complete)
 
-*Our defining characteristic. We fight software bloat to ensure Gclaw runs smoothly on the smallest embedded devices.*
+All 13 sub-issues of the Living Agent epic have been merged into `main`.
 
-* [**Memory Footprint Reduction**](https://github.com/GemachDAO/Gclaw/issues/346) 
-  * **Goal**: Run smoothly on 64MB RAM embedded boards (e.g., low-end RISC-V SBCs) with the core process consuming < 20MB.
-  * **Context**: RAM is expensive and scarce on edge devices. Memory optimization takes precedence over storage size.
-  * **Action**: Analyze memory growth between releases, remove redundant dependencies, and optimize data structures.
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | GMAC Metabolism — token balance and heartbeat cost | ✅ Done |
+| 2 | Goodwill system — reputation scoring from trades and tasks | ✅ Done |
+| 3 | Survival mode — hibernate when GMAC < threshold | ✅ Done |
+| 4 | GDEX Trading integration — buy/sell/limit orders | ✅ Done |
+| 5 | HyperLiquid perpetuals support | ✅ Done |
+| 6 | Copy trading tool | ✅ Done |
+| 7 | Self-Replication — spawn child agents with mutated strategies | ✅ Done |
+| 8 | Self-Recoding — modify own prompts and cron schedules | ✅ Done |
+| 9 | Telepathy — parent/child message bus | ✅ Done |
+| 10 | Swarm Mode — consensus voting and strategy rotation | ✅ Done |
+| 11 | Living Dashboard — CLI and web UI | ✅ Done |
+| 12 | Family tree tracking — generation and lineage | ✅ Done |
+| 13 | Goodwill-gated ability thresholds | ✅ Done |
 
+---
 
-## 🛡️ 2. Security Hardening: Defense in Depth
+## 🚀 Next: Stability & Growth
 
-*Paying off early technical debt. We invite security experts to help build a "Secure-by-Default" agent.*
+### 1. Core Stability
 
-* **Input Defense & Permission Control**
-  * **Prompt Injection Defense**: Harden JSON extraction logic to prevent LLM manipulation.
-  * **Tool Abuse Prevention**: Strict parameter validation to ensure generated commands stay within safe boundaries.
-  * **SSRF Protection**: Built-in blocklists for network tools to prevent accessing internal IPs (LAN/Metadata services).
+* **Memory Footprint Reduction** — Optimize data structures; target <20MB on edge hardware.
+* **Config validation** — Warn on unknown keys; validate thresholds and chain IDs at startup.
+* **Graceful shutdown** — Flush metabolism ledger and close child agents cleanly on SIGINT.
 
+### 2. Living Agent Enhancements
 
-* **Sandboxing & Isolation**
-  * **Filesystem Sandbox**: Restrict file R/W operations to specific directories only.
-  * **Context Isolation**: Prevent data leakage between different user sessions or channels.
-  * **Privacy Redaction**: Auto-redact sensitive info (API Keys, PII) from logs and standard outputs.
+* **Cross-agent skill sharing** — Children inherit parent skill upgrades via telepathy.
+* **Architect ability** — When goodwill ≥ 500, allow the agent to write and install new GDEX tools dynamically.
+* **GMAC bridging** — Transfer GMAC between parent and children on-chain.
+* **Lineage visualization** — ASCII or web-based family tree with per-agent P&L.
 
+### 3. Security Hardening
 
-* **Authentication & Secrets**
-  * **Crypto Upgrade**: Adopt modern algorithms like `ChaCha20-Poly1305` for secret storage.
-  * **OAuth 2.0 Flow**: Deprecate hardcoded API keys in the CLI; move to secure OAuth flows.
+* **Input Defense** — Harden tool parameter validation to prevent prompt injection.
+* **Filesystem Sandbox** — Restrict file R/W to workspace directory only.
+* **Secret redaction** — Auto-redact API keys and wallet addresses from logs.
 
+### 4. Connectivity
 
+* **Provider architecture** — Protocol-based classification (OpenAI-compatible, Ollama-compatible) to replace vendor-based routing.
+* **More channels** — WhatsApp, LINE, Feishu/Lark, Slack native support.
+* **MCP Support** — Native Model Context Protocol integration.
 
-## 🔌 3. Connectivity: Protocol-First Architecture
+### 5. Developer Experience
 
-*Connect every model, reach every platform.*
-
-* **Provider**
-  * [**Architecture Upgrade**](https://github.com/GemachDAO/Gclaw/issues/283): Refactor from "Vendor-based" to "Protocol-based" classification (e.g., OpenAI-compatible, Ollama-compatible). *(Status: In progress by @Daming, ETA 5 days)*
-  * **Local Models**: Deep integration with **Ollama**, **vLLM**, **LM Studio**, and **Mistral** (local inference).
-  * **Online Models**: Continued support for frontier closed-source models.
-
-
-* **Channel**
-  * **IM Matrix**: QQ, WeChat (Work), DingTalk, Feishu (Lark), Telegram, Discord, WhatsApp, LINE, Slack, Email, KOOK, Signal, ...
-  * **Standards**: Support for the **OneBot** protocol.
-  * [**attachment**](https://github.com/GemachDAO/Gclaw/issues/348): Native handling of images, audio, and video attachments.
-
-
-* **Skill Marketplace**
-  * [**Discovery skills**](https://github.com/GemachDAO/Gclaw/issues/287): Implement `find_skill` to automatically discover and install skills from the [GitHub Skills Repo] or other registries.
-
-
-
-## 🧠 4. Advanced Capabilities: From Chatbot to Agentic AI
-
-*Beyond conversation—focusing on action and collaboration.*
-
-* **Operations**
-  * [**MCP Support**](https://github.com/GemachDAO/Gclaw/issues/290): Native support for the **Model Context Protocol (MCP)**.
-  * [**Browser Automation**](https://github.com/GemachDAO/Gclaw/issues/293): Headless browser control via CDP (Chrome DevTools Protocol) or ActionBook.
-  * [**Mobile Operation**](https://github.com/GemachDAO/Gclaw/issues/292): Android device control (similar to BotDrop).
-
-
-* **Multi-Agent Collaboration**
-  * [**Basic Multi-Agent**](https://github.com/GemachDAO/Gclaw/issues/294) implement
-  * [**Model Routing**](https://github.com/GemachDAO/Gclaw/issues/295): "Smart Routing" — dispatch simple tasks to small/local models (fast/cheap) and complex tasks to SOTA models (smart).
-  * [**Swarm Mode**](https://github.com/GemachDAO/Gclaw/issues/284): Collaboration between multiple Gclaw instances on the same network.
-  * [**AIEOS**](https://github.com/GemachDAO/Gclaw/issues/296): Exploring AI-Native Operating System interaction paradigms.
-
-
-
-## 📚 5. Developer Experience (DevEx) & Documentation
-
-*Lowering the barrier to entry so anyone can deploy in minutes.*
-
-* [**QuickGuide (Zero-Config Start)**](https://github.com/GemachDAO/Gclaw/issues/350)
-  * Interactive CLI Wizard: If launched without config, automatically detect the environment and guide the user through Token/Network setup step-by-step.
-
-
-* **Comprehensive Documentation**
-  * **Platform Guides**: Dedicated guides for Windows, macOS, Linux, and Android.
-  * **Step-by-Step Tutorials**: "Babysitter-level" guides for configuring Providers and Channels.
-  * **AI-Assisted Docs**: Using AI to auto-generate API references and code comments (with human verification to prevent hallucinations).
-
-
-
-## 🤖 6. Engineering: AI-Powered Open Source
-
-*Born from Vibe Coding, we continue to use AI to accelerate development.*
-
-* **AI-Enhanced CI/CD**
-  * Integrate AI for automated Code Review, Linting, and PR Labeling.
-  * **Bot Noise Reduction**: Optimize bot interactions to keep PR timelines clean.
-  * **Issue Triage**: AI agents to analyze incoming issues and suggest preliminary fixes.
-
-
-
-## 🎨 7. Brand & Community
-
-* [**Logo Design**](https://github.com/GemachDAO/Gclaw/issues/297): We are looking for a **Mantis Shrimp (Stomatopoda)** logo design!
-  * *Concept*: Needs to reflect "Small but Mighty" and "Lightning Fast Strikes."
-
-
+* **Interactive onboard wizard** — Zero-config start: detect environment, prompt for API keys interactively.
+* **Platform guides** — Dedicated setup guides for Windows, macOS, Linux, Android (Termux).
+* **AI-assisted docs** — Auto-generate API references from Go doc comments.
 
 ---
 
 ### 🤝 Call for Contributions
 
-We welcome community contributions to any item on this roadmap! Please comment on the relevant Issue or submit a PR. Let's build the best Edge AI Agent together!
+All roadmap items are open for community contributions. Comment on the relevant issue or open a new one to discuss before implementing. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.

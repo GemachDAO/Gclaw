@@ -10,6 +10,7 @@ Gclaw itself was substantially developed with AI assistance — we embrace this 
 - [Ways to Contribute](#ways-to-contribute)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
+- [Package Layout](#package-layout)
 - [Making Changes](#making-changes)
 - [AI-Assisted Contributions](#ai-assisted-contributions)
 - [Pull Request Process](#pull-request-process)
@@ -293,7 +294,28 @@ When in doubt, open an issue before writing code. It costs little and prevents w
 
 ---
 
-## A Note on the Project's AI-Driven Origin
+## Package Layout
+
+Familiarize yourself with these packages before contributing:
+
+| Package | Responsibility |
+|---|---|
+| `pkg/agent/` | Agent loop, registry, shared tool registration |
+| `pkg/metabolism/` | GMAC token balance, goodwill scoring, survival mode |
+| `pkg/replication/` | Child agent spawning, config mutation, family tracking |
+| `pkg/swarm/` | Swarm coordinator, consensus voting, strategy rotation |
+| `pkg/dashboard/` | CLI and web dashboard rendering |
+| `pkg/recode/` | Self-modification of system prompts and cron schedules |
+| `pkg/tools/` | All tool implementations (GDEX trading, shell, web, filesystem, telepathy, …) |
+| `pkg/channels/` | Chat platform integrations (Telegram, Discord, QQ, …) |
+| `pkg/providers/` | LLM provider adapters |
+| `pkg/config/` | Config loading, defaults, struct definitions |
+
+---
+
+## A Note on the Project's Origin
+
+Gclaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw) by Sipeed, which was inspired by [nanobot](https://github.com/HKUDS/nanobot). The codebase was rewritten in Go with AI assistance and extended with the Living Agent architecture: GMAC metabolism, self-replication, self-recoding, swarm mode, and GDEX DeFi trading integration.
 
 Gclaw's architecture was substantially designed and implemented with AI assistance, guided by human oversight. If you find something that looks odd or over-engineered, it may be an artifact of that process — opening an issue to discuss it is always welcome.
 
