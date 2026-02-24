@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2026 GemachDAO and Gclaw contributors
 Copyright (c) 2026 PicoClaw contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,4 +23,4 @@ SOFTWARE.
 
 ---
 
-PicoClaw is heavily inspired by and based on [nanobot](https://github.com/HKUDS/nanobot) by HKUDS.
+Gclaw is forked from [PicoClaw](https://github.com/sipeed/picoclaw), which was inspired by and based on [nanobot](https://github.com/HKUDS/nanobot) by HKUDS.

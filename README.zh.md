@@ -20,7 +20,9 @@
 
 ---
 
-🦐 **Gclaw** 是一个受 [nanobot](https://github.com/HKUDS/nanobot) 启发的超轻量级个人 AI 助手。它采用 **Go 语言** 从零重构，经历了一个“自举”过程——即由 AI Agent 自身驱动了整个架构迁移和代码优化。
+🦐 **Gclaw** 是 [PicoClaw](https://github.com/sipeed/picoclaw) 的一个分支，是一个用 **Go 语言** 编写的超轻量级个人 AI 助手，现由 [GemachDAO](https://github.com/GemachDAO) 维护，并集成支持 [gdex-trading](https://github.com/GemachDAO/gdex-trading-)。
+
+> PicoClaw 最初受 [nanobot](https://github.com/HKUDS/nanobot) 启发，通过 AI 驱动的自举过程用 Go 从零重构。
 
 ⚡️ **极致轻量**：可在 **10 美元** 的硬件上运行，内存占用 **<10MB**。这意味着比 OpenClaw 节省 99% 的内存，比 Mac mini 便宜 98%！
 
@@ -52,12 +54,7 @@
 
 ## 📢 新闻 (News)
 
-2026-02-16 🎉 Gclaw 在一周内突破了12K star! 感谢大家的关注！Gclaw 的成长速度超乎我们预期. 由于PR数量的快速膨胀，我们亟需社区开发者参与维护. 我们需要的志愿者角色和roadmap已经发布到了[这里](docs/ROADMAP.md), 期待你的参与！
-
-2026-02-13 🎉 **Gclaw 在 4 天内突破 5000 Stars！** 感谢社区的支持！由于正值中国春节假期，PR 和 Issue 涌入较多，我们正在利用这段时间敲定 **项目路线图 (Roadmap)** 并组建 **开发者群组**，以便加速 Gclaw 的开发。
-🚀 **行动号召：** 请在 GitHub Discussions 中提交您的功能请求 (Feature Requests)。我们将在接下来的周会上进行审查和优先级排序。
-
-2026-02-09 🎉 **Gclaw 正式发布！** 仅用 1 天构建，旨在将 AI Agent 带入 10 美元硬件与 <10MB 内存的世界。🦐 Gclaw（皮皮虾），我们走！
+2026-02-24 🔗 Gclaw 从 [PicoClaw](https://github.com/sipeed/picoclaw) 分支而来，现由 [GemachDAO](https://github.com/GemachDAO) 维护，并集成支持 [gdex-trading](https://github.com/GemachDAO/gdex-trading-)。欢迎社区贡献！
 
 ## ✨ 特性
 

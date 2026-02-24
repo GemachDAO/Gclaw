@@ -19,7 +19,9 @@
 
 ---
 
-🦐 **Gclaw** là trợ lý AI cá nhân siêu nhẹ, lấy cảm hứng từ [nanobot](https://github.com/HKUDS/nanobot), được viết lại hoàn toàn bằng **Go** thông qua quá trình "tự khởi tạo" (self-bootstrapping) — nơi chính AI Agent đã tự dẫn dắt toàn bộ quá trình chuyển đổi kiến trúc và tối ưu hóa mã nguồn.
+🦐 **Gclaw** là một bản fork của [PicoClaw](https://github.com/sipeed/picoclaw), trợ lý AI cá nhân siêu nhẹ viết bằng **Go**, hiện được duy trì bởi [GemachDAO](https://github.com/GemachDAO) với hỗ trợ tích hợp cho [gdex-trading](https://github.com/GemachDAO/gdex-trading-).
+
+> PicoClaw ban đầu lấy cảm hứng từ [nanobot](https://github.com/HKUDS/nanobot) và được viết lại bằng Go thông qua quá trình tự khởi tạo do AI dẫn dắt.
 
 ⚡️ **Cực kỳ nhẹ:** Chạy trên phần cứng chỉ **$10** với RAM **<10MB**. Tiết kiệm 99% bộ nhớ so với OpenClaw và rẻ hơn 98% so với Mac mini!
 
@@ -50,12 +52,7 @@
 
 ## 📢 Tin tức
 
-2026-02-16 🎉 Gclaw đạt 12K stars chỉ trong một tuần! Cảm ơn tất cả mọi người! Gclaw đang phát triển nhanh hơn chúng tôi tưởng tượng. Do số lượng PR tăng cao, chúng tôi cấp thiết cần maintainer từ cộng đồng. Các vai trò tình nguyện viên và roadmap đã được công bố [tại đây](docs/ROADMAP.md) — rất mong đón nhận sự tham gia của bạn!
-
-2026-02-13 🎉 Gclaw đạt 5000 stars trong 4 ngày! Cảm ơn cộng đồng! Chúng tôi đang hoàn thiện **Lộ trình dự án (Roadmap)** và thiết lập **Nhóm phát triển** để đẩy nhanh tốc độ phát triển Gclaw.  
-🚀 **Kêu gọi hành động:** Vui lòng gửi yêu cầu tính năng tại GitHub Discussions. Chúng tôi sẽ xem xét và ưu tiên trong cuộc họp hàng tuần.
-
-2026-02-09 🎉 Gclaw chính thức ra mắt! Được xây dựng trong 1 ngày để mang AI Agent đến phần cứng $10 với RAM <10MB. 🦐 Gclaw, Lên Đường!
+2026-02-24 🔗 Gclaw được fork từ [PicoClaw](https://github.com/sipeed/picoclaw) và hiện được duy trì bởi [GemachDAO](https://github.com/GemachDAO) với hỗ trợ tích hợp cho [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Rất mong đón nhận sự đóng góp từ cộng đồng!
 
 ## ✨ Tính năng nổi bật
 
