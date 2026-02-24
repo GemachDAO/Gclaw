@@ -28,6 +28,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/routing"
 	"github.com/GemachDAO/Gclaw/pkg/skills"
 	"github.com/GemachDAO/Gclaw/pkg/state"
+	"github.com/GemachDAO/Gclaw/pkg/swarm"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/utils"
 )
@@ -181,6 +182,33 @@ func registerSharedTools(
 					"agent":   agentID,
 					"balance": met.GetBalance(),
 				})
+
+			// Swarm tool — registered when swarm is enabled and metabolism is active
+			if cfg.Swarm.Enabled {
+				swarmConfig := swarm.SwarmConfig{
+					Enabled:            cfg.Swarm.Enabled,
+					MaxSwarmSize:       cfg.Swarm.MaxSwarmSize,
+					ConsensusThreshold: cfg.Swarm.ConsensusThreshold,
+					SignalAggregation:  cfg.Swarm.SignalAggregation,
+					StrategyRotation:   cfg.Swarm.StrategyRotation,
+					RebalanceInterval:  cfg.Swarm.RebalanceInterval,
+					SharedWalletMode:   cfg.Swarm.SharedWalletMode,
+				}
+				coordinator, err := swarm.LoadSwarmState(agent.Workspace)
+				if err != nil {
+					logger.WarnCF("agent", "Failed to load swarm state, starting fresh",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+				if err != nil || coordinator == nil {
+					coordinator = swarm.NewSwarmCoordinator(agentID, swarmConfig, nil)
+				}
+				swarmTool := tools.NewSwarmTool(
+					coordinator,
+					func() int { return met.GetGoodwill() },
+					cfg.Metabolism.Thresholds.SwarmLeader,
+				)
+				agent.Tools.Register(swarmTool)
+			}
 		}
 
 		// Update context builder with the complete tools registry
