@@ -1,0 +1,11 @@
+{
+  "name": "gdex-trading-helpers",
+  "version": "1.0.0",
+  "description": "Helper scripts for GDEX trading tools",
+  "type": "module",
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "gdex.pro-sdk": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -237,6 +237,15 @@
           "download_path": "/api/v1/download"
         }
       }
+    },
+    "gdex": {
+      "enabled": false,
+      "api_key": "YOUR_GDEX_API_KEY",
+      "wallet_address": "0x...",
+      "private_key": "",
+      "default_chain_id": 622112261,
+      "max_trade_size_sol": 0.01,
+      "auto_trade": false
     }
   },
   "heartbeat": {

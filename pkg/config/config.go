@@ -472,6 +472,21 @@ type ToolsConfig struct {
 	Cron   CronToolsConfig   `json:"cron"`
 	Exec   ExecConfig        `json:"exec"`
 	Skills SkillsToolsConfig `json:"skills"`
+	GDEX   GDEXConfig        `json:"gdex"`
+}
+
+// GDEXConfig holds configuration for GDEX DeFi trading tools.
+// DefaultChainID, MaxTradeSizeSOL, and AutoTrade are provided for future
+// enforcement by the agent; current tool implementations delegate to the
+// Node.js helpers which use their own defaults.
+type GDEXConfig struct {
+	Enabled          bool    `json:"enabled"             env:"GDEX_ENABLED"`
+	APIKey           string  `json:"api_key"             env:"GDEX_API_KEY"`
+	WalletAddress    string  `json:"wallet_address"      env:"WALLET_ADDRESS"`
+	PrivateKey       string  `json:"private_key"         env:"PRIVATE_KEY"`
+	DefaultChainID   int64   `json:"default_chain_id"    env:"GDEX_DEFAULT_CHAIN_ID"`
+	MaxTradeSizeSOL  float64 `json:"max_trade_size_sol"  env:"GDEX_MAX_TRADE_SIZE_SOL"`
+	AutoTrade        bool    `json:"auto_trade"          env:"GDEX_AUTO_TRADE"`
 }
 
 type SkillsToolsConfig struct {
