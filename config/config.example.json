@@ -269,6 +269,15 @@
     "enabled": false,
     "monitor_usb": true
   },
+  "swarm": {
+    "enabled": false,
+    "max_swarm_size": 5,
+    "consensus_threshold": 0.6,
+    "signal_aggregation": "majority",
+    "strategy_rotation": true,
+    "rebalance_interval": 60,
+    "shared_wallet_mode": false
+  },
   "gateway": {
     "host": "127.0.0.1",
     "port": 18790

@@ -58,6 +58,7 @@ type Config struct {
 	Heartbeat  HeartbeatConfig  `json:"heartbeat"`
 	Devices    DevicesConfig    `json:"devices"`
 	Metabolism MetabolismConfig `json:"metabolism"`
+	Swarm      SwarmConfig      `json:"swarm"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -489,6 +490,17 @@ type MetabolismConfig struct {
 		SwarmLeader int `json:"swarm_leader"`
 		Architect   int `json:"architect"`
 	} `json:"thresholds"`
+}
+
+// SwarmConfig holds configuration for the swarm coordinator.
+type SwarmConfig struct {
+	Enabled            bool    `json:"enabled"`
+	MaxSwarmSize       int     `json:"max_swarm_size"`      // max agents in swarm (default 5)
+	ConsensusThreshold float64 `json:"consensus_threshold"` // fraction of agents that must agree (default 0.6)
+	SignalAggregation  string  `json:"signal_aggregation"`  // "majority", "weighted", "unanimous" (default "majority")
+	StrategyRotation   bool    `json:"strategy_rotation"`   // rotate strategies among agents (default true)
+	RebalanceInterval  int     `json:"rebalance_interval"`  // minutes between strategy rebalance (default 60)
+	SharedWalletMode   bool    `json:"shared_wallet_mode"`  // all agents trade from same wallet (default false)
 }
 
 // GDEXConfig holds configuration for GDEX DeFi trading tools.
