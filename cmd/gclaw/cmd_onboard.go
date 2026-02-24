@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/config"
 )
 
 //go:generate cp -r ../../workspace .

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/config"
 )
 
 type ActionType int

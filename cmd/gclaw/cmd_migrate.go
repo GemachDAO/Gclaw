@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sipeed/picoclaw/pkg/migrate"
+	"github.com/GemachDAO/Gclaw/pkg/migrate"
 )
 
 func migrateCmd() {

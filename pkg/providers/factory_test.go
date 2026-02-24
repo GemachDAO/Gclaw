@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/auth"
+	"github.com/GemachDAO/Gclaw/pkg/config"
 )
 
 func TestResolveProviderSelection(t *testing.T) {

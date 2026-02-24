@@ -9,7 +9,7 @@ package providers
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/providers/openai_compat"
+	"github.com/GemachDAO/Gclaw/pkg/providers/openai_compat"
 )
 
 type HTTPProvider struct {
