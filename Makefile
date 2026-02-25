@@ -133,7 +133,7 @@ vet:
 	@$(GO) vet ./...
 
 ## test: Test Go code
-test:
+test: generate
 	@$(GO) test ./...
 
 ## fmt: Format Go code
