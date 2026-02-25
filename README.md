@@ -67,23 +67,28 @@ It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading vi
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: One-line install (recommended)
 
-- Go 1.21+
-- An LLM API key (OpenAI, Anthropic, or any OpenAI-compatible provider)
-- *(Optional)* GDEX API key for DeFi trading
-- *(Optional)* Node.js 18+ for GDEX trading tools
+```bash
+curl -fsSL https://raw.githubusercontent.com/GemachDAO/Gclaw/main/install.sh | bash
+```
 
-### Option 1: Install from source
+This downloads the latest release binary, installs it to `~/.local/bin`, and launches the interactive setup wizard — you'll be chatting with your agent in under a minute.
+
+> **Windows users:** Use [WSL2](https://docs.microsoft.com/en-us/windows/wsl/) or [Docker](#option-3-docker), or [download a release binary](https://github.com/GemachDAO/Gclaw/releases) directly and run `gclaw onboard`.
+
+### Option 2: Install from source
 
 ```bash
 git clone https://github.com/GemachDAO/Gclaw.git
 cd Gclaw
-make build
-make install
+make install        # builds and installs to ~/.local/bin
+gclaw onboard       # interactive setup wizard
 ```
 
-### Option 2: Docker
+Prerequisites: Go 1.21+, an LLM API key (OpenAI, Anthropic, OpenRouter, …).
+
+### Option 3: Docker
 
 ```bash
 git clone https://github.com/GemachDAO/Gclaw.git
@@ -93,15 +98,29 @@ cp config/config.example.json config/config.json
 docker compose up gclaw-gateway
 ```
 
-### Initial Setup
+### What the setup wizard does
 
-```bash
-gclaw onboard
+```
+$ gclaw onboard
+
+🦞  Welcome to gclaw — The Living Agent!
+   Let's get you set up in under a minute.
+
+Which LLM provider would you like to use?
+
+  1) OpenRouter  (100+ models — recommended for beginners)
+  2) OpenAI      (GPT-4o, o1, …)
+  3) Anthropic   (Claude Sonnet / Opus)
+  4) DeepSeek    (deepseek-chat)
+  5) Google      (Gemini 2.0 Flash)
+  6) Groq        (Llama 3 — fast & free tier)
+  7) Ollama      (local, runs on your machine — no API key needed)
+  8) Skip        (I'll configure manually)
+
+Enter a number (1–8):
 ```
 
-This creates:
-- `~/.gclaw/config.json` — your configuration file
-- `~/.gclaw/workspace/` — agent workspace directory
+The wizard creates `~/.gclaw/config.json` and `~/.gclaw/workspace/` with your chosen provider pre-configured.
 
 ### Configure your LLM provider
 
