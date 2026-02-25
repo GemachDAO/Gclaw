@@ -243,135 +243,135 @@ func TestDashboardTool_Execute_Metabolism(t *testing.T) {
 // --- ReplicateTool: Name/Description/Parameters/Execute ---
 
 func TestReplicateTool_NameDescriptionParams(t *testing.T) {
-r := replication.NewReplicator("parent", replication.ReplicationConfig{})
-tool := NewReplicateTool(r, nil, t.TempDir(), nil, func() int { return 0 }, 100)
-if tool.Name() != "replicate" {
-t.Errorf("expected 'replicate', got %q", tool.Name())
-}
-if tool.Description() == "" {
-t.Error("expected non-empty description")
-}
-if tool.Parameters() == nil {
-t.Error("expected non-nil parameters")
-}
+	r := replication.NewReplicator("parent", replication.ReplicationConfig{})
+	tool := NewReplicateTool(r, nil, t.TempDir(), nil, func() int { return 0 }, 100)
+	if tool.Name() != "replicate" {
+		t.Errorf("expected 'replicate', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
 }
 
 func TestReplicateTool_Execute_InsufficientGoodwill(t *testing.T) {
-r := replication.NewReplicator("parent", replication.ReplicationConfig{})
-tool := NewReplicateTool(r, nil, t.TempDir(), nil, func() int { return 50 }, 100)
-result := tool.Execute(context.Background(), map[string]any{})
-if !result.IsError {
-t.Error("expected error for insufficient goodwill")
-}
+	r := replication.NewReplicator("parent", replication.ReplicationConfig{})
+	tool := NewReplicateTool(r, nil, t.TempDir(), nil, func() int { return 50 }, 100)
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error for insufficient goodwill")
+	}
 }
 
 // --- SwarmTool: Name/Description/Parameters ---
 
 func TestSwarmTool_NameDescriptionParams(t *testing.T) {
-sc := swarm.NewSwarmCoordinator("leader", swarm.SwarmConfig{}, nil)
-tool := NewSwarmTool(sc, func() int { return 0 }, 200)
-if tool.Name() != "swarm" {
-t.Errorf("expected 'swarm', got %q", tool.Name())
-}
-if tool.Description() == "" {
-t.Error("expected non-empty description")
-}
-if tool.Parameters() == nil {
-t.Error("expected non-nil parameters")
-}
+	sc := swarm.NewSwarmCoordinator("leader", swarm.SwarmConfig{}, nil)
+	tool := NewSwarmTool(sc, func() int { return 0 }, 200)
+	if tool.Name() != "swarm" {
+		t.Errorf("expected 'swarm', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
 }
 
 func TestSwarmTool_Execute_InsufficientGoodwill(t *testing.T) {
-sc := swarm.NewSwarmCoordinator("leader", swarm.SwarmConfig{}, nil)
-tool := NewSwarmTool(sc, func() int { return 50 }, 200)
-result := tool.Execute(context.Background(), map[string]any{})
-if !result.IsError {
-t.Error("expected error for insufficient goodwill")
-}
+	sc := swarm.NewSwarmCoordinator("leader", swarm.SwarmConfig{}, nil)
+	tool := NewSwarmTool(sc, func() int { return 50 }, 200)
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error for insufficient goodwill")
+	}
 }
 
 // --- TelepathyTool: Name/Description/Parameters ---
 
 func TestTelepathyTool_NameDescriptionParams(t *testing.T) {
-tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
-tool := NewTelepathyTool(tb, "agent-1")
-if tool.Name() != "telepathy" {
-t.Errorf("expected 'telepathy', got %q", tool.Name())
-}
-if tool.Description() == "" {
-t.Error("expected non-empty description")
-}
-if tool.Parameters() == nil {
-t.Error("expected non-nil parameters")
-}
+	tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
+	tool := NewTelepathyTool(tb, "agent-1")
+	if tool.Name() != "telepathy" {
+		t.Errorf("expected 'telepathy', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
 }
 
 func TestTelepathyTool_Execute_MissingContent(t *testing.T) {
-tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
-tool := NewTelepathyTool(tb, "agent-1")
-result := tool.Execute(context.Background(), map[string]any{})
-if !result.IsError {
-t.Error("expected error for missing content")
-}
+	tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
+	tool := NewTelepathyTool(tb, "agent-1")
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error for missing content")
+	}
 }
 
 func TestTelepathyTool_Execute_Success(t *testing.T) {
-tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
-tool := NewTelepathyTool(tb, "agent-1")
-result := tool.Execute(context.Background(), map[string]any{
-"content": "test message",
-"type":    "market_insight",
-"to":      "*",
-})
-if result.IsError {
-t.Errorf("unexpected error: %s", result.ForLLM)
-}
+	tb := replication.NewTelepathyBus(nil, "fam", "agent-1")
+	tool := NewTelepathyTool(tb, "agent-1")
+	result := tool.Execute(context.Background(), map[string]any{
+		"content": "test message",
+		"type":    "market_insight",
+		"to":      "*",
+	})
+	if result.IsError {
+		t.Errorf("unexpected error: %s", result.ForLLM)
+	}
 }
 
 // --- RecodeTool ---
 
 func TestRecodeTool_NameDescriptionParams(t *testing.T) {
-rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
-tool := NewRecodeTool(rc, func() int { return 200 }, 100)
-if tool.Name() != "self_recode" {
-t.Errorf("expected 'self_recode', got %q", tool.Name())
-}
-if tool.Description() == "" {
-t.Error("expected non-empty description")
-}
-if tool.Parameters() == nil {
-t.Error("expected non-nil parameters")
-}
+	rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
+	tool := NewRecodeTool(rc, func() int { return 200 }, 100)
+	if tool.Name() != "self_recode" {
+		t.Errorf("expected 'self_recode', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
 }
 
 func TestRecodeTool_Execute_NilRecoder(t *testing.T) {
-tool := NewRecodeTool(nil, nil, 0)
-result := tool.Execute(context.Background(), map[string]any{
-"action": "modify_prompt",
-"value":  "test",
-})
-if !result.IsError {
-t.Error("expected error for nil recoder")
-}
+	tool := NewRecodeTool(nil, nil, 0)
+	result := tool.Execute(context.Background(), map[string]any{
+		"action": "modify_prompt",
+		"value":  "test",
+	})
+	if !result.IsError {
+		t.Error("expected error for nil recoder")
+	}
 }
 
 func TestRecodeTool_Execute_InsufficientGoodwill(t *testing.T) {
-rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
-tool := NewRecodeTool(rc, func() int { return 50 }, 100)
-result := tool.Execute(context.Background(), map[string]any{
-"action": "modify_prompt",
-"value":  "test",
-})
-if !result.IsError {
-t.Error("expected error for insufficient goodwill")
-}
+	rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
+	tool := NewRecodeTool(rc, func() int { return 50 }, 100)
+	result := tool.Execute(context.Background(), map[string]any{
+		"action": "modify_prompt",
+		"value":  "test",
+	})
+	if !result.IsError {
+		t.Error("expected error for insufficient goodwill")
+	}
 }
 
 func TestRecodeTool_Execute_MissingAction(t *testing.T) {
-rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
-tool := NewRecodeTool(rc, func() int { return 200 }, 100)
-result := tool.Execute(context.Background(), map[string]any{})
-if !result.IsError {
-t.Error("expected error for missing action")
-}
+	rc := recode.NewRecoder(t.TempDir()+"/config.json", t.TempDir())
+	tool := NewRecodeTool(rc, func() int { return 200 }, 100)
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error for missing action")
+	}
 }

@@ -33,10 +33,7 @@ func TestBaseChannel_HandleMessage_NotAllowed(t *testing.T) {
 	ch := NewBaseChannel("test", nil, mb, []string{"allowed-user"})
 	ch.HandleMessage("denied-user", "chat1", "hello", nil, nil)
 	// Message should not be in the bus since sender is not allowed
-	// Verify no message was published by checking bus is empty
-	ctx, cancel := t.Context(), func() {}
-	_ = ctx
-	cancel()
+	// Just verify the method does not panic
 }
 
 func TestBaseChannel_HandleMessage_Allowed(t *testing.T) {

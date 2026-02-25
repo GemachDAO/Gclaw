@@ -3,6 +3,7 @@ package devices
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/bus"
 	"github.com/GemachDAO/Gclaw/pkg/devices/events"
@@ -175,7 +176,7 @@ func TestSendNotification_WithChannel(t *testing.T) {
 	}
 	svc.sendNotification(ev)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*1000*1000) // 100ms
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	msg, ok := mb.SubscribeOutbound(ctx)
 	if !ok {
