@@ -159,6 +159,9 @@ func registerSharedTools(
 			agent.Tools.Register(&tools.GDEXCopyTradeTool{})
 			agent.Tools.Register(&tools.GDEXHLBalanceTool{})
 			agent.Tools.Register(&tools.GDEXHLPositionsTool{})
+			agent.Tools.Register(&tools.GDEXHLDepositTool{})
+			agent.Tools.Register(&tools.GDEXHLCreateOrderTool{})
+			agent.Tools.Register(&tools.GDEXHLCancelOrderTool{})
 		}
 
 		// Spawn tool with allowlist checker

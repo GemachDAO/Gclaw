@@ -94,6 +94,60 @@ func TestGDEXHLBalanceTool(t *testing.T) {
 	}
 }
 
+func TestGDEXHLDepositTool(t *testing.T) {
+	tool := &GDEXHLDepositTool{}
+	if tool.Name() != "gdex_hl_deposit" {
+		t.Errorf("expected 'gdex_hl_deposit', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	// Missing required amount
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when amount is missing")
+	}
+}
+
+func TestGDEXHLCreateOrderTool(t *testing.T) {
+	tool := &GDEXHLCreateOrderTool{}
+	if tool.Name() != "gdex_hl_create_order" {
+		t.Errorf("expected 'gdex_hl_create_order', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	// Missing required fields
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when coin/price/size are missing")
+	}
+}
+
+func TestGDEXHLCancelOrderTool(t *testing.T) {
+	tool := &GDEXHLCancelOrderTool{}
+	if tool.Name() != "gdex_hl_cancel_order" {
+		t.Errorf("expected 'gdex_hl_cancel_order', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	// Missing required fields
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when coin/order_id are missing")
+	}
+}
+
 // --- GDEX Trade Tool ---
 
 func TestGDEXBuyTool(t *testing.T) {
