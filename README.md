@@ -30,6 +30,8 @@
 
 ## 📢 News
 
+2026-02-28 🚀 **Living Agent features now enabled by default!** GMAC metabolism, GDEX trading (with shared API key), swarm mode, and the living dashboard all work out of the box. Trade results now feed back to the metabolism engine — profitable trades credit GMAC and earn goodwill.
+
 2026-02-24 🔗 Gclaw is now maintained by [GemachDAO](https://github.com/GemachDAO) with integration support for [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Community contributions welcome!
 
 ## What is Gclaw?
@@ -73,7 +75,7 @@ It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading vi
 curl -fsSL https://raw.githubusercontent.com/GemachDAO/Gclaw/main/install.sh | bash
 ```
 
-This downloads the latest release binary, installs it to `~/.local/bin`, and launches the interactive setup wizard — you'll be chatting with your agent in under a minute.
+This downloads the latest release binary, installs it to `~/.local/bin`, sets up GDEX trading dependencies, and launches the interactive setup wizard. All living agent features (metabolism, GDEX trading, swarm, dashboard) are enabled automatically — you'll have a trading agent in under a minute.
 
 > **Windows users:** Use [WSL2](https://docs.microsoft.com/en-us/windows/wsl/) or [Docker](#option-3-docker), or [download a release binary](https://github.com/GemachDAO/Gclaw/releases) directly and run `gclaw onboard`.
 
@@ -156,30 +158,29 @@ gclaw agent
 gclaw gateway
 ```
 
-### Enable Living Agent features
+### Living Agent features — enabled by default
 
-Add to `~/.gclaw/config.json`:
+All Living Agent features are **enabled out of the box** — no extra configuration needed:
+
+- **🧬 GMAC Metabolism** — 1,000 GMAC starting balance, heartbeat and inference costs active
+- **📈 GDEX Trading** — shared API key pre-configured, wallets auto-generate on first run, Node dependencies auto-install
+- **🐝 Swarm Mode** — ready when the agent earns enough goodwill
+- **📊 Living Dashboard** — real-time CLI dashboard enabled
+
+Just run `gclaw onboard`, pick an LLM provider, and the agent starts trading to survive immediately.
+
+To customize defaults, edit `~/.gclaw/config.json` (see [`config/config.example.json`](config/config.example.json) for all options):
 
 ```json
 {
   "metabolism": {
-    "enabled": true,
     "initial_gmac": 1000,
     "heartbeat_cost": 0.1,
     "inference_cost_per_1k_tokens": 0.5,
-    "survival_threshold": 50,
-    "thresholds": {
-      "replicate": 50,
-      "self_recode": 100,
-      "swarm_leader": 200,
-      "architect": 500
-    }
+    "survival_threshold": 50
   },
   "tools": {
     "gdex": {
-      "enabled": true,
-      "api_key": "YOUR_GDEX_API_KEY",
-      "wallet_address": "0x...",
       "default_chain_id": 622112261,
       "max_trade_size_sol": 0.01,
       "auto_trade": false
@@ -212,7 +213,16 @@ Native DeFi trading via the GDEX SDK. Supported operations:
 - **Copy trading**: mirror signals from top performers
 - **Market data**: price feeds, portfolio snapshot, P&L
 
-Set `tools.gdex.enabled: true` and provide your `api_key` and `wallet_address` to activate.
+GDEX trading is **enabled by default** with a shared community API key. Wallets auto-generate on first run, and Node.js dependencies auto-install when the first trade executes. No manual setup required — just fund your custodial wallet and start trading.
+
+**GMAC Token (Gemach):**
+| Chain | Address |
+|---|---|
+| Ethereum | `0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea` |
+| Arbitrum | Available via Curve |
+| Solana | Available via Orca |
+
+CoinGecko: [gemach](https://www.coingecko.com/en/coins/gemach) · Supply: 500M
 
 ### ⭐ Goodwill & Abilities
 
