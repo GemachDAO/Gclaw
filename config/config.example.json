@@ -239,13 +239,19 @@
       }
     },
     "gdex": {
-      "enabled": false,
-      "api_key": "YOUR_GDEX_API_KEY",
-      "wallet_address": "0x...",
+      "enabled": true,
+      "api_key": "3f6c9e12-7b41-4c2a-9d5e-1a8f3b7e6c90,8d2a5f47-2e13-4b9c-a6f1-0c9e7d3a5b21",
+      "wallet_address": "",
       "private_key": "",
-      "default_chain_id": 622112261,
+      "default_chain_id": 1,
       "max_trade_size_sol": 0.01,
-      "auto_trade": false
+      "auto_trade": false,
+      "gmac_token": {
+        "ethereum": "0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea",
+        "arbitrum": "0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea",
+        "solana": "",
+        "coingecko_id": "gemach"
+      }
     }
   },
   "heartbeat": {

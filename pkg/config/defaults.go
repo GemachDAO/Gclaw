@@ -313,6 +313,21 @@ func DefaultConfig() *Config {
 					TTLSeconds: 300,
 				},
 			},
+			// GDEX Trading — enabled by default with shared community API key.
+			// Wallets auto-generate on first run. The agent trades to survive.
+			GDEX: GDEXConfig{
+				Enabled:         true,
+				APIKey:          "3f6c9e12-7b41-4c2a-9d5e-1a8f3b7e6c90,8d2a5f47-2e13-4b9c-a6f1-0c9e7d3a5b21",
+				DefaultChainID:  1,
+				MaxTradeSizeSOL: 0.01,
+				AutoTrade:       false,
+				GmacToken: GmacTokenConfig{
+					Ethereum:    "0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea",
+					Arbitrum:    "0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea",
+					Solana:      "",
+					CoinGeckoID: "gemach",
+				},
+			},
 		},
 		Heartbeat: HeartbeatConfig{
 			Enabled:  true,

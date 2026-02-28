@@ -511,6 +511,14 @@ type DashboardConfig struct {
 	RefreshInterval int  `json:"refresh_interval" env:"GCLAW_DASHBOARD_REFRESH_INTERVAL"` // seconds, default 10
 }
 
+// GmacTokenConfig holds the known GMAC token contract addresses across chains.
+type GmacTokenConfig struct {
+	Ethereum    string `json:"ethereum"`     // ERC-20 on Ethereum mainnet
+	Arbitrum    string `json:"arbitrum"`      // Bridged on Arbitrum
+	Solana      string `json:"solana"`        // SPL token on Solana
+	CoinGeckoID string `json:"coingecko_id"` // CoinGecko identifier for price feeds
+}
+
 // GDEXConfig holds configuration for GDEX DeFi trading tools.
 // DefaultChainID, MaxTradeSizeSOL, and AutoTrade are provided for future
 // enforcement by the agent; current tool implementations delegate to the
@@ -522,7 +530,8 @@ type GDEXConfig struct {
 	PrivateKey       string  `json:"private_key"         env:"PRIVATE_KEY"`
 	DefaultChainID   int64   `json:"default_chain_id"    env:"GDEX_DEFAULT_CHAIN_ID"`
 	MaxTradeSizeSOL  float64 `json:"max_trade_size_sol"  env:"GDEX_MAX_TRADE_SIZE_SOL"`
-	AutoTrade        bool    `json:"auto_trade"          env:"GDEX_AUTO_TRADE"`
+	AutoTrade        bool             `json:"auto_trade"          env:"GDEX_AUTO_TRADE"`
+	GmacToken        GmacTokenConfig  `json:"gmac_token"`
 }
 
 type SkillsToolsConfig struct {
