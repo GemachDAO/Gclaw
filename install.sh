@@ -221,9 +221,57 @@ try_source_install() {
   return 0
 }
 
+
+# ── GDEX helpers: install Node dependencies if possible ──────────────────────
+setup_gdex_helpers() {
+  # Find the helpers directory relative to the binary or workspace
+  local HELPERS_DIR=""
+  for candidate in     "${PWD}/workspace/skills/gdex-trading/helpers"     "${HOME}/.local/share/gclaw/workspace/skills/gdex-trading/helpers"     "$(dirname "$0")/workspace/skills/gdex-trading/helpers"; do
+    if [ -f "${candidate}/package.json" ]; then
+      HELPERS_DIR="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$HELPERS_DIR" ]; then
+    return 0  # helpers not found, skip silently
+  fi
+
+  if [ -d "${HELPERS_DIR}/node_modules" ]; then
+    return 0  # already installed
+  fi
+
+  if ! command -v node &>/dev/null; then
+    warn "Node.js not found — GDEX trading helpers require Node.js."
+    warn "Install Node.js (v18+) and run: bash ${HELPERS_DIR}/setup.sh"
+    return 0
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    warn "npm not found — GDEX trading helpers require npm."
+    return 0
+  fi
+
+  info "Installing GDEX trading helper dependencies..."
+  if [ -f "${HELPERS_DIR}/setup.sh" ]; then
+    if bash "${HELPERS_DIR}/setup.sh" 2>&1; then
+      success "GDEX trading helpers installed."
+    else
+      warn "GDEX helper setup failed. Run manually: bash ${HELPERS_DIR}/setup.sh"
+    fi
+  else
+    if (cd "$HELPERS_DIR" && npm install --no-audit --no-fund) 2>&1; then
+      success "GDEX trading helpers installed."
+    else
+      warn "GDEX helper npm install failed. Run manually: cd ${HELPERS_DIR} && npm install"
+    fi
+  fi
+}
+
 # ── Main install flow ─────────────────────────────────────────────────────────
 if try_release_install; then
   ensure_path
+  setup_gdex_helpers
   run_onboard
   exit 0
 fi
@@ -234,3 +282,4 @@ echo ""
 try_source_install
 ensure_path
 run_onboard
+setup_gdex_helpers

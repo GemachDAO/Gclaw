@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/GemachDAO/Gclaw/pkg/logger"
 )
@@ -27,9 +28,62 @@ func helperScriptDir() string {
 	return filepath.Join(wd, "workspace", "skills", "gdex-trading", "helpers")
 }
 
+// ensureNodeDeps checks whether the helpers directory has node_modules installed.
+// If not, it runs setup.sh (or falls back to npm install) to install dependencies.
+// This is called once per process via sync.Once.
+var ensureDepsOnce sync.Once
+var ensureDepsErr error
+
+func ensureNodeDeps() error {
+	ensureDepsOnce.Do(func() {
+		dir := helperScriptDir()
+		nodeModules := filepath.Join(dir, "node_modules")
+		if _, err := os.Stat(nodeModules); err == nil {
+			return // already installed
+		}
+
+		logger.InfoCF("tool", "GDEX helpers: node_modules not found, installing dependencies...",
+			map[string]any{"dir": dir})
+
+		// Try setup.sh first
+		setupScript := filepath.Join(dir, "setup.sh")
+		if _, err := os.Stat(setupScript); err == nil {
+			cmd := exec.Command("bash", setupScript)
+			cmd.Dir = dir
+			cmd.Env = os.Environ()
+			if out, err := cmd.CombinedOutput(); err != nil {
+				logger.WarnCF("tool", "setup.sh failed, trying npm install",
+					map[string]any{"error": err.Error(), "output": string(out)})
+			} else {
+				logger.InfoCF("tool", "GDEX helpers: dependencies installed via setup.sh", nil)
+				return
+			}
+		}
+
+		// Fallback to npm install
+		cmd := exec.Command("npm", "install", "--no-audit", "--no-fund")
+		cmd.Dir = dir
+		cmd.Env = os.Environ()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			ensureDepsErr = fmt.Errorf("failed to install GDEX helper dependencies: %w — %s", err, string(out))
+			logger.ErrorCF("tool", "npm install failed for GDEX helpers",
+				map[string]any{"error": ensureDepsErr.Error()})
+		} else {
+			logger.InfoCF("tool", "GDEX helpers: dependencies installed via npm install", nil)
+		}
+	})
+	return ensureDepsErr
+}
+
 // runNodeHelper executes a Node.js helper script, passing input as JSON on stdin,
 // and returns the parsed JSON output. scriptName should be "trade.js" or "market.js".
+// It automatically installs Node dependencies on first invocation if needed.
 func runNodeHelper(ctx context.Context, scriptName string, input map[string]any) (map[string]any, error) {
+	// Auto-install dependencies if needed
+	if err := ensureNodeDeps(); err != nil {
+		return nil, err
+	}
+
 	scriptPath := filepath.Join(helperScriptDir(), scriptName)
 
 	inputJSON, err := json.Marshal(input)
