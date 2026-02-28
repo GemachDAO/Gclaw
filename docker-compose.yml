@@ -14,7 +14,7 @@ services:
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./config/config.json:/home/gclaw/.gclaw/config.json:ro
+      - ./config/config.example.json:/home/gclaw/.gclaw/config.json:ro
       - gclaw-workspace:/home/gclaw/.gclaw/workspace
     entrypoint: ["gclaw", "agent"]
     stdin_open: true
@@ -37,7 +37,7 @@ services:
     #  - "host.docker.internal:host-gateway"
     volumes:
       # Configuration file
-      - ./config/config.json:/home/gclaw/.gclaw/config.json:ro
+      - ./config/config.example.json:/home/gclaw/.gclaw/config.json:ro
       # Persistent workspace (sessions, memory, logs)
       - gclaw-workspace:/home/gclaw/.gclaw/workspace
     command: ["gateway"]

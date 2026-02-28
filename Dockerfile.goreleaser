@@ -1,10 +1,10 @@
 FROM alpine:3.21
 
-ARG TARGETPLATFORM
+RUN apk add --no-cache git ca-certificates tzdata
 
-RUN apk add --no-cache ca-certificates tzdata
+COPY gclaw /usr/local/bin/gclaw
 
-COPY $TARGETPLATFORM/gclaw /usr/local/bin/gclaw
+# Create default workspace directories
+RUN mkdir -p /root/.gclaw/workspace
 
-ENTRYPOINT ["gclaw"]
-CMD ["gateway"]
+ENTRYPOINT ["/usr/local/bin/gclaw"]

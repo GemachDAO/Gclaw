@@ -105,6 +105,9 @@ func (p *GitHubCopilotProvider) Chat(
 		Prompt: string(fullcontent),
 	})
 
+	if err != nil {
+		return nil, fmt.Errorf("copilot SendAndWait failed: %w", err)
+	}
 	if resp == nil {
 		return nil, fmt.Errorf("empty response from copilot")
 	}

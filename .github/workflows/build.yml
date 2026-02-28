@@ -16,5 +16,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build
+      - name: Run tests
+        run: make test
+
+      - name: Build all platforms
         run: make build-all

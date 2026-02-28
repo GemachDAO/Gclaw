@@ -11,8 +11,6 @@ builds:
   - id: gclaw
     env:
       - CGO_ENABLED=0
-    tags:
-      - stdjson
     ldflags:
       - -s -w
       - -X main.version={{ .Version }}
@@ -28,33 +26,22 @@ builds:
       - amd64
       - arm64
       - riscv64
-      - s390x
-      - mips64
       - arm
+    goarm:
+      - "7"
     main: ./cmd/gclaw
     ignore:
       - goos: windows
         goarch: arm
-
-dockers_v2:
-  - id: gclaw
-    dockerfile: Dockerfile.goreleaser
-    ids:
-      - gclaw
-    images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/gclaw"
-      - "docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}"
-    tags:
-      - "{{ .Tag }}"
-      - "latest"
-    platforms:
-      - linux/amd64
-      - linux/arm64
-      - linux/riscv64
+      - goos: freebsd
+        goarch: arm
+      - goos: freebsd
+        goarch: riscv64
 
 archives:
   - formats: [tar.gz]
-    # this name template makes the OS and Arch compatible with the results of `uname`.
+    # This name template makes the OS and Arch compatible with `uname` output,
+    # which is what install.sh expects.
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -67,21 +54,26 @@ archives:
       - goos: windows
         formats: [zip]
 
+checksum:
+  name_template: "checksums.txt"
+
 changelog:
   sort: asc
   filters:
     exclude:
       - "^docs:"
       - "^test:"
-
-# upx:
-#    - enabled: true
-#      compress: best
-#      lzma: true
+      - "^ci:"
 
 release:
   footer: >-
 
     ---
 
-    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+    ## Install
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/GemachDAO/Gclaw/main/install.sh | bash
+    ```
+
+    Or download a binary above for your platform.

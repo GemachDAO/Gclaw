@@ -36,8 +36,8 @@ RUN addgroup -g 1000 gclaw && \
 # Switch to non-root user
 USER gclaw
 
-# Run onboard to create initial directories and config
-RUN /usr/local/bin/gclaw onboard
+# Create workspace directories (onboard is interactive, so we create them manually)
+RUN mkdir -p /home/gclaw/.gclaw/workspace/memory     /home/gclaw/.gclaw/workspace/sessions     /home/gclaw/.gclaw/workspace/skills
 
 ENTRYPOINT ["gclaw"]
 CMD ["gateway"]
