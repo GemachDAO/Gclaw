@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,8 +33,9 @@ var DefaultToolCosts = map[string]float64{
 
 type ToolRegistry struct {
 	tools      map[string]Tool
-	metabolism *metabolism.Metabolism // optional, nil if metabolism disabled
-	toolCosts  map[string]float64    // tool name -> GMAC cost
+	metabolism       *metabolism.Metabolism       // optional, nil if metabolism disabled
+	goodwillTracker  *metabolism.GoodwillTracker  // optional, nil if metabolism disabled
+	toolCosts        map[string]float64           // tool name -> GMAC cost
 	mu         sync.RWMutex
 }
 
@@ -48,6 +51,124 @@ func (r *ToolRegistry) GetMetabolism() *metabolism.Metabolism {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.metabolism
+}
+
+// SetGoodwillTracker attaches a GoodwillTracker for recording trade outcomes.
+func (r *ToolRegistry) SetGoodwillTracker(gt *metabolism.GoodwillTracker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.goodwillTracker = gt
+}
+
+// gdexTradeTools lists the tool names that execute real trades on GDEX.
+var gdexTradeTools = map[string]bool{
+	"gdex_buy":        true,
+	"gdex_sell":       true,
+	"gdex_limit_buy":  true,
+	"gdex_limit_sell": true,
+}
+
+// processTradeResult inspects a successful GDEX trade result, credits the
+// metabolism with any reported profit, and records the trade outcome in the
+// goodwill tracker.
+//
+// The node helper returns JSON with fields like:
+//   amountIn, amountOut, profitPercent (optional), price, txHash
+//
+// For sell trades: if profitPercent is present, it is used directly.
+// For all successful trades: a base reward of 0.5 GMAC is credited.
+func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
+	r.mu.RLock()
+	met := r.metabolism
+	gt := r.goodwillTracker
+	r.mu.RUnlock()
+
+	if met == nil {
+		return
+	}
+
+	// Parse the JSON result from the trade helper
+	var data map[string]any
+	if err := json.Unmarshal([]byte(result.ForLLM), &data); err != nil {
+		logger.DebugCF("tool", "Could not parse trade result for metabolism credit",
+			map[string]any{"tool": toolName, "error": err.Error()})
+		return
+	}
+
+	isSell := strings.Contains(toolName, "sell")
+
+	// Base reward for successful trade execution
+	baseReward := 0.5
+	met.Credit(baseReward, "trade_reward", fmt.Sprintf("successful %s execution", toolName))
+	logger.InfoCF("tool", "Metabolism: credited trade reward",
+		map[string]any{"tool": toolName, "amount": baseReward, "balance": met.GetBalance()})
+
+	// Look for profit data in the result
+	var profitPercent float64
+	var hasProfitData bool
+
+	if pp, ok := data["profitPercent"].(float64); ok {
+		profitPercent = pp
+		hasProfitData = true
+	} else if pp, ok := data["profit_percent"].(float64); ok {
+		profitPercent = pp
+		hasProfitData = true
+	}
+
+	// For sells, try to calculate profit from amountIn/amountOut if no explicit profit
+	if isSell && !hasProfitData {
+		amountIn, okIn := toFloat64(data["amountIn"])
+		amountOut, okOut := toFloat64(data["amountOut"])
+		if !okIn {
+			amountIn, okIn = toFloat64(data["amount_in"])
+		}
+		if !okOut {
+			amountOut, okOut = toFloat64(data["amount_out"])
+		}
+		if okIn && okOut && amountIn > 0 {
+			profitPercent = ((amountOut - amountIn) / amountIn) * 100
+			hasProfitData = true
+		}
+	}
+
+	// Credit additional GMAC for profitable trades
+	if hasProfitData && profitPercent > 0 {
+		// Scale profit credit: 1 GMAC per 5% profit, capped at 20 GMAC
+		profitCredit := profitPercent / 5.0
+		if profitCredit > 20 {
+			profitCredit = 20
+		}
+		met.Credit(profitCredit, "trade_profit",
+			fmt.Sprintf("%s profit %.2f%%", toolName, profitPercent))
+		logger.InfoCF("tool", "Metabolism: credited trade profit",
+			map[string]any{"tool": toolName, "profit_percent": profitPercent,
+				"credit": profitCredit, "balance": met.GetBalance()})
+	}
+
+	// Record goodwill
+	if gt != nil && hasProfitData {
+		gt.RecordTradeResult(profitPercent)
+	}
+}
+
+// toFloat64 attempts to convert a JSON value to float64.
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		var f float64
+		_, err := fmt.Sscanf(n, "%f", &f)
+		return f, err == nil
+	}
+	return 0, false
 }
 
 // SetToolCost sets the GMAC cost for a specific tool.
@@ -150,6 +271,11 @@ func (r *ToolRegistry) ExecuteWithContext(
 	start := time.Now()
 	result := tool.Execute(ctx, args)
 	duration := time.Since(start)
+
+	// Post-execution: wire GDEX trade results to metabolism
+	if !result.IsError && gdexTradeTools[name] {
+		r.processTradeResult(name, result)
+	}
 
 	// Log based on result type
 	if result.IsError {

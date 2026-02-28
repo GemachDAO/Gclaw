@@ -181,6 +181,10 @@ func registerSharedTools(
 			for name, cost := range tools.DefaultToolCosts {
 				agent.Tools.SetToolCost(name, cost)
 			}
+			// Wire goodwill tracker so trade results feed back to metabolism
+			gt := metabolism.NewGoodwillTracker(met)
+			agent.Tools.SetGoodwillTracker(gt)
+
 			logger.InfoCF("agent", "Metabolism initialized",
 				map[string]any{
 					"agent":   agentID,
