@@ -183,7 +183,13 @@ func onboard() {
 	} else {
 		fmt.Println("  1. Start chatting:  gclaw agent")
 		fmt.Println()
-		fmt.Println("  (Edit " + configPath + " to add more providers or change settings.)")
+		fmt.Println("  Living Agent features are active by default:")
+		fmt.Println("    GMAC Metabolism: 1000 GMAC starting balance")
+		fmt.Println("    Dashboard:       http://127.0.0.1:18790")
+		fmt.Println("    Swarm Mode:      ready when goodwill >= 200")
+		fmt.Println()
+		fmt.Println("  To enable GDEX trading, add your GDEX API key to:")
+		fmt.Println("       " + configPath)
 	}
 	fmt.Println()
 }

@@ -6,6 +6,8 @@
 package config
 
 // DefaultConfig returns the default configuration for Gclaw.
+// Living Agent features (metabolism, dashboard, swarm) are enabled by default
+// because Gclaw is designed to be a living, trading agent — not a static assistant.
 func DefaultConfig() *Config {
 	return &Config{
 		Agents: AgentsConfig{
@@ -319,6 +321,42 @@ func DefaultConfig() *Config {
 		Devices: DevicesConfig{
 			Enabled:    false,
 			MonitorUSB: true,
+		},
+		// ── Living Agent defaults ──────────────────────────────────────────
+		// These are the core features that make Gclaw a "living agent".
+		// They are ON by default because the whole point of Gclaw is that
+		// the agent must trade to survive — it's not a static chatbot.
+		Metabolism: MetabolismConfig{
+			Enabled:            true,
+			InitialGMAC:        1000,
+			HeartbeatCost:      0.1,
+			InferenceCostPer1k: 0.5,
+			SurvivalThreshold:  50,
+			Thresholds: struct {
+				Replicate   int `json:"replicate"`
+				SelfRecode  int `json:"self_recode"`
+				SwarmLeader int `json:"swarm_leader"`
+				Architect   int `json:"architect"`
+			}{
+				Replicate:   50,
+				SelfRecode:  100,
+				SwarmLeader: 200,
+				Architect:   500,
+			},
+		},
+		Swarm: SwarmConfig{
+			Enabled:            true,
+			MaxSwarmSize:       5,
+			ConsensusThreshold: 0.6,
+			SignalAggregation:  "majority",
+			StrategyRotation:   true,
+			RebalanceInterval:  60,
+			SharedWalletMode:   false,
+		},
+		Dashboard: DashboardConfig{
+			Enabled:         true,
+			WebEnabled:      true,
+			RefreshInterval: 10,
 		},
 	}
 }
