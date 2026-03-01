@@ -725,6 +725,28 @@ func (al *AgentLoop) runLLMIteration(
 		}
 
 		if err != nil {
+			// Codex returns 400 when session history has an orphaned tool call
+			// (a function call with no corresponding tool output). Detect this,
+			// clear the session history, and retry so the next LLM call starts clean.
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "no tool output found") ||
+				(strings.Contains(errLower, "tool output") && strings.Contains(errLower, "function call")) {
+				logger.WarnCF("agent", "Detected orphaned tool call in session history, clearing session and retrying",
+					map[string]any{
+						"session_key": opts.SessionKey,
+						"error":       err.Error(),
+					})
+				agent.Sessions.TruncateHistory(opts.SessionKey, 0)
+				agent.Sessions.Save(opts.SessionKey)
+				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
+				newSummary := agent.Sessions.GetSummary(opts.SessionKey)
+				messages = agent.ContextBuilder.BuildMessages(
+					newHistory, newSummary, opts.UserMessage,
+					nil, opts.Channel, opts.ChatID,
+				)
+				continue
+			}
+
 			logger.ErrorCF("agent", "LLM call failed",
 				map[string]any{
 					"agent_id":  agent.ID,
