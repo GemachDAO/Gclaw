@@ -95,17 +95,28 @@ func runNodeHelper(ctx context.Context, scriptName string, input map[string]any)
 	cmd.Stdin = bytes.NewReader(inputJSON)
 	cmd.Env = os.Environ()
 
-	out, err := cmd.Output()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
 	if err != nil {
-		var stderr string
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			stderr = string(exitErr.Stderr)
-		}
-		return nil, fmt.Errorf("node helper failed: %w — %s", err, stderr)
+		stderrStr := stderr.String()
+		return nil, fmt.Errorf("node helper failed: %w\nstderr: %s", err, stderrStr)
 	}
 
+	// Log any stderr output from Node even on success (e.g. console.error/console.log)
+	if stderrStr := stderr.String(); stderrStr != "" {
+		logger.WarnCF("tool", "node helper wrote to stderr", map[string]any{
+			"script": scriptName,
+			"stderr": stderrStr,
+		})
+	}
+
+	// Parse stdout only — stderr is intentionally excluded to avoid JSON parse errors
+	output := stdout.Bytes()
 	var result map[string]any
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := json.Unmarshal(output, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse helper output: %w", err)
 	}
 	return result, nil
