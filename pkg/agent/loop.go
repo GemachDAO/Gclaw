@@ -619,6 +619,7 @@ func (al *AgentLoop) runLLMIteration(
 ) (string, int, error) {
 	iteration := 0
 	var finalContent string
+	orphanedToolCallRecovered := false
 
 	for iteration < agent.MaxIterations {
 		iteration++
@@ -728,14 +729,17 @@ func (al *AgentLoop) runLLMIteration(
 			// Codex returns 400 when session history has an orphaned tool call
 			// (a function call with no corresponding tool output). Detect this,
 			// clear the session history, and retry so the next LLM call starts clean.
+			// The one-shot flag ensures we only attempt this recovery once per
+			// runLLMIteration call; a recurring error falls through to normal handling.
 			errLower := strings.ToLower(err.Error())
-			if strings.Contains(errLower, "no tool output found") ||
-				(strings.Contains(errLower, "tool output") && strings.Contains(errLower, "function call")) {
+			if !orphanedToolCallRecovered && (strings.Contains(errLower, "no tool output found") ||
+				(strings.Contains(errLower, "tool output") && strings.Contains(errLower, "function call"))) {
 				logger.WarnCF("agent", "Detected orphaned tool call in session history, clearing session and retrying",
 					map[string]any{
 						"session_key": opts.SessionKey,
 						"error":       err.Error(),
 					})
+				orphanedToolCallRecovered = true
 				agent.Sessions.TruncateHistory(opts.SessionKey, 0)
 				agent.Sessions.Save(opts.SessionKey)
 				newHistory := agent.Sessions.GetHistory(opts.SessionKey)
