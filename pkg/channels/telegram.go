@@ -443,14 +443,14 @@ func markdownToTelegramHTML(text string) string {
 
 	text = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(text, "<b>$1</b>")
 
-	reItalic := regexp.MustCompile(`_([^_]+)_`)
-	text = reItalic.ReplaceAllStringFunc(text, func(s string) string {
-		match := reItalic.FindStringSubmatch(s)
-		if len(match) < 2 {
-			return s
-		}
-		return "<i>" + match[1] + "</i>"
-	})
+	// Only match _italic_ when underscores are NOT adjacent to word chars,
+	// so tool names like list_dir, read_file are not treated as italic markers.
+	// Two passes are required: the first pass consumes boundary characters, so
+	// consecutive italic spans (e.g. "_a_ _b_") need a second pass to catch spans
+	// whose left boundary was consumed by the previous match.
+	reItalic := regexp.MustCompile(`(^|[^\w])_([^_\n]+)_([^\w]|$)`)
+	text = reItalic.ReplaceAllString(text, "${1}<i>${2}</i>${3}")
+	text = reItalic.ReplaceAllString(text, "${1}<i>${2}</i>${3}")
 
 	text = regexp.MustCompile(`~~(.+?)~~`).ReplaceAllString(text, "<s>$1</s>")
 
