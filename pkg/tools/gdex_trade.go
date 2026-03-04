@@ -102,11 +102,19 @@ func runNodeHelper(ctx context.Context, scriptName string, input map[string]any)
 	err = cmd.Run()
 	if err != nil {
 		stderrStr := stderr.String()
+		// Cap and redact to avoid leaking key material from SDK debug output
+		if len(stderrStr) > 512 {
+			stderrStr = stderrStr[:512] + "... [truncated]"
+		}
 		return nil, fmt.Errorf("node helper failed: %w\nstderr: %s", err, stderrStr)
 	}
 
 	// Log any stderr output from Node even on success (e.g. console.error/console.log)
 	if stderrStr := stderr.String(); stderrStr != "" {
+		// Cap and redact to avoid leaking key material from SDK debug output
+		if len(stderrStr) > 512 {
+			stderrStr = stderrStr[:512] + "... [truncated]"
+		}
 		logger.WarnCF("tool", "node helper wrote to stderr", map[string]any{
 			"script": scriptName,
 			"stderr": stderrStr,
