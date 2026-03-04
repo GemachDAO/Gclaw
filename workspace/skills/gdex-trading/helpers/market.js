@@ -18,9 +18,8 @@
 const _origLog = console.log;
 console.log = (...args) => process.stderr.write(args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ') + '\n');
 
-const pkg = require('/opt/gdex-helpers/node_modules/gdex.pro-sdk/index.js');
-const { GDEXSDK, CryptoUtils, encrypt } = pkg;
-const { ethers } = require('/opt/gdex-helpers/node_modules/ethers');
+const { GDEXSDK, CryptoUtils, encrypt } = require('gdex.pro-sdk');
+const { ethers } = require('ethers');
 
 const API_URL = 'https://trade-api.gemach.io/v1';
 const DEFAULT_CHAIN_ID = 622112261;
@@ -41,7 +40,7 @@ if (!apiKey) {
 /**
  * loginSDK — authenticate with GDEX and return an active SDK session.
  *
- * Four requirements (fixed 2026-03-03, commit 0d6f31e):
+ * Four requirements for correct GDEX authentication:
  *
  * 1. EIP-191 signing: use ethers.Wallet.signMessage(), NOT CryptoUtils.sign().
  *    The GDEX API verifies a personal_sign / eth_sign compatible signature.
@@ -58,16 +57,13 @@ if (!apiKey) {
  *    authenticated GET calls) expect encrypt('0x' + publicKeyHex, apiKey),
  *    not the raw public key string.
  *
- * Returns { sdk, sessionKeyHex, sessionPrivKey } where sessionKeyHex is the
- * encrypted session key for GET requests and sessionPrivKey is the session
- * private key for trading POST requests.
+ * Returns { sdk, sessionKeyHex } where sessionKeyHex is the encrypted session key for GET requests.
  */
 async function loginSDK() {
   const sdk = new GDEXSDK(API_URL, { apiKey });
   const sessionKeyPair = CryptoUtils.getSessionKey();
   // publicKey/privateKey may be Uint8Array or Buffer; use Buffer.from() to normalize
   const publicKeyHex = Buffer.from(sessionKeyPair.publicKey).toString('hex');
-  const sessionPrivKey = Buffer.from(sessionKeyPair.privateKey).toString('hex');
   // SDK login() requires 0x-prefixed bytes, but message uses raw hex
   const publicKeyHex0x = '0x' + publicKeyHex;
 
@@ -81,7 +77,7 @@ async function loginSDK() {
   // getHoldingsList and other read APIs expect an encrypted session key
   const encryptedSessionKey = encrypt(publicKeyHex0x, apiKey);
 
-  return { sdk, sessionKeyHex: encryptedSessionKey, sessionPrivKey };
+  return { sdk, sessionKeyHex: encryptedSessionKey };
 }
 
 let inputData = '';
@@ -210,7 +206,9 @@ process.stdin.on('end', async () => {
   } catch (err) {
     // Restore console.log for final JSON output
     console.log = _origLog;
-    console.log(JSON.stringify({ success: false, error: err.message || String(err) }));
+    const rawErr = err.message || String(err);
+    const safeErr = rawErr.replace(/0x[0-9a-fA-F]{32,}/g, '[REDACTED]');
+    console.log(JSON.stringify({ success: false, error: safeErr }));
     process.exit(1);
   }
 });
