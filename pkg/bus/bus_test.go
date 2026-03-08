@@ -158,11 +158,23 @@ func TestInboundMessage_Fields(t *testing.T) {
 	if msg.Channel != "slack" {
 		t.Errorf("unexpected channel: %s", msg.Channel)
 	}
+	if msg.SenderID != "U123" {
+		t.Errorf("unexpected sender ID: %s", msg.SenderID)
+	}
+	if msg.ChatID != "C456" {
+		t.Errorf("unexpected chat ID: %s", msg.ChatID)
+	}
+	if msg.Content != "hello world" {
+		t.Errorf("unexpected content: %s", msg.Content)
+	}
 	if msg.SessionKey != "sess-key" {
 		t.Errorf("unexpected session key: %s", msg.SessionKey)
 	}
 	if len(msg.Media) != 1 {
 		t.Errorf("expected 1 media, got %d", len(msg.Media))
+	}
+	if msg.Metadata["key"] != "val" {
+		t.Errorf("unexpected metadata value: %s", msg.Metadata["key"])
 	}
 }
 

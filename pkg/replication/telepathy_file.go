@@ -34,7 +34,13 @@ func WriteMessage(dir string, msg TelepathyMessage) error {
 // calls callback for each new message. It stops when done is closed.
 // pollInterval controls the check frequency; if zero, defaults to 2 seconds.
 // msgMaxAge controls when old message files are deleted; if zero, defaults to 1 hour.
-func StartFileWatcher(dir string, pollInterval time.Duration, msgMaxAge time.Duration, callback func(TelepathyMessage), done <-chan struct{}) {
+func StartFileWatcher(
+	dir string,
+	pollInterval time.Duration,
+	msgMaxAge time.Duration,
+	callback func(TelepathyMessage),
+	done <-chan struct{},
+) {
 	if pollInterval <= 0 {
 		pollInterval = 2 * time.Second
 	}

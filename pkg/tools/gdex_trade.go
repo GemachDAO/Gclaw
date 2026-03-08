@@ -31,8 +31,10 @@ func helperScriptDir() string {
 // ensureNodeDeps checks whether the helpers directory has node_modules installed.
 // If not, it runs setup.sh (or falls back to npm install) to install dependencies.
 // This is called once per process via sync.Once.
-var ensureDepsOnce sync.Once
-var ensureDepsErr error
+var (
+	ensureDepsOnce sync.Once
+	errEnsureDeps  error
+)
 
 func ensureNodeDeps() error {
 	ensureDepsOnce.Do(func() {
@@ -65,14 +67,14 @@ func ensureNodeDeps() error {
 		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
-			ensureDepsErr = fmt.Errorf("failed to install GDEX helper dependencies: %w — %s", err, string(out))
+			errEnsureDeps = fmt.Errorf("failed to install GDEX helper dependencies: %w — %s", err, string(out))
 			logger.ErrorCF("tool", "npm install failed for GDEX helpers",
-				map[string]any{"error": ensureDepsErr.Error()})
+				map[string]any{"error": errEnsureDeps.Error()})
 		} else {
 			logger.InfoCF("tool", "GDEX helpers: dependencies installed via npm install", nil)
 		}
 	})
-	return ensureDepsErr
+	return errEnsureDeps
 }
 
 // runNodeHelper executes a Node.js helper script, passing input as JSON on stdin,

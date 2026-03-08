@@ -32,11 +32,11 @@ var DefaultToolCosts = map[string]float64{
 }
 
 type ToolRegistry struct {
-	tools      map[string]Tool
-	metabolism       *metabolism.Metabolism       // optional, nil if metabolism disabled
-	goodwillTracker  *metabolism.GoodwillTracker  // optional, nil if metabolism disabled
-	toolCosts        map[string]float64           // tool name -> GMAC cost
-	mu         sync.RWMutex
+	tools           map[string]Tool
+	metabolism      *metabolism.Metabolism      // optional, nil if metabolism disabled
+	goodwillTracker *metabolism.GoodwillTracker // optional, nil if metabolism disabled
+	toolCosts       map[string]float64          // tool name -> GMAC cost
+	mu              sync.RWMutex
 }
 
 // SetMetabolism attaches a Metabolism instance to the registry for cost gating.
@@ -73,7 +73,8 @@ var gdexTradeTools = map[string]bool{
 // goodwill tracker.
 //
 // The node helper returns JSON with fields like:
-//   amountIn, amountOut, profitPercent (optional), price, txHash
+//
+//	amountIn, amountOut, profitPercent (optional), price, txHash
 //
 // For sell trades: if profitPercent is present, it is used directly.
 // For all successful trades: a base reward of 0.5 GMAC is credited.
@@ -141,8 +142,10 @@ func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
 		met.Credit(profitCredit, "trade_profit",
 			fmt.Sprintf("%s profit %.2f%%", toolName, profitPercent))
 		logger.InfoCF("tool", "Metabolism: credited trade profit",
-			map[string]any{"tool": toolName, "profit_percent": profitPercent,
-				"credit": profitCredit, "balance": met.GetBalance()})
+			map[string]any{
+				"tool": toolName, "profit_percent": profitPercent,
+				"credit": profitCredit, "balance": met.GetBalance(),
+			})
 	}
 
 	// Record goodwill
@@ -243,7 +246,8 @@ func (r *ToolRegistry) ExecuteWithContext(
 			balance := met.GetBalance()
 			msg := fmt.Sprintf(
 				"Insufficient GMAC balance to execute tool. Current balance: %.4f, Cost: %.4f. Agent entering survival mode.",
-				balance, cost,
+				balance,
+				cost,
 			)
 			logger.WarnCF("tool", "Metabolism gate: insufficient GMAC",
 				map[string]any{"tool": name, "balance": balance, "cost": cost})

@@ -41,13 +41,13 @@ func TestGetData_AllNilSources(t *testing.T) {
 
 func TestGetData_WithMetabolism(t *testing.T) {
 	snap := &MetabolismSnapshot{
-		Balance:  100.5,
-		Goodwill: 42,
+		Balance:   100.5,
+		Goodwill:  42,
 		Abilities: []string{"replicate"},
 	}
 	d := NewDashboard(DashboardOptions{
-		AgentID:   "agent-1",
-		StartedAt: 1000,
+		AgentID:       "agent-1",
+		StartedAt:     1000,
 		GetMetabolism: func() *MetabolismSnapshot { return snap },
 	})
 	data := d.GetData()

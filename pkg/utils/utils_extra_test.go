@@ -102,7 +102,7 @@ func TestSanitizeFilename(t *testing.T) {
 	}{
 		{"file.txt", "file.txt"},
 		{"/path/to/file.txt", "file.txt"},
-		{"path/../etc/passwd", "passwd"},         // filepath.Base extracts last component
+		{"path/../etc/passwd", "passwd"}, // filepath.Base extracts last component
 		{"file with spaces.txt", "file with spaces.txt"},
 		{"file/with/slashes.txt", "slashes.txt"}, // filepath.Base extracts last component
 		{"windows\\path.txt", "windows_path.txt"},

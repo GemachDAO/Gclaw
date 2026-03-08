@@ -163,8 +163,12 @@ func renderHTML(data *DashboardData) string {
 		latestLine := ""
 		if len(tp.RecentMessages) > 0 {
 			last := tp.RecentMessages[len(tp.RecentMessages)-1]
-			latestLine = fmt.Sprintf(`<div class="stat-row"><span class="label">Latest</span><span class="value">%s from %s (%s)</span></div>`,
-				htmlEscape(last.Type), htmlEscape(last.From), formatAgo(last.Timestamp))
+			latestLine = fmt.Sprintf(
+				`<div class="stat-row"><span class="label">Latest</span><span class="value">%s from %s (%s)</span></div>`,
+				htmlEscape(last.Type),
+				htmlEscape(last.From),
+				formatAgo(last.Timestamp),
+			)
 		}
 		telepathyHTML = fmt.Sprintf(`
 <div class="stat-row">

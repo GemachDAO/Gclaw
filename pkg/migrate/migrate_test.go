@@ -610,7 +610,7 @@ func TestRunDryRun(t *testing.T) {
 	opts := Options{
 		DryRun:       true,
 		OpenClawHome: openclawHome,
-		GclawHome: gclawHome,
+		GclawHome:    gclawHome,
 	}
 
 	result, err := Run(opts)
@@ -665,7 +665,7 @@ func TestRunFullMigration(t *testing.T) {
 	opts := Options{
 		Force:        true,
 		OpenClawHome: openclawHome,
-		GclawHome: gclawHome,
+		GclawHome:    gclawHome,
 	}
 
 	result, err := Run(opts)
@@ -730,7 +730,7 @@ func TestRunFullMigration(t *testing.T) {
 func TestRunOpenClawNotFound(t *testing.T) {
 	opts := Options{
 		OpenClawHome: "/nonexistent/path/to/openclaw",
-		GclawHome: t.TempDir(),
+		GclawHome:    t.TempDir(),
 	}
 
 	_, err := Run(opts)
@@ -812,7 +812,7 @@ func TestRunConfigOnly(t *testing.T) {
 		Force:        true,
 		ConfigOnly:   true,
 		OpenClawHome: openclawHome,
-		GclawHome: gclawHome,
+		GclawHome:    gclawHome,
 	}
 
 	result, err := Run(opts)
@@ -852,7 +852,7 @@ func TestRunWorkspaceOnly(t *testing.T) {
 		Force:         true,
 		WorkspaceOnly: true,
 		OpenClawHome:  openclawHome,
-		GclawHome:  gclawHome,
+		GclawHome:     gclawHome,
 	}
 
 	result, err := Run(opts)

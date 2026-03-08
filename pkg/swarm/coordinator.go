@@ -34,7 +34,7 @@ type SwarmMember struct {
 // SwarmSignal is a trade signal submitted by a swarm member.
 type SwarmSignal struct {
 	AgentID      string  `json:"agent_id"`
-	Action       string  `json:"action"`        // "buy", "sell", "hold"
+	Action       string  `json:"action"` // "buy", "sell", "hold"
 	TokenAddress string  `json:"token_address"`
 	ChainID      int     `json:"chain_id"`
 	Confidence   float64 `json:"confidence"` // 0.0-1.0
@@ -44,11 +44,11 @@ type SwarmSignal struct {
 
 // ConsensusResult is the result of a consensus vote on a token action.
 type ConsensusResult struct {
-	Action       string         `json:"action"`        // consensus action
+	Action       string         `json:"action"` // consensus action
 	TokenAddress string         `json:"token_address"`
 	ChainID      int            `json:"chain_id"`
-	Confidence   float64        `json:"confidence"`   // aggregated confidence
-	Votes        map[string]int `json:"votes"`        // action -> vote count
+	Confidence   float64        `json:"confidence"` // aggregated confidence
+	Votes        map[string]int `json:"votes"`      // action -> vote count
 	Participants int            `json:"participants"`
 	Approved     bool           `json:"approved"`  // met consensus threshold
 	Reasoning    string         `json:"reasoning"` // summary of agent reasoning
