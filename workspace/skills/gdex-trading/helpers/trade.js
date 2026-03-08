@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * GDEX Trade Helper
+ * GDEX Trade Helper (v2 — @gdexsdk/gdex-skill)
  * Reads a JSON action descriptor from stdin, executes the trade, and writes JSON result to stdout.
  *
  * Input JSON:
@@ -8,20 +8,60 @@
  *
  * Output JSON:
  *   { "success": true, "data": { ... } }  or  { "success": false, "error": "..." }
+ *
+ * Environment variables:
+ *   GDEX_API_KEY    — required for all operations
+ *   WALLET_ADDRESS  — required for limit orders (control wallet address)
+ *   PRIVATE_KEY     — required for limit orders (EVM private key for signing)
  */
 
-import { createAuthenticatedSession } from 'gdex.pro-sdk';
+'use strict';
 
-const apiKey = process.env.GDEX_API_KEY;
-const walletAddress = process.env.WALLET_ADDRESS;
-const privateKey = process.env.PRIVATE_KEY;
+const {
+  GdexSkill,
+  GDEX_API_KEY_PRIMARY,
+  generateGdexSessionKeyPair,
+  buildGdexSignInMessage,
+  buildGdexSignInComputedData,
+} = require('@gdexsdk/gdex-skill');
+const { ethers } = require('ethers');
 
-if (!apiKey || !walletAddress || !privateKey) {
+const apiKey = process.env.GDEX_API_KEY || GDEX_API_KEY_PRIMARY;
+const walletAddress = process.env.WALLET_ADDRESS || '';
+const privateKey = process.env.PRIVATE_KEY || '';
+
+if (!apiKey) {
   process.stdout.write(JSON.stringify({
     success: false,
-    error: 'Missing required environment variables: GDEX_API_KEY, WALLET_ADDRESS, PRIVATE_KEY',
+    error: 'Missing required environment variable: GDEX_API_KEY',
   }));
   process.exit(1);
+}
+
+// signIn performs the full managed-custody sign-in flow using the EVM private key.
+// Returns { sessionPrivateKey, sessionKey, userId }.
+async function signIn(skill, chainId) {
+  if (!walletAddress || !privateKey) {
+    throw new Error('WALLET_ADDRESS and PRIVATE_KEY are required for this operation');
+  }
+  const { sessionPrivateKey, sessionKey } = generateGdexSessionKeyPair();
+  const userId = walletAddress.toLowerCase();
+  const nonce = String(Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000));
+  const message = buildGdexSignInMessage(walletAddress, nonce, sessionKey);
+  const wallet = new ethers.Wallet(privateKey);
+  const signature = await wallet.signMessage(message);
+  const signInPayload = buildGdexSignInComputedData({
+    apiKey,
+    userId: walletAddress,
+    sessionKey,
+    nonce,
+    signature,
+  });
+  await skill.signInWithComputedData({
+    computedData: signInPayload.computedData,
+    chainId,
+  });
+  return { sessionPrivateKey, sessionKey, userId };
 }
 
 let inputData = '';
@@ -37,48 +77,66 @@ process.stdin.on('end', async () => {
   }
 
   const { action, params } = request;
+  const chainId = params.chain_id != null ? Number(params.chain_id) : 622112261;
 
   try {
-    const session = await createAuthenticatedSession({
-      apiKey,
-      walletAddress,
-      privateKey,
-    });
+    const skill = new GdexSkill({ timeout: 45000, maxRetries: 2 });
+    skill.loginWithApiKey(apiKey);
 
     let result;
     switch (action) {
       case 'buy':
-        result = await session.buy({
+        result = await skill.buyToken({
+          chain: chainId,
           tokenAddress: params.token_address,
           amount: params.amount,
-          chainId: params.chain_id ?? 622112261,
+          slippage: params.slippage != null ? Number(params.slippage) : 1,
+          ...(walletAddress ? { walletAddress } : {}),
         });
         break;
+
       case 'sell':
-        result = await session.sell({
+        result = await skill.sellToken({
+          chain: chainId,
           tokenAddress: params.token_address,
           amount: params.amount,
-          chainId: params.chain_id ?? 622112261,
+          slippage: params.slippage != null ? Number(params.slippage) : 1,
+          ...(walletAddress ? { walletAddress } : {}),
         });
         break;
-      case 'limit_buy':
-        result = await session.limitBuy({
+
+      case 'limit_buy': {
+        // Limit orders require full managed-custody sign-in.
+        // Sign in with the chain ID of the trade.
+        const { sessionPrivateKey, userId } = await signIn(skill, chainId);
+        result = await skill.limitBuy({
+          apiKey,
+          userId,
+          sessionPrivateKey,
+          chainId,
           tokenAddress: params.token_address,
           amount: params.amount,
           triggerPrice: params.trigger_price,
-          profitPercent: params.profit_percent,
-          lossPercent: params.loss_percent,
-          chainId: params.chain_id ?? 622112261,
+          profitPercent: params.profit_percent != null ? String(params.profit_percent) : '0',
+          lossPercent: params.loss_percent != null ? String(params.loss_percent) : '0',
         });
         break;
-      case 'limit_sell':
-        result = await session.limitSell({
+      }
+
+      case 'limit_sell': {
+        const { sessionPrivateKey, userId } = await signIn(skill, chainId);
+        result = await skill.limitSell({
+          apiKey,
+          userId,
+          sessionPrivateKey,
+          chainId,
           tokenAddress: params.token_address,
           amount: params.amount,
           triggerPrice: params.trigger_price,
-          chainId: params.chain_id ?? 622112261,
         });
         break;
+      }
+
       default:
         process.stdout.write(JSON.stringify({ success: false, error: 'Unknown action: ' + action }));
         process.exit(1);
