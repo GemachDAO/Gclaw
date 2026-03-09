@@ -217,7 +217,9 @@ func TestRunConsensus_Majority(t *testing.T) {
 
 	// 3 buy, 1 sell -> majority = buy
 	for i := 0; i < 3; i++ {
-		_ = sc.SubmitSignal(SwarmSignal{AgentID: "agent", Action: "buy", TokenAddress: "0xabc", Confidence: 0.8, Reasoning: "reason"})
+		_ = sc.SubmitSignal(
+			SwarmSignal{AgentID: "agent", Action: "buy", TokenAddress: "0xabc", Confidence: 0.8, Reasoning: "reason"},
+		)
 	}
 	_ = sc.SubmitSignal(SwarmSignal{AgentID: "agent2", Action: "sell", TokenAddress: "0xabc", Confidence: 0.5})
 
@@ -456,7 +458,7 @@ func TestSaveAndLoadSwarmState(t *testing.T) {
 
 	// Verify file exists
 	path := filepath.Join(dir, "swarm", "state.json")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		t.Fatal("expected swarm state file to exist")
 	}
 

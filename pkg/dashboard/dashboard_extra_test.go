@@ -98,9 +98,9 @@ func TestServeSection_ValidSection(t *testing.T) {
 		GetMetabolism: func() *MetabolismSnapshot {
 			return &MetabolismSnapshot{Balance: 100}
 		},
-		GetFamily: func() *FamilySnapshot { return &FamilySnapshot{} },
+		GetFamily:    func() *FamilySnapshot { return &FamilySnapshot{} },
 		GetTelepathy: func() *TelepathySnapshot { return &TelepathySnapshot{} },
-		GetSwarm: func() *SwarmSnapshot { return &SwarmSnapshot{} },
+		GetSwarm:     func() *SwarmSnapshot { return &SwarmSnapshot{} },
 	})
 	mux := http.NewServeMux()
 	RegisterHandlers(mux, d)

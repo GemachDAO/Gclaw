@@ -26,7 +26,14 @@ func TestNewCronService(t *testing.T) {
 func TestAddJob_Every(t *testing.T) {
 	cs := setupCronService(t)
 
-	job, err := cs.AddJob("test job", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "hello", false, "cli", "direct")
+	job, err := cs.AddJob(
+		"test job",
+		CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)},
+		"hello",
+		false,
+		"cli",
+		"direct",
+	)
 	if err != nil {
 		t.Fatalf("AddJob failed: %v", err)
 	}
@@ -394,12 +401,12 @@ func TestCheckJobs_ExecutesDueJobs(t *testing.T) {
 	cs.running = true
 	pastMS := time.Now().Add(-time.Second).UnixMilli()
 	job := CronJob{
-		ID:      "due-job",
-		Name:    "due",
-		Enabled: true,
+		ID:       "due-job",
+		Name:     "due",
+		Enabled:  true,
 		Schedule: CronSchedule{Kind: "every", EveryMS: int64Ptr(1000)},
-		Payload: CronPayload{Message: "run me"},
-		State:   CronJobState{NextRunAtMS: &pastMS},
+		Payload:  CronPayload{Message: "run me"},
+		State:    CronJobState{NextRunAtMS: &pastMS},
 	}
 	cs.store.Jobs = append(cs.store.Jobs, job)
 	cs.mu.Unlock()

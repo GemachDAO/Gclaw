@@ -45,10 +45,12 @@ func (m *Metabolism) SaveToFile(path string) error {
 
 	// Atomic write: temp file + rename
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	err = os.WriteFile(tmp, data, 0o600)
+	if err != nil {
 		return fmt.Errorf("metabolism: write temp: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	err = os.Rename(tmp, path)
+	if err != nil {
 		os.Remove(tmp)
 		return fmt.Errorf("metabolism: rename: %w", err)
 	}

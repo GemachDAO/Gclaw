@@ -104,7 +104,6 @@ func (p *GitHubCopilotProvider) Chat(
 	resp, err := session.SendAndWait(ctx, copilot.MessageOptions{
 		Prompt: string(fullcontent),
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("copilot SendAndWait failed: %w", err)
 	}

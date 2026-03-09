@@ -28,7 +28,7 @@ type Options struct {
 	Force         bool
 	Refresh       bool
 	OpenClawHome  string
-	GclawHome  string
+	GclawHome     string
 }
 
 type Action struct {

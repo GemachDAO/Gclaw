@@ -11,8 +11,8 @@ import (
 // TelepathyMessage is a message exchanged between parent and child agents.
 type TelepathyMessage struct {
 	FromAgentID string `json:"from"`
-	ToAgentID   string `json:"to"`        // "*" for broadcast to all family
-	Type        string `json:"type"`      // "trade_signal", "market_insight", "strategy_update", "warning", "goodwill_share"
+	ToAgentID   string `json:"to"`   // "*" for broadcast to all family
+	Type        string `json:"type"` // "trade_signal", "market_insight", "strategy_update", "warning", "goodwill_share"
 	Content     string `json:"content"`
 	Timestamp   int64  `json:"timestamp"`
 	Priority    int    `json:"priority"` // 0=low, 1=normal, 2=urgent
@@ -20,10 +20,10 @@ type TelepathyMessage struct {
 
 // TradeSignal carries a structured trade recommendation.
 type TradeSignal struct {
-	Action        string  `json:"action"`          // "buy", "sell", "watch"
+	Action        string  `json:"action"` // "buy", "sell", "watch"
 	TokenAddress  string  `json:"token_address"`
 	ChainID       int     `json:"chain_id"`
-	Confidence    float64 `json:"confidence"`      // 0.0-1.0
+	Confidence    float64 `json:"confidence"` // 0.0-1.0
 	Reasoning     string  `json:"reasoning"`
 	PriceAtSignal float64 `json:"price_at_signal"`
 }

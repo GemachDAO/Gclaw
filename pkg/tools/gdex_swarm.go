@@ -43,7 +43,15 @@ func (t *SwarmTool) Parameters() map[string]any {
 			"action": map[string]any{
 				"type":        "string",
 				"description": "Action to perform",
-				"enum":        []string{"add_member", "remove_member", "list_members", "submit_signal", "run_consensus", "broadcast_strategy", "get_status"},
+				"enum": []string{
+					"add_member",
+					"remove_member",
+					"list_members",
+					"submit_signal",
+					"run_consensus",
+					"broadcast_strategy",
+					"get_status",
+				},
 			},
 			"agent_id": map[string]any{
 				"type":        "string",
@@ -193,7 +201,9 @@ func (t *SwarmTool) submitSignal(args map[string]any) *ToolResult {
 	if err := t.coordinator.SubmitSignal(sig); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to submit signal: %v", err))
 	}
-	return SilentResult(fmt.Sprintf("signal submitted: %s %s (confidence=%.2f)", actionSignal, tokenAddress, confidence))
+	return SilentResult(
+		fmt.Sprintf("signal submitted: %s %s (confidence=%.2f)", actionSignal, tokenAddress, confidence),
+	)
 }
 
 func (t *SwarmTool) runConsensus(args map[string]any) *ToolResult {

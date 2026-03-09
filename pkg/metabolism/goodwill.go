@@ -2,13 +2,13 @@ package metabolism
 
 // Goodwill point values for common events.
 const (
-	GoodwillProfitableTrade   = 10  // Trade with >5% profit
-	GoodwillUserThanks        = 5   // User explicitly thanks agent
-	GoodwillTaskComplete      = 3   // Successfully completed a task
-	GoodwillHelpAgent         = 2   // Helped another agent (subagent spawn)
-	GoodwillBadTrade          = -8  // Trade with >10% loss
-	GoodwillFailedTask        = -2  // Failed to complete task
-	GoodwillSelfFundInference = 15  // Agent successfully paid for its own LLM inference
+	GoodwillProfitableTrade   = 10 // Trade with >5% profit
+	GoodwillUserThanks        = 5  // User explicitly thanks agent
+	GoodwillTaskComplete      = 3  // Successfully completed a task
+	GoodwillHelpAgent         = 2  // Helped another agent (subagent spawn)
+	GoodwillBadTrade          = -8 // Trade with >10% loss
+	GoodwillFailedTask        = -2 // Failed to complete task
+	GoodwillSelfFundInference = 15 // Agent successfully paid for its own LLM inference
 )
 
 // GoodwillTracker wraps Metabolism.AddGoodwill with domain-specific helpers.

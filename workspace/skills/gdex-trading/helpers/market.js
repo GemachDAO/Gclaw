@@ -1,49 +1,78 @@
 #!/usr/bin/env node
 /**
- * GDEX Market Data Helper
- * Reads a JSON action descriptor from stdin, fetches market data, and writes JSON result to stdout.
+ * GDEX Market Data Helper (v2 — @gdexsdk/gdex-skill)
+ * Reads a JSON action descriptor from stdin, fetches market/portfolio data, and writes JSON to stdout.
  *
  * Input JSON:
- *   { "action": "trending"|"search"|"price"|"holdings"|"scan"|"copy_trade"|"hl_balance"|"hl_positions"|"hl_deposit"|"hl_create_order"|"hl_cancel_order",
+ *   { "action": "trending"|"search"|"price"|"holdings"|"scan"|
+ *               "copy_trade"|"hl_balance"|"hl_positions"|"hl_deposit"|
+ *               "hl_create_order"|"hl_cancel_order",
  *     "params": { ... } }
  *
  * Output JSON:
  *   { "success": true, "data": { ... } }  or  { "success": false, "error": "..." }
+ *
+ * Environment variables:
+ *   GDEX_API_KEY    — required for all operations
+ *   WALLET_ADDRESS  — required for holdings, copy_trade, hl_* operations
+ *   PRIVATE_KEY     — required for copy_trade, hl_deposit, hl_create_order, hl_cancel_order
  */
 
-import { createHash, createCipheriv } from 'crypto';
-import { createAuthenticatedSession, CryptoUtils } from 'gdex.pro-sdk';
+'use strict';
 
-const API_URL = 'https://trade-api.gemach.io/v1';
+const {
+  GdexSkill,
+  GDEX_API_KEY_PRIMARY,
+  generateGdexSessionKeyPair,
+  buildGdexSignInMessage,
+  buildGdexSignInComputedData,
+  buildGdexUserSessionData,
+} = require('@gdexsdk/gdex-skill');
+const { ethers } = require('ethers');
 
-const HL_HEADERS = {
-  'Origin': 'https://gdex.pro',
-  'Referer': 'https://gdex.pro/',
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Content-Type': 'application/json',
-};
+const apiKey = process.env.GDEX_API_KEY || GDEX_API_KEY_PRIMARY;
+const walletAddress = process.env.WALLET_ADDRESS || '';
+const privateKey = process.env.PRIVATE_KEY || '';
 
-function encryptHL(data, key) {
-  const keyHash = createHash('sha256').update(key).digest('hex');
-  const aesKey = Buffer.from(keyHash.slice(0, 64), 'hex');
-  const ivHash = createHash('sha256').update(keyHash).digest('hex').slice(0, 32);
-  const iv = Buffer.from(ivHash, 'hex');
-  const cipher = createCipheriv('aes-256-cbc', aesKey, iv);
-  let encrypted = cipher.update(data, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return encrypted;
-}
-
-const apiKey = process.env.GDEX_API_KEY;
-const walletAddress = process.env.WALLET_ADDRESS;
-const privateKey = process.env.PRIVATE_KEY;
-
-if (!apiKey || !walletAddress || !privateKey) {
+if (!apiKey) {
   process.stdout.write(JSON.stringify({
     success: false,
-    error: 'Missing required environment variables: GDEX_API_KEY, WALLET_ADDRESS, PRIVATE_KEY',
+    error: 'Missing required environment variable: GDEX_API_KEY',
   }));
   process.exit(1);
+}
+
+// signIn performs the full managed-custody sign-in and returns session credentials.
+// chainId: 1 for EVM/HL operations, 622112261 for Solana copy trade.
+async function signIn(skill, chainId) {
+  if (!walletAddress || !privateKey) {
+    throw new Error('WALLET_ADDRESS and PRIVATE_KEY are required for this operation');
+  }
+  const { sessionPrivateKey, sessionKey } = generateGdexSessionKeyPair();
+  const userId = walletAddress.toLowerCase();
+  const nonce = String(Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000));
+  const message = buildGdexSignInMessage(walletAddress, nonce, sessionKey);
+  const wallet = new ethers.Wallet(privateKey);
+  const signature = await wallet.signMessage(message);
+  const signInPayload = buildGdexSignInComputedData({
+    apiKey,
+    userId: walletAddress,
+    sessionKey,
+    nonce,
+    signature,
+  });
+  await skill.signInWithComputedData({
+    computedData: signInPayload.computedData,
+    chainId,
+  });
+  return { sessionPrivateKey, sessionKey, userId };
+}
+
+// isAddress returns true if the query looks like an EVM or Solana contract address.
+function isAddress(q) {
+  if (/^0x[0-9a-fA-F]{40,}$/.test(q)) return true;    // EVM address
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(q)) return true; // Solana base58
+  return false;
 }
 
 let inputData = '';
@@ -59,123 +88,187 @@ process.stdin.on('end', async () => {
   }
 
   const { action, params } = request;
+  const chainId = params.chain_id != null ? Number(params.chain_id) : 622112261;
 
   try {
-    const session = await createAuthenticatedSession({
-      apiKey,
-      walletAddress,
-      privateKey,
-    });
+    const skill = new GdexSkill({ timeout: 45000, maxRetries: 2 });
+    skill.loginWithApiKey(apiKey);
 
     let result;
     switch (action) {
+
+      // ── Market Data (API key only) ───────────────────────────────────────
+
       case 'trending':
-        result = await session.getTrending({
-          limit: params.limit ?? 10,
-          chainId: params.chain_id,
+        result = await skill.getTrendingTokens({
+          chain: chainId,
+          period: params.period || '24h',
+          limit: params.limit != null ? Number(params.limit) : 10,
         });
         break;
-      case 'search':
-        result = await session.searchTokens({
-          query: params.query,
-          limit: params.limit ?? 10,
-        });
+
+      case 'search': {
+        const query = params.query;
+        if (!query) {
+          process.stdout.write(JSON.stringify({ success: false, error: 'query is required' }));
+          process.exit(1);
+        }
+        if (isAddress(query)) {
+          result = await skill.getTokenDetails({ chain: chainId, tokenAddress: query });
+        } else {
+          // No direct name-search endpoint — return trending tokens as discovery aid.
+          const trending = await skill.getTrendingTokens({
+            chain: chainId,
+            period: '24h',
+            limit: params.limit != null ? Number(params.limit) : 20,
+          });
+          const q = query.toLowerCase();
+          const filtered = trending.filter(
+            (t) =>
+              (t.symbol && t.symbol.toLowerCase().includes(q)) ||
+              (t.name && t.name.toLowerCase().includes(q))
+          );
+          result = filtered.length > 0 ? filtered : trending.slice(0, params.limit ?? 10);
+        }
         break;
+      }
+
       case 'price':
-        result = await session.getPrice({
+        result = await skill.getTokenDetails({
+          chain: chainId,
           tokenAddress: params.token_address,
-          chainId: params.chain_id,
         });
         break;
-      case 'holdings':
-        result = await session.getHoldings();
-        break;
+
       case 'scan':
-        result = await session.getNewest({
-          chainId: params.chain_id ?? 622112261,
-          limit: params.limit ?? 20,
+        // Return recent trending tokens (1h period = most recently active tokens).
+        result = await skill.getTrendingTokens({
+          chain: chainId,
+          period: '1h',
+          limit: params.limit != null ? Number(params.limit) : 20,
         });
         break;
-      case 'copy_trade':
-        result = await session.setCopyTrade({
-          targetAddress: params.target_address,
-          name: params.name,
-          amount: params.amount,
-          chainId: params.chain_id ?? 622112261,
+
+      // ── Portfolio / Holdings ─────────────────────────────────────────────
+
+      case 'holdings': {
+        // Portfolio queries require a session key per the backend API contract.
+        // Requires WALLET_ADDRESS + PRIVATE_KEY for full session-based auth.
+        const { sessionKey } = await signIn(skill, chainId);
+        const data = buildGdexUserSessionData(sessionKey, apiKey);
+        result = await skill.client.get('/v1/balances', {
+          params: { userId: walletAddress.toLowerCase(), chainId, data },
         });
         break;
-      case 'hl_balance':
-        result = await session.hlGetBalance();
+      }
+
+      // ── Copy Trading (Solana, full sign-in) ───────────────────────────────
+
+      case 'copy_trade': {
+        // Solana copy trades sign in with the Solana chain ID.
+        const { sessionPrivateKey, userId } = await signIn(skill, 622112261);
+        result = await skill.createCopyTrade({
+          apiKey,
+          userId,
+          sessionPrivateKey,
+          chainId: 622112261,
+          traderWallet: params.target_address,
+          copyTradeName: params.name,
+          buyMode: 1,
+          copyBuyAmount: params.amount,
+          lossPercent: params.loss_percent != null ? String(params.loss_percent) : '50',
+          profitPercent: params.profit_percent != null ? String(params.profit_percent) : '100',
+          copySell: true,
+          isBuyExistingToken: true,
+          excludedDexNumbers: [],
+        });
         break;
-      case 'hl_positions':
-        result = await session.hlGetPositions();
+      }
+
+      // ── HyperLiquid Read (no auth, reads from HL L1) ──────────────────────
+
+      case 'hl_balance': {
+        const addr = params.wallet_address || walletAddress;
+        if (!addr) {
+          process.stdout.write(JSON.stringify({
+            success: false,
+            error: 'wallet_address param or WALLET_ADDRESS env var is required',
+          }));
+          process.exit(1);
+        }
+        result = await skill.getHlAccountState(addr);
         break;
+      }
+
+      case 'hl_positions': {
+        const addr = params.wallet_address || walletAddress;
+        if (!addr) {
+          process.stdout.write(JSON.stringify({
+            success: false,
+            error: 'wallet_address param or WALLET_ADDRESS env var is required',
+          }));
+          process.exit(1);
+        }
+        result = await skill.getPerpPositions({
+          walletAddress: addr,
+          coin: params.coin,
+        });
+        break;
+      }
+
+      // ── HyperLiquid Write (full sign-in with EVM chainId=1) ───────────────
+
       case 'hl_deposit': {
-        const singleApiKey = apiKey.split(',')[0].trim();
-        const userId = session.walletAddress.toLowerCase();
-        const nonce = (Date.now() + Math.floor(Math.random() * 1000)).toString();
-        const chainId = params.chain_id ?? 42161;
-        const tokenAddress = params.token_address ?? '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';
-        const amount = params.amount ?? '10000000';
-        const encodedData = CryptoUtils.encodeInputData('hl_deposit', {
-          chainId, tokenAddress, amount, nonce,
+        const { sessionPrivateKey } = await signIn(skill, 1);
+        result = await skill.perpDeposit({
+          amount: params.amount,
+          tokenAddress: params.token_address || '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+          chainId: params.chain_id != null ? Number(params.chain_id) : 42161,
+          apiKey,
+          walletAddress,
+          sessionPrivateKey,
         });
-        const signature = CryptoUtils.sign(`hl_deposit-${userId}-${encodedData}`, session.tradingPrivateKey);
-        const payload = { userId, data: encodedData, signature, apiKey: singleApiKey };
-        const computedData = encryptHL(JSON.stringify(payload), singleApiKey);
-        const res = await fetch(`${API_URL}/hl/deposit`, {
-          method: 'POST', headers: HL_HEADERS,
-          body: JSON.stringify({ computedData }),
-        });
-        result = await res.json();
         break;
       }
+
       case 'hl_create_order': {
-        const singleApiKey = apiKey.split(',')[0].trim();
-        const userId = session.walletAddress.toLowerCase();
-        const nonce = (Date.now() + Math.floor(Math.random() * 1000)).toString();
-        const orderParams = {
-          coin: params.coin ?? 'ETH',
-          isLong: params.is_long ?? true,
-          price: params.price,
+        const { sessionPrivateKey } = await signIn(skill, 1);
+        result = await skill.hlCreateOrder({
+          coin: params.coin || 'ETH',
+          isLong: params.is_long != null ? Boolean(params.is_long) : true,
+          price: params.price || '0',
           size: params.size,
-          reduceOnly: params.reduce_only ?? false,
-          nonce,
-          tpPrice: params.tp_price ?? '0',
-          slPrice: params.sl_price ?? '0',
-          isMarket: params.is_market ?? false,
-        };
-        const encodedData = CryptoUtils.encodeInputData('hl_create_order', orderParams);
-        const signature = CryptoUtils.sign(`hl_create_order-${userId}-${encodedData}`, session.tradingPrivateKey);
-        const payload = { userId, data: encodedData, signature, apiKey: singleApiKey };
-        const computedData = encryptHL(JSON.stringify(payload), singleApiKey);
-        const res = await fetch(`${API_URL}/hl/create_order`, {
-          method: 'POST', headers: HL_HEADERS,
-          body: JSON.stringify({ computedData }),
+          reduceOnly: params.reduce_only != null ? Boolean(params.reduce_only) : false,
+          isMarket: params.is_market != null ? Boolean(params.is_market) : false,
+          tpPrice: params.tp_price || '0',
+          slPrice: params.sl_price || '0',
+          apiKey,
+          walletAddress,
+          sessionPrivateKey,
         });
-        result = await res.json();
         break;
       }
+
       case 'hl_cancel_order': {
-        const singleApiKey = apiKey.split(',')[0].trim();
-        const userId = session.walletAddress.toLowerCase();
-        const cancelNonce = (Date.now() + Math.floor(Math.random() * 1000)).toString();
-        const cancelParams = {
-          nonce: cancelNonce,
-          coin: params.coin ?? 'ETH',
-          orderId: params.order_id,
-        };
-        const encodedData = CryptoUtils.encodeInputData('hl_cancel_order', cancelParams);
-        const signature = CryptoUtils.sign(`hl_cancel_order-${userId}-${encodedData}`, session.tradingPrivateKey);
-        const payload = { userId, data: encodedData, signature, apiKey: singleApiKey };
-        const computedData = encryptHL(JSON.stringify(payload), singleApiKey);
-        const res = await fetch(`${API_URL}/hl/cancel_order`, {
-          method: 'POST', headers: HL_HEADERS,
-          body: JSON.stringify({ computedData, isCancelAll: false }),
-        });
-        result = await res.json();
+        const { sessionPrivateKey } = await signIn(skill, 1);
+        if (params.cancel_all) {
+          result = await skill.hlCancelAllOrders({
+            apiKey,
+            walletAddress,
+            sessionPrivateKey,
+          });
+        } else {
+          result = await skill.hlCancelOrder({
+            coin: params.coin || 'ETH',
+            orderId: params.order_id,
+            apiKey,
+            walletAddress,
+            sessionPrivateKey,
+          });
+        }
         break;
       }
+
       default:
         process.stdout.write(JSON.stringify({ success: false, error: 'Unknown action: ' + action }));
         process.exit(1);

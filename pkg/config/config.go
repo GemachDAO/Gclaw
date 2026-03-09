@@ -480,11 +480,11 @@ type ToolsConfig struct {
 
 // MetabolismConfig holds configuration for the GMAC metabolism engine.
 type MetabolismConfig struct {
-	Enabled            bool    `json:"enabled"                  env:"GCLAW_METABOLISM_ENABLED"`
-	InitialGMAC        float64 `json:"initial_gmac"             env:"GCLAW_METABOLISM_INITIAL_GMAC"`
-	HeartbeatCost      float64 `json:"heartbeat_cost"           env:"GCLAW_METABOLISM_HEARTBEAT_COST"`
+	Enabled            bool    `json:"enabled"                      env:"GCLAW_METABOLISM_ENABLED"`
+	InitialGMAC        float64 `json:"initial_gmac"                 env:"GCLAW_METABOLISM_INITIAL_GMAC"`
+	HeartbeatCost      float64 `json:"heartbeat_cost"               env:"GCLAW_METABOLISM_HEARTBEAT_COST"`
 	InferenceCostPer1k float64 `json:"inference_cost_per_1k_tokens" env:"GCLAW_METABOLISM_INFERENCE_COST_PER_1K"`
-	SurvivalThreshold  float64 `json:"survival_threshold"       env:"GCLAW_METABOLISM_SURVIVAL_THRESHOLD"`
+	SurvivalThreshold  float64 `json:"survival_threshold"           env:"GCLAW_METABOLISM_SURVIVAL_THRESHOLD"`
 	Thresholds         struct {
 		Replicate   int `json:"replicate"`
 		SelfRecode  int `json:"self_recode"`
@@ -514,8 +514,8 @@ type DashboardConfig struct {
 // GmacTokenConfig holds the known GMAC token contract addresses across chains.
 type GmacTokenConfig struct {
 	Ethereum    string `json:"ethereum"`     // ERC-20 on Ethereum mainnet
-	Arbitrum    string `json:"arbitrum"`      // Bridged on Arbitrum
-	Solana      string `json:"solana"`        // SPL token on Solana
+	Arbitrum    string `json:"arbitrum"`     // Bridged on Arbitrum
+	Solana      string `json:"solana"`       // SPL token on Solana
 	CoinGeckoID string `json:"coingecko_id"` // CoinGecko identifier for price feeds
 }
 
@@ -524,14 +524,14 @@ type GmacTokenConfig struct {
 // enforcement by the agent; current tool implementations delegate to the
 // Node.js helpers which use their own defaults.
 type GDEXConfig struct {
-	Enabled          bool    `json:"enabled"             env:"GDEX_ENABLED"`
-	APIKey           string  `json:"api_key"             env:"GDEX_API_KEY"`
-	WalletAddress    string  `json:"wallet_address"      env:"WALLET_ADDRESS"`
-	PrivateKey       string  `json:"private_key"         env:"PRIVATE_KEY"`
-	DefaultChainID   int64   `json:"default_chain_id"    env:"GDEX_DEFAULT_CHAIN_ID"`
-	MaxTradeSizeSOL  float64 `json:"max_trade_size_sol"  env:"GDEX_MAX_TRADE_SIZE_SOL"`
-	AutoTrade        bool             `json:"auto_trade"          env:"GDEX_AUTO_TRADE"`
-	GmacToken        GmacTokenConfig  `json:"gmac_token"`
+	Enabled         bool            `json:"enabled"            env:"GDEX_ENABLED"`
+	APIKey          string          `json:"api_key"            env:"GDEX_API_KEY"`
+	WalletAddress   string          `json:"wallet_address"     env:"WALLET_ADDRESS"`
+	PrivateKey      string          `json:"private_key"        env:"PRIVATE_KEY"`
+	DefaultChainID  int64           `json:"default_chain_id"   env:"GDEX_DEFAULT_CHAIN_ID"`
+	MaxTradeSizeSOL float64         `json:"max_trade_size_sol" env:"GDEX_MAX_TRADE_SIZE_SOL"`
+	AutoTrade       bool            `json:"auto_trade"         env:"GDEX_AUTO_TRADE"`
+	GmacToken       GmacTokenConfig `json:"gmac_token"`
 }
 
 type SkillsToolsConfig struct {

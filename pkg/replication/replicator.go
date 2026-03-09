@@ -74,7 +74,11 @@ type GoodwillSource interface {
 // Replicate creates a new child agent, copying config, skills, and memory
 // from the parent. It returns the ChildAgent descriptor or an error.
 // parentGMAC is passed by pointer so the share can be deducted in-place.
-func (r *Replicator) Replicate(parentConfig *config.Config, parentWorkspace string, parentGMAC *float64) (*ChildAgent, error) {
+func (r *Replicator) Replicate(
+	parentConfig *config.Config,
+	parentWorkspace string,
+	parentGMAC *float64,
+) (*ChildAgent, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -212,13 +216,16 @@ func deepCopyConfig(src *config.Config) (*config.Config, error) {
 func copyDir(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {
+		if !os.IsNotExist(err) {
+			return err // unexpected stat error
+		}
 		return nil // source does not exist, skip
 	}
 	if !info.IsDir() {
 		return nil
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
+	if mkErr := os.MkdirAll(dst, 0o755); mkErr != nil {
+		return mkErr
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {

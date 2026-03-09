@@ -13,7 +13,7 @@ import (
 
 // RecodeAction records a single self-modification applied by the agent.
 type RecodeAction struct {
-	Type      string `json:"type"`      // "prompt", "cron", "skill", "trading_param"
+	Type      string `json:"type"` // "prompt", "cron", "skill", "trading_param"
 	Details   string `json:"details"`
 	Timestamp int64  `json:"timestamp"`
 	Approved  bool   `json:"approved"` // self-approved via goodwill
@@ -47,9 +47,6 @@ func (rc *Recoder) ModifySystemPrompt(addition string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	for i := range cfg.Agents.List {
-		cfg.Agents.List[i].Name = cfg.Agents.List[i].Name // no-op; prompt is stored externally
-	}
 	// Append a marker comment to the defaults workspace path for persistence of prompt note.
 	// The actual system prompt is maintained by the agent loop from a separate file;
 	// we record the action here and write the addition to a prompt-additions file.
