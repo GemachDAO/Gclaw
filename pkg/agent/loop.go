@@ -167,7 +167,7 @@ func registerSharedTools(
 
 		// x402 payment tool — registered when x402 is configured
 		if cfg.Tools.X402.Enabled {
-			walletAddr := cfg.Tools.X402.Network
+			walletAddr := ""
 			privKey := ""
 			// Reuse GDEX wallet credentials for x402 payments when available.
 			if cfg.Tools.GDEX.WalletAddress != "" {
