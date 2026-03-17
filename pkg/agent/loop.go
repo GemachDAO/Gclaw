@@ -180,19 +180,26 @@ func registerSharedTools(
 			if network == "" {
 				network = "base"
 			}
-			x402Client, err := x402.NewClient(x402.ClientConfig{
-				WalletAddress:    walletAddr,
-				PrivateKey:       privKey,
-				Network:          network,
-				FacilitatorURL:   cfg.Tools.X402.FacilitatorURL,
-				MaxPaymentAmount: cfg.Tools.X402.MaxPaymentAmount,
-				Proxy:            cfg.Tools.Web.Proxy,
-			})
-			if err == nil {
-				agent.Tools.Register(tools.NewX402FetchTool(x402Client))
+			// Validate wallet credentials before creating the x402 client to avoid
+			// late runtime signing failures when credentials are missing.
+			if walletAddr == "" || privKey == "" {
+				logger.WarnCF("agent", "x402 is enabled but wallet credentials are missing; skipping x402 tool registration",
+					map[string]any{"agent": agentID})
 			} else {
-				logger.WarnCF("agent", "Failed to create x402 client",
-					map[string]any{"agent": agentID, "error": err.Error()})
+				x402Client, err := x402.NewClient(x402.ClientConfig{
+					WalletAddress:    walletAddr,
+					PrivateKey:       privKey,
+					Network:          network,
+					FacilitatorURL:   cfg.Tools.X402.FacilitatorURL,
+					MaxPaymentAmount: cfg.Tools.X402.MaxPaymentAmount,
+					Proxy:            cfg.Tools.Web.Proxy,
+				})
+				if err == nil {
+					agent.Tools.Register(tools.NewX402FetchTool(x402Client))
+				} else {
+					logger.WarnCF("agent", "Failed to create x402 client",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
 			}
 		}
 
