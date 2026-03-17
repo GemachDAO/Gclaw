@@ -1,0 +1,8 @@
+{
+  "name": "x402-payment-helpers",
+  "version": "1.0.0",
+  "description": "Helper scripts for x402 payment signing (EIP-3009 transferWithAuthorization)",
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}
