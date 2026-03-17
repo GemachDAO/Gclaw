@@ -237,13 +237,17 @@ func (c *Client) signPayment(ctx context.Context, req *PaymentRequirement) ([]by
 	cmd.Stdin = bytes.NewReader(inputJSON)
 	cmd.Env = os.Environ()
 
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		var stderr string
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			stderr = string(exitErr.Stderr)
+		// Try to parse a structured error from the helper's output.
+		var check map[string]any
+		if jsonErr := json.Unmarshal(out, &check); jsonErr == nil {
+			if errMsg, ok := check["error"].(string); ok && errMsg != "" {
+				return nil, fmt.Errorf("x402 sign helper error: %s", errMsg)
+			}
 		}
-		return nil, fmt.Errorf("x402 sign helper failed: %w — %s", err, stderr)
+		// Fall back to including the raw combined output for debugging.
+		return nil, fmt.Errorf("x402 sign helper failed: %w — %s", err, strings.TrimSpace(string(out)))
 	}
 
 	// Validate the output is valid JSON.
