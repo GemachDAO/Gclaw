@@ -57,10 +57,13 @@ The agent sends an `Authorization: Payment <base64url>` header containing:
 
 ## Supported Intents
 
+Only one-time `charge` intents are currently supported by this skill.
+
 | Intent    | Description                                      |
 |-----------|--------------------------------------------------|
 | `charge`  | One-time TIP-20 token transfer                   |
-| `session` | Pay-as-you-go streaming via payment channels     |
+
+> Note: `session` / streaming intents are part of the MPP specification but are **not yet supported** by this helper. They will be documented here once end-to-end support is implemented.
 
 ## Tempo Chain Details
 
