@@ -42,9 +42,9 @@ func (t *X402FetchTool) Parameters() map[string]any {
 			},
 			"method": map[string]any{
 				"type":        "string",
-				"description": "HTTP method (GET, POST, PUT, DELETE). Defaults to GET.",
-				"enum":        []string{"GET", "POST", "PUT", "DELETE"},
+				"description": "HTTP method (e.g., GET, POST, PUT, DELETE). Defaults to GET.",
 			},
+
 			"headers": map[string]any{
 				"type":        "object",
 				"description": "Optional HTTP headers as key-value pairs.",
