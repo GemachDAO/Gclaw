@@ -138,7 +138,15 @@ function parseChallenge(wwwAuthenticate) {
  * Create a signed payment credential for a Tempo charge challenge.
  */
 async function handleCharge(challenge, account, walletClient) {
-  const { request } = challenge;
+  // Preserve the original request value as received in the challenge.
+  const rawRequest = challenge.request;
+
+  // Decode the request separately for signing / budgeting logic.
+  const request =
+    typeof rawRequest === "string"
+      ? JSON.parse(Buffer.from(rawRequest, "base64url").toString("utf8"))
+      : rawRequest;
+
   const amount = BigInt(request.amount);
   const currency = request.currency;
   const recipient = request.recipient;
@@ -175,11 +183,12 @@ async function handleCharge(challenge, account, walletClient) {
 
   const signature = await walletClient.signTransaction(tx);
 
-  // Build the credential.
+  // Build the credential. Use the original request string (if any)
+  // instead of re-serializing the decoded object to base64url.
   const credential = {
     challenge: {
       ...challenge,
-      request: serializeToBase64url(challenge.request),
+      request: rawRequest,
     },
     payload: {
       signature: signature,
