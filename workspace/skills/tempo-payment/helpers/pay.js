@@ -243,6 +243,24 @@ async function main() {
     if (!key.startsWith("0x")) key = "0x" + key;
 
     const account = privateKeyToAccount(key);
+
+    // If a wallet_address is provided, ensure it matches the derived address.
+    if (wallet_address) {
+      let providedAddress = wallet_address;
+      if (!providedAddress.startsWith("0x")) {
+        providedAddress = "0x" + providedAddress;
+      }
+      if (providedAddress.toLowerCase() !== account.address.toLowerCase()) {
+        console.log(
+          JSON.stringify({
+            error:
+              "wallet_address does not match the address derived from private_key",
+          })
+        );
+        process.exit(1);
+      }
+    }
+
     const walletClient = createWalletClient({
       account,
       chain: tempo,
