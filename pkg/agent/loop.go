@@ -183,7 +183,8 @@ func registerSharedTools(
 			// Validate wallet credentials before creating the x402 client to avoid
 			// late runtime signing failures when credentials are missing.
 			if walletAddr == "" || privKey == "" {
-				logger.WarnCF("agent", "x402 is enabled but wallet credentials are missing; skipping x402 tool registration",
+				logger.WarnCF("agent",
+					"x402 enabled but wallet credentials missing; skipping",
 					map[string]any{"agent": agentID})
 			} else {
 				x402Client, err := x402.NewClient(x402.ClientConfig{

@@ -7,9 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/GemachDAO/Gclaw/pkg/x402"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
 func TestX402FetchToolName(t *testing.T) {

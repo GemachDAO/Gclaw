@@ -83,7 +83,12 @@ type FetchResult struct {
 
 // Fetch makes an HTTP request. If the server responds with 402, the client
 // automatically signs a payment and retries the request with the X-PAYMENT header.
-func (c *Client) Fetch(ctx context.Context, method, rawURL string, headers map[string]string, body []byte) (*FetchResult, error) {
+func (c *Client) Fetch(
+	ctx context.Context,
+	method, rawURL string,
+	headers map[string]string,
+	body []byte,
+) (*FetchResult, error) {
 	// Initial request.
 	resp, respBody, err := c.doRequest(ctx, method, rawURL, headers, body, "")
 	if err != nil {
@@ -101,8 +106,9 @@ func (c *Client) Fetch(ctx context.Context, method, rawURL string, headers map[s
 
 	// Parse payment requirements from 402 body.
 	var reqResp PaymentRequirementsResponse
-	if err := json.Unmarshal(respBody, &reqResp); err != nil {
-		return nil, fmt.Errorf("x402: failed to parse 402 payment requirements: %w", err)
+	parseErr := json.Unmarshal(respBody, &reqResp)
+	if parseErr != nil {
+		return nil, fmt.Errorf("x402: failed to parse 402 payment requirements: %w", parseErr)
 	}
 
 	if len(reqResp.Accepts) == 0 {
@@ -131,7 +137,10 @@ func (c *Client) Fetch(ctx context.Context, method, rawURL string, headers map[s
 	}
 	maxAmt, err := strconv.ParseInt(maxAmtStr, 10, 64)
 	if err != nil || maxAmt < 0 {
-		return nil, fmt.Errorf("x402: selected payment option has invalid maxAmountRequired %q", requirement.MaxAmountRequired)
+		return nil, fmt.Errorf(
+			"x402: selected payment option has invalid maxAmountRequired %q",
+			requirement.MaxAmountRequired,
+		)
 	}
 
 	// Budget check.
@@ -173,7 +182,13 @@ func (c *Client) Fetch(ctx context.Context, method, rawURL string, headers map[s
 	}, nil
 }
 
-func (c *Client) doRequest(ctx context.Context, method, rawURL string, headers map[string]string, body []byte, paymentHeader string) (*http.Response, []byte, error) {
+func (c *Client) doRequest(
+	ctx context.Context,
+	method, rawURL string,
+	headers map[string]string,
+	body []byte,
+	paymentHeader string,
+) (*http.Response, []byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -305,7 +320,7 @@ func withinBudget(requested, maxBudget string) bool {
 
 var (
 	x402DepsOnce sync.Once
-	x402DepsErr  error
+	errX402Deps  error
 )
 
 func x402HelperDir() string {
@@ -334,12 +349,12 @@ func ensureX402Deps() error {
 		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
-			x402DepsErr = fmt.Errorf("failed to install x402 helper dependencies: %w — %s", err, string(out))
+			errX402Deps = fmt.Errorf("failed to install x402 helper dependencies: %w — %s", err, string(out))
 			logger.ErrorCF("x402", "npm install failed for x402 helpers",
-				map[string]any{"error": x402DepsErr.Error()})
+				map[string]any{"error": errX402Deps.Error()})
 		} else {
 			logger.InfoCF("x402", "x402 helpers: dependencies installed", nil)
 		}
 	})
-	return x402DepsErr
+	return errX402Deps
 }

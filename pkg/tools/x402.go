@@ -115,11 +115,11 @@ func (t *X402FetchTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	}
 
 	output := map[string]any{
-		"url":        urlStr,
-		"status":     result.StatusCode,
-		"truncated":  truncated,
-		"length":     len(text),
-		"text":       text,
+		"url":       urlStr,
+		"status":    result.StatusCode,
+		"truncated": truncated,
+		"length":    len(text),
+		"text":      text,
 	}
 
 	if result.PaidAmount != "" {

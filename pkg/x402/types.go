@@ -29,14 +29,14 @@ type PaymentRequirementsResponse struct {
 
 // PaymentRequirement describes a single payment option the server accepts.
 type PaymentRequirement struct {
-	Scheme           string                 `json:"scheme"`           // "exact"
-	Network          string                 `json:"network"`          // e.g. "base", "base-sepolia", "ethereum"
-	MaxAmountRequired string                `json:"maxAmountRequired"` // amount in token smallest unit
-	Resource         string                 `json:"resource"`         // URL of the paid resource
-	Description      string                 `json:"description"`      // human-readable description
-	MimeType         string                 `json:"mimeType"`         // expected response content type
-	PayTo            string                 `json:"payTo"`            // recipient wallet address
-	Extra            map[string]any         `json:"extra,omitempty"`  // token contract info (name, version, chainId, tokenAddress)
+	Scheme            string         `json:"scheme"`            // "exact"
+	Network           string         `json:"network"`           // e.g. "base", "base-sepolia", "ethereum"
+	MaxAmountRequired string         `json:"maxAmountRequired"` // amount in token smallest unit
+	Resource          string         `json:"resource"`          // URL of the paid resource
+	Description       string         `json:"description"`       // human-readable description
+	MimeType          string         `json:"mimeType"`          // expected response content type
+	PayTo             string         `json:"payTo"`             // recipient wallet address
+	Extra             map[string]any `json:"extra,omitempty"`   // token contract info
 }
 
 // PaymentHeader is the JSON structure sent as the X-PAYMENT header value
@@ -50,7 +50,7 @@ type PaymentHeader struct {
 
 // PaymentPayload contains the signed EIP-3009 authorization.
 type PaymentPayload struct {
-	Signature     string               `json:"signature"`
+	Signature     string                `json:"signature"`
 	Authorization TransferAuthorization `json:"authorization"`
 }
 
@@ -102,8 +102,8 @@ type OnChainReg struct {
 // --- Well-known constants ---
 
 const (
-	// PaymentHeader name.
-	PaymentHeaderName = "X-PAYMENT"
+	// PaymentHeaderName is the HTTP header used to carry x402 payment proofs.
+	PaymentHeaderName = "X-Payment"
 
 	// DefaultFacilitatorURL is the Coinbase-hosted x402 facilitator.
 	DefaultFacilitatorURL = "https://x402.org/facilitator"

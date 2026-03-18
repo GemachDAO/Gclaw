@@ -476,7 +476,7 @@ type ToolsConfig struct {
 	Exec   ExecConfig        `json:"exec"`
 	Skills SkillsToolsConfig `json:"skills"`
 	GDEX   GDEXConfig        `json:"gdex"`
-	X402   X402Config         `json:"x402"`
+	X402   X402Config        `json:"x402"`
 }
 
 // X402Config holds configuration for the x402 payment protocol (ERC-8004).
@@ -484,7 +484,7 @@ type ToolsConfig struct {
 // signing USDC payments via EIP-3009 on Base or Ethereum.
 type X402Config struct {
 	Enabled          bool   `json:"enabled"            env:"GCLAW_X402_ENABLED"`
-	Network          string `json:"network"            env:"GCLAW_X402_NETWORK"`           // "base", "ethereum", or "base-sepolia"
+	Network          string `json:"network"            env:"GCLAW_X402_NETWORK"`            // "base", "ethereum", or "base-sepolia"
 	MaxPaymentAmount string `json:"max_payment_amount" env:"GCLAW_X402_MAX_PAYMENT_AMOUNT"` // max per-request payment in USDC smallest unit (e.g. "1000000" = 1 USDC)
 	FacilitatorURL   string `json:"facilitator_url"    env:"GCLAW_X402_FACILITATOR_URL"`    // optional facilitator endpoint
 }
