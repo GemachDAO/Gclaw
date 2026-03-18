@@ -2,6 +2,7 @@ package metabolism
 
 import (
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -169,6 +170,44 @@ func (m *Metabolism) GetLedger() []LedgerEntry {
 	out := make([]LedgerEntry, len(m.ledger))
 	copy(out, m.ledger)
 	return out
+}
+
+// TrimLedger removes the oldest ledger entries so that at most maxEntries
+// remain. It is a no-op when maxEntries ≤ 0 or the ledger is already within
+// the limit. Call it after Debit/Credit to bound memory use.
+func (m *Metabolism) TrimLedger(maxEntries int) {
+	if maxEntries <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.ledger) > maxEntries {
+		m.ledger = m.ledger[len(m.ledger)-maxEntries:]
+	}
+}
+
+// FlushLedger persists the current balance, goodwill, and ledger snapshot to
+// {workspace}/metabolism_state.json using an atomic write.
+func (m *Metabolism) FlushLedger(workspace string) error {
+	path := filepath.Join(workspace, "metabolism_state.json")
+	return m.SaveToFile(path)
+}
+
+// LoadState restores balance, goodwill, generation, and parentID from a
+// previously saved state file. The existing thresholds are preserved.
+func (m *Metabolism) LoadState(path string) error {
+	loaded, err := LoadFromFile(path)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.balance = loaded.balance
+	m.goodwill = loaded.goodwill
+	m.generation = loaded.generation
+	m.parentID = loaded.parentID
+	// Preserve existing thresholds — do not overwrite with saved ones.
+	return nil
 }
 
 // GetStatus returns a summary of the current metabolism state.

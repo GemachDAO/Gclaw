@@ -313,6 +313,32 @@ func (sc *SwarmCoordinator) GetLeaderID() string {
 	return sc.leaderID
 }
 
+// PruneSignals removes all signals older than maxAge from the in-memory signal
+// map. It is a no-op when maxAge ≤ 0. Empty token-address keys are deleted.
+func (sc *SwarmCoordinator) PruneSignals(maxAge time.Duration) {
+	if maxAge <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge).UnixMilli()
+
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	for token, sigs := range sc.signals {
+		fresh := sigs[:0]
+		for _, s := range sigs {
+			if s.Timestamp >= cutoff {
+				fresh = append(fresh, s)
+			}
+		}
+		if len(fresh) == 0 {
+			delete(sc.signals, token)
+		} else {
+			sc.signals[token] = fresh
+		}
+	}
+}
+
 // majorityAction returns the action with the highest vote count.
 func majorityAction(counts map[string]int) string {
 	best := ""
