@@ -4,7 +4,6 @@
   "private": true,
   "description": "Tempo MPP payment signing helpers for Gclaw",
   "dependencies": {
-    "mppx": "^0.3.0",
     "viem": "^2.30.0"
   }
 }
