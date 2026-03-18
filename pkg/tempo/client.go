@@ -112,7 +112,10 @@ func (c *Client) Fetch(
 	amount, currency := extractAmountAndCurrency(wwwAuth)
 
 	// Budget check.
-	if c.cfg.MaxPaymentAmount != "" && c.cfg.MaxPaymentAmount != "0" && amount != "" {
+	if c.cfg.MaxPaymentAmount != "" && c.cfg.MaxPaymentAmount != "0" {
+		if amount == "" {
+			return nil, fmt.Errorf("tempo: unable to extract payment amount from challenge while MaxPaymentAmount is set")
+		}
 		if !withinBudget(amount, c.cfg.MaxPaymentAmount) {
 			return nil, fmt.Errorf(
 				"tempo: payment amount %s exceeds max budget %s",
