@@ -272,9 +272,10 @@ async function main() {
     let authorization;
     if (challenge.method === "tempo" && challenge.intent === "charge") {
       authorization = await handleCharge(challenge, account, walletClient);
+    } else if (challenge.method !== "tempo") {
+      throw new Error(`unsupported payment method: ${challenge.method}`);
     } else {
-      // For unsupported intents, still attempt to handle as a generic charge.
-      authorization = await handleCharge(challenge, account, walletClient);
+      throw new Error(`unsupported payment intent: ${challenge.intent}`);
     }
 
     console.log(JSON.stringify({ authorization }));
