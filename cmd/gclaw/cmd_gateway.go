@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/agent"
@@ -21,6 +22,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/devices"
 	"github.com/GemachDAO/Gclaw/pkg/health"
 	"github.com/GemachDAO/Gclaw/pkg/heartbeat"
+	"github.com/GemachDAO/Gclaw/pkg/lifecycle"
 	"github.com/GemachDAO/Gclaw/pkg/logger"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
 	"github.com/GemachDAO/Gclaw/pkg/state"
@@ -206,21 +208,47 @@ func gatewayCmd() {
 
 	go agentLoop.Run(ctx)
 
+	// Build an ordered shutdown manager.
+	sdm := lifecycle.NewShutdownManager(10 * time.Second)
+	sdm.Register("cron", func(_ context.Context) error {
+		cronService.Stop()
+		return nil
+	})
+	sdm.Register("heartbeat", func(_ context.Context) error {
+		heartbeatService.Stop()
+		return nil
+	})
+	sdm.Register("agent", func(_ context.Context) error {
+		agentLoop.Stop()
+		return nil
+	})
+	sdm.Register("channels", func(hCtx context.Context) error {
+		channelManager.StopAll(hCtx)
+		return nil
+	})
+	sdm.Register("devices", func(_ context.Context) error {
+		deviceService.Stop()
+		return nil
+	})
+	sdm.Register("health", func(hCtx context.Context) error {
+		return healthServer.Stop(hCtx)
+	})
+	sdm.Register("provider", func(_ context.Context) error {
+		if cp, ok := provider.(providers.StatefulProvider); ok {
+			cp.Close()
+		}
+		return nil
+	})
+
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 
 	fmt.Println("\nShutting down...")
-	if cp, ok := provider.(providers.StatefulProvider); ok {
-		cp.Close()
-	}
 	cancel()
-	healthServer.Stop(context.Background())
-	deviceService.Stop()
-	heartbeatService.Stop()
-	cronService.Stop()
-	agentLoop.Stop()
-	channelManager.StopAll(ctx)
+	if err := sdm.Shutdown(context.Background()); err != nil {
+		logger.ErrorCF("gateway", "errors during shutdown", map[string]any{"error": err.Error()})
+	}
 	fmt.Println("✓ Gateway stopped")
 }
 

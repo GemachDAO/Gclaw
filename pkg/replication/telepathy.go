@@ -152,6 +152,19 @@ func (tb *TelepathyBus) addHistory(msg TelepathyMessage) {
 	}
 }
 
+// PruneHistory trims the in-memory message history to at most maxMessages
+// entries, keeping the most recent ones. It is a no-op when maxMessages ≤ 0.
+func (tb *TelepathyBus) PruneHistory(maxMessages int) {
+	if maxMessages <= 0 {
+		return
+	}
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	if len(tb.history) > maxMessages {
+		tb.history = tb.history[len(tb.history)-maxMessages:]
+	}
+}
+
 // formatFloat formats a float64 for use in message content.
 func formatFloat(f float64) string {
 	return fmt.Sprintf("%.2f", f)

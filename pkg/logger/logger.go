@@ -105,8 +105,8 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 		Level:     logLevelNames[level],
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Component: component,
-		Message:   message,
-		Fields:    fields,
+		Message:   Redact(message),
+		Fields:    redactFields(fields),
 	}
 
 	if pc, file, line, ok := runtime.Caller(2); ok {
@@ -125,7 +125,7 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 
 	var fieldStr string
 	if len(fields) > 0 {
-		fieldStr = " " + formatFields(fields)
+		fieldStr = " " + formatFields(redactFields(fields))
 	} else {
 		fieldStr = ""
 	}
@@ -134,7 +134,7 @@ func logMessage(level LogLevel, component string, message string, fields map[str
 		entry.Timestamp,
 		logLevelNames[level],
 		formatComponent(component),
-		message,
+		Redact(message),
 		fieldStr,
 	)
 

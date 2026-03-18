@@ -31,9 +31,9 @@ All 13 sub-issues of the Living Agent epic have been merged into `main`.
 
 ### 1. Core Stability
 
-* **Memory Footprint Reduction** — Optimize data structures; target <20MB on edge hardware.
-* **Config validation** — Warn on unknown keys; validate thresholds and chain IDs at startup.
-* **Graceful shutdown** — Flush metabolism ledger and close child agents cleanly on SIGINT.
+* ✅ **Memory Footprint Reduction** — `TrimLedger`, `PruneHistory`, `PruneSignals` bound memory for ledger, telepathy, and swarm signal buffers.
+* ✅ **Config validation** — `Validate()` checks metabolism/swarm/GDEX/dashboard thresholds at startup; `WarnUnknownKeys` logs warnings for unrecognized JSON keys.
+* ✅ **Graceful shutdown** — `pkg/lifecycle.ShutdownManager` executes hooks in reverse registration order on SIGINT/SIGTERM; metabolism `FlushLedger`/`LoadState` persist and restore state.
 
 ### 2. Living Agent Enhancements
 
@@ -44,9 +44,9 @@ All 13 sub-issues of the Living Agent epic have been merged into `main`.
 
 ### 3. Security Hardening
 
-* **Input Defense** — Harden tool parameter validation to prevent prompt injection.
-* **Filesystem Sandbox** — Restrict file R/W to workspace directory only.
-* **Secret redaction** — Auto-redact API keys and wallet addresses from logs.
+* ✅ **Input Defense** — `pkg/sanitize`: truncation, null-byte/control-char stripping, token address and chain ID validation.
+* ✅ **Filesystem Sandbox** — `pkg/sandbox.ValidatePath` blocks `../` traversal and symlink escapes; already wired into `read_file`/`write_file`/`list_dir` tools.
+* ✅ **Secret redaction** — `pkg/logger.Redact` auto-redacts API keys, Ethereum addresses, and Solana addresses from all log output.
 
 ### 4. Connectivity
 

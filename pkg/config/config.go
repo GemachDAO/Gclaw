@@ -599,6 +599,10 @@ func LoadConfig(path string) (*Config, error) {
 	// would silently inherit values from the DefaultConfig template at the same
 	// index position. We only reset cfg.ModelList when the user actually provides
 	// entries; when count is 0 we keep DefaultConfig's built-in list as fallback.
+
+	// Warn about unknown top-level keys before full unmarshal.
+	WarnUnknownKeys(data)
+
 	var tmp Config
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return nil, err
@@ -622,6 +626,11 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Validate model_list for uniqueness and required fields
 	if err := cfg.ValidateModelList(); err != nil {
+		return nil, err
+	}
+
+	// Validate metabolism/swarm/GDEX/dashboard thresholds
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
