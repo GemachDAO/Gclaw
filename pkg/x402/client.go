@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,6 +113,25 @@ func (c *Client) Fetch(ctx context.Context, method, rawURL string, headers map[s
 	requirement := c.selectRequirement(reqResp.Accepts)
 	if requirement == nil {
 		return nil, fmt.Errorf("x402: no compatible payment option found for network %q", c.cfg.Network)
+	}
+
+	// Validate required fields on the selected payment requirement.
+	if strings.TrimSpace(requirement.Scheme) == "" {
+		return nil, fmt.Errorf("x402: selected payment option is missing scheme")
+	}
+	if strings.TrimSpace(requirement.Network) == "" {
+		return nil, fmt.Errorf("x402: selected payment option is missing network")
+	}
+	if strings.TrimSpace(requirement.PayTo) == "" {
+		return nil, fmt.Errorf("x402: selected payment option is missing payTo")
+	}
+	maxAmtStr := strings.TrimSpace(requirement.MaxAmountRequired)
+	if maxAmtStr == "" {
+		return nil, fmt.Errorf("x402: selected payment option is missing maxAmountRequired")
+	}
+	maxAmt, err := strconv.ParseInt(maxAmtStr, 10, 64)
+	if err != nil || maxAmt < 0 {
+		return nil, fmt.Errorf("x402: selected payment option has invalid maxAmountRequired %q", requirement.MaxAmountRequired)
 	}
 
 	// Budget check.
