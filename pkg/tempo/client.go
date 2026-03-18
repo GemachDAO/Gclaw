@@ -114,7 +114,9 @@ func (c *Client) Fetch(
 	// Budget check.
 	if c.cfg.MaxPaymentAmount != "" && c.cfg.MaxPaymentAmount != "0" {
 		if amount == "" {
-			return nil, fmt.Errorf("tempo: unable to extract payment amount from challenge while MaxPaymentAmount is set")
+			return nil, fmt.Errorf(
+				"tempo: unable to extract payment amount from challenge while MaxPaymentAmount is set",
+			)
 		}
 		if !withinBudget(amount, c.cfg.MaxPaymentAmount) {
 			return nil, fmt.Errorf(

@@ -8,9 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/GemachDAO/Gclaw/pkg/tempo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/GemachDAO/Gclaw/pkg/tempo"
 )
 
 func TestTempoPayToolName(t *testing.T) {
@@ -120,8 +121,11 @@ func TestTempoPayTool402BudgetExceeded(t *testing.T) {
 	reqEncoded := base64.RawURLEncoding.EncodeToString(reqJSON)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("WWW-Authenticate",
-			fmt.Sprintf(`Payment id="test123", realm="api.test.com", method="tempo", intent="charge", request="%s"`, reqEncoded))
+		wwwAuth := fmt.Sprintf(
+			`Payment id="test123", realm="api.test.com", method="tempo", intent="charge", request="%s"`,
+			reqEncoded,
+		)
+		w.Header().Set("WWW-Authenticate", wwwAuth)
 		w.WriteHeader(http.StatusPaymentRequired)
 		_, _ = w.Write([]byte(`Payment Required`))
 	}))
