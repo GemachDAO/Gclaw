@@ -80,11 +80,50 @@ async function signPayment(params) {
     throw new Error("private_key, pay_to, and amount are required");
   }
 
-  // Resolve network config (prefer extra fields if provided).
-  const netCfg = NETWORK_CONFIG[network] || NETWORK_CONFIG["base"];
+  // Resolve network config safely.
+  let netCfg;
 
-  const chainId = extra?.chainId ?? netCfg.chainId;
-  const tokenAddress = extra?.tokenAddress ?? netCfg.tokenAddress;
+  if (network && Object.prototype.hasOwnProperty.call(NETWORK_CONFIG, network)) {
+    // Known network: use predefined config and validate any overrides.
+    netCfg = NETWORK_CONFIG[network];
+
+    if (extra?.chainId !== undefined && extra.chainId !== netCfg.chainId) {
+      throw new Error(
+        `extra.chainId (${extra.chainId}) does not match known chainId (${netCfg.chainId}) for network "${network}"`
+      );
+    }
+
+    if (
+      extra?.tokenAddress !== undefined &&
+      typeof extra.tokenAddress === "string" &&
+      extra.tokenAddress.toLowerCase() !== netCfg.tokenAddress.toLowerCase()
+    ) {
+      throw new Error(
+        `extra.tokenAddress (${extra.tokenAddress}) does not match known tokenAddress (${netCfg.tokenAddress}) for network "${network}"`
+      );
+    }
+  } else {
+    // Unknown or missing network: require explicit chainId and tokenAddress.
+    if (
+      !extra ||
+      typeof extra.chainId !== "number" ||
+      typeof extra.tokenAddress !== "string"
+    ) {
+      throw new Error(
+        "Unknown network; you must provide extra.chainId (number) and extra.tokenAddress (string)"
+      );
+    }
+
+    netCfg = {
+      chainId: extra.chainId,
+      tokenAddress: extra.tokenAddress,
+      name: extra.name || "USD Coin",
+      version: extra.version || "2",
+    };
+  }
+
+  const chainId = netCfg.chainId;
+  const tokenAddress = netCfg.tokenAddress;
   const tokenName = extra?.name ?? netCfg.name;
   const tokenVersion = extra?.version ?? netCfg.version;
 
