@@ -131,6 +131,16 @@ async function signPayment(params) {
   const pk = private_key.startsWith("0x") ? private_key : "0x" + private_key;
   const wallet = new ethers.Wallet(pk);
 
+  // Ensure provided wallet_address (if any) matches the derived address.
+  if (
+    wallet_address &&
+    wallet_address.toLowerCase() !== wallet.address.toLowerCase()
+  ) {
+    throw new Error(
+      "Provided wallet_address does not match the address derived from private_key"
+    );
+  }
+
   const from = wallet_address || wallet.address;
 
   // Generate random nonce (bytes32).
