@@ -29,6 +29,7 @@ var DefaultToolCosts = map[string]float64{
 	"web_fetch":       0.5,
 	"exec":            1.5,
 	"spawn":           5.0,
+	"x402_fetch":      3.0,
 }
 
 type ToolRegistry struct {

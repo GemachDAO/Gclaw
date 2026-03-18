@@ -32,6 +32,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/swarm"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/utils"
+	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
 type AgentLoop struct {
@@ -162,6 +163,45 @@ func registerSharedTools(
 			agent.Tools.Register(&tools.GDEXHLDepositTool{})
 			agent.Tools.Register(&tools.GDEXHLCreateOrderTool{})
 			agent.Tools.Register(&tools.GDEXHLCancelOrderTool{})
+		}
+
+		// x402 payment tool — registered when x402 is configured
+		if cfg.Tools.X402.Enabled {
+			walletAddr := ""
+			privKey := ""
+			// Reuse GDEX wallet credentials for x402 payments when available.
+			if cfg.Tools.GDEX.WalletAddress != "" {
+				walletAddr = cfg.Tools.GDEX.WalletAddress
+			}
+			if cfg.Tools.GDEX.PrivateKey != "" {
+				privKey = cfg.Tools.GDEX.PrivateKey
+			}
+			network := cfg.Tools.X402.Network
+			if network == "" {
+				network = "base"
+			}
+			// Validate wallet credentials before creating the x402 client to avoid
+			// late runtime signing failures when credentials are missing.
+			if walletAddr == "" || privKey == "" {
+				logger.WarnCF("agent",
+					"x402 enabled but wallet credentials missing; skipping",
+					map[string]any{"agent": agentID})
+			} else {
+				x402Client, err := x402.NewClient(x402.ClientConfig{
+					WalletAddress:    walletAddr,
+					PrivateKey:       privKey,
+					Network:          network,
+					FacilitatorURL:   cfg.Tools.X402.FacilitatorURL,
+					MaxPaymentAmount: cfg.Tools.X402.MaxPaymentAmount,
+					Proxy:            cfg.Tools.Web.Proxy,
+				})
+				if err == nil {
+					agent.Tools.Register(tools.NewX402FetchTool(x402Client))
+				} else {
+					logger.WarnCF("agent", "Failed to create x402 client",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+			}
 		}
 
 		// Spawn tool with allowlist checker

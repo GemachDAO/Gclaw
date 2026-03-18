@@ -252,6 +252,12 @@
         "solana": "",
         "coingecko_id": "gemach"
       }
+    },
+    "x402": {
+      "enabled": false,
+      "network": "base",
+      "max_payment_amount": "1000000",
+      "facilitator_url": ""
     }
   },
   "heartbeat": {
