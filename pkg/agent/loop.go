@@ -30,6 +30,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/skills"
 	"github.com/GemachDAO/Gclaw/pkg/state"
 	"github.com/GemachDAO/Gclaw/pkg/swarm"
+	"github.com/GemachDAO/Gclaw/pkg/tempo"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/utils"
 	"github.com/GemachDAO/Gclaw/pkg/x402"
@@ -199,6 +200,38 @@ func registerSharedTools(
 					agent.Tools.Register(tools.NewX402FetchTool(x402Client))
 				} else {
 					logger.WarnCF("agent", "Failed to create x402 client",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+			}
+		}
+
+		// Tempo MPP payment tool — registered when Tempo is configured
+		if cfg.Tools.Tempo.Enabled {
+			walletAddr := ""
+			privKey := ""
+			// Reuse GDEX wallet credentials for Tempo payments when available.
+			if cfg.Tools.GDEX.WalletAddress != "" {
+				walletAddr = cfg.Tools.GDEX.WalletAddress
+			}
+			if cfg.Tools.GDEX.PrivateKey != "" {
+				privKey = cfg.Tools.GDEX.PrivateKey
+			}
+			if walletAddr == "" || privKey == "" {
+				logger.WarnCF("agent",
+					"tempo enabled but wallet credentials missing; skipping",
+					map[string]any{"agent": agentID})
+			} else {
+				tempoClient, err := tempo.NewClient(tempo.ClientConfig{
+					WalletAddress:    walletAddr,
+					PrivateKey:       privKey,
+					RPCURL:           cfg.Tools.Tempo.RPCURL,
+					MaxPaymentAmount: cfg.Tools.Tempo.MaxPaymentAmount,
+					Proxy:            cfg.Tools.Web.Proxy,
+				})
+				if err == nil {
+					agent.Tools.Register(tools.NewTempoPayTool(tempoClient))
+				} else {
+					logger.WarnCF("agent", "Failed to create tempo client",
 						map[string]any{"agent": agentID, "error": err.Error()})
 				}
 			}
