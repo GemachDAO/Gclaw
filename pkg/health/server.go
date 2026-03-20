@@ -11,6 +11,7 @@ import (
 
 type Server struct {
 	server    *http.Server
+	mux       *http.ServeMux
 	mu        sync.RWMutex
 	ready     bool
 	checks    map[string]Check
@@ -33,6 +34,7 @@ type StatusResponse struct {
 func NewServer(host string, port int) *Server {
 	mux := http.NewServeMux()
 	s := &Server{
+		mux:       mux,
 		ready:     false,
 		checks:    make(map[string]Check),
 		startTime: time.Now(),
@@ -57,6 +59,12 @@ func (s *Server) Start() error {
 	s.ready = true
 	s.mu.Unlock()
 	return s.server.ListenAndServe()
+}
+
+// Mux returns the underlying ServeMux so callers can register additional
+// HTTP handlers (e.g. dashboard routes) on the same server.
+func (s *Server) Mux() *http.ServeMux {
+	return s.mux
 }
 
 func (s *Server) StartContext(ctx context.Context) error {
