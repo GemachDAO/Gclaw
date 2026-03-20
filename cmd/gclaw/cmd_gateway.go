@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/agent"
@@ -26,6 +27,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/state"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/voice"
+	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
 func gatewayCmd() {
@@ -197,6 +199,77 @@ func gatewayCmd() {
 	}
 
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
+
+	// Build and serve the ERC-8004 agent registration at
+	// /.well-known/agent-registration.json.
+	buildAgentRegistration := func(cfg *config.Config) x402.AgentRegistration {
+		agentName := cfg.Tools.ERC8004.AgentName
+		if agentName == "" {
+			agentName = "gclaw-agent"
+		}
+		description := cfg.Tools.ERC8004.Description
+		if description == "" {
+			description = "Gclaw autonomous AI agent"
+		}
+		endpoint := fmt.Sprintf("http://%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
+		return x402.AgentRegistration{
+			Type:        x402.RegistrationType,
+			Name:        agentName,
+			Description: description,
+			Image:       cfg.Tools.ERC8004.Image,
+			X402Support: cfg.Tools.X402.Enabled,
+			Active:      true,
+			Services: []x402.ServiceDef{
+				{Name: "gateway", Endpoint: endpoint},
+			},
+		}
+	}
+
+	// resolveWalletCreds returns the effective wallet address and private key,
+	// preferring config values and falling back to environment variables.
+	resolveWalletCreds := func() (addr, key string) {
+		addr = cfg.Tools.GDEX.WalletAddress
+		key = cfg.Tools.GDEX.PrivateKey
+		if addr == "" {
+			addr = os.Getenv("WALLET_ADDRESS")
+		}
+		if key == "" {
+			key = os.Getenv("PRIVATE_KEY")
+		}
+		return addr, key
+	}
+
+	walletAddr, privKey := resolveWalletCreds()
+	erc8004Enabled := cfg.Tools.ERC8004.Enabled || cfg.Tools.X402.Enabled
+
+	if erc8004Enabled {
+		if walletAddr != "" && privKey != "" {
+			reg := buildAgentRegistration(cfg)
+			healthServer.SetAgentRegistration(&reg)
+			fmt.Printf("✓ ERC-8004 agent registration available at /.well-known/agent-registration.json\n")
+			logger.InfoC("agent", "✓ ERC-8004 agent registration available at /.well-known/agent-registration.json")
+		} else {
+			fmt.Println("⏳ ERC-8004 registration deferred — will auto-register when funds arrive")
+			logger.InfoC("agent", "ERC-8004 registration deferred — waiting for wallet credentials or funds")
+
+			if met := agentLoop.GetDefaultAgentMetabolism(); met != nil {
+				var once sync.Once
+				met.RegisterOnCredit(func(_ float64) {
+					cWallet, cKey := resolveWalletCreds()
+					if cWallet == "" || cKey == "" {
+						return
+					}
+					once.Do(func() {
+						reg := buildAgentRegistration(cfg)
+						healthServer.SetAgentRegistration(&reg)
+						fmt.Println("✓ ERC-8004 registration completed (deferred — funds arrived)")
+						logger.InfoC("agent", "ERC-8004 registration completed (deferred — funds arrived)")
+					})
+				})
+			}
+		}
+	}
+
 	go func() {
 		if err := healthServer.Start(); err != nil && err != http.ErrServerClosed {
 			logger.ErrorCF("health", "Health server error", map[string]any{"error": err.Error()})

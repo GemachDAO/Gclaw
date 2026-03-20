@@ -197,6 +197,82 @@ func TestLoadFromFile_NotFound(t *testing.T) {
 	}
 }
 
+// --- OnCredit callbacks ---
+
+func TestRegisterOnCredit_CalledOnCredit(t *testing.T) {
+	m := NewMetabolism(100, defaultThresholds())
+
+	var called bool
+	var receivedBalance float64
+	m.RegisterOnCredit(func(newBalance float64) {
+		called = true
+		receivedBalance = newBalance
+	})
+
+	m.Credit(50, "trade_profit", "win")
+
+	if !called {
+		t.Error("expected OnCredit callback to be called")
+	}
+	if receivedBalance != 150 {
+		t.Errorf("expected callback balance 150, got %.2f", receivedBalance)
+	}
+}
+
+func TestRegisterOnCredit_NotCalledOnDebit(t *testing.T) {
+	m := NewMetabolism(100, defaultThresholds())
+
+	var called bool
+	m.RegisterOnCredit(func(_ float64) { called = true })
+
+	_ = m.Debit(10, "tool_exec", "test")
+
+	if called {
+		t.Error("OnCredit callback should not fire on Debit")
+	}
+}
+
+func TestRegisterOnCredit_MultipleCallbacks(t *testing.T) {
+	m := NewMetabolism(0, defaultThresholds())
+
+	counts := [3]int{}
+	for i := range counts {
+		i := i
+		m.RegisterOnCredit(func(_ float64) { counts[i]++ })
+	}
+
+	m.Credit(1, "tip", "test")
+
+	for i, c := range counts {
+		if c != 1 {
+			t.Errorf("callback %d: expected 1 call, got %d", i, c)
+		}
+	}
+}
+
+func TestRegisterOnCredit_DeregisterViaFlag(t *testing.T) {
+	m := NewMetabolism(0, defaultThresholds())
+
+	callCount := 0
+	var done bool
+	m.RegisterOnCredit(func(newBalance float64) {
+		if done {
+			return
+		}
+		callCount++
+		if callCount >= 1 {
+			done = true
+		}
+	})
+
+	m.Credit(1, "tip", "first")
+	m.Credit(1, "tip", "second")
+
+	if callCount != 1 {
+		t.Errorf("expected callback to self-limit to 1 invocation, got %d", callCount)
+	}
+}
+
 // --- GoodwillTracker ---
 
 func TestGoodwillTracker_RecordTradeResult(t *testing.T) {

@@ -418,6 +418,16 @@ func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	al.channelManager = cm
 }
 
+// GetDefaultAgentMetabolism returns the metabolism of the default agent, or nil
+// if metabolism is not enabled or the default agent has no metabolism attached.
+func (al *AgentLoop) GetDefaultAgentMetabolism() *metabolism.Metabolism {
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		return nil
+	}
+	return agent.Tools.GetMetabolism()
+}
+
 // RecordLastChannel records the last active channel for this workspace.
 // This uses the atomic state save mechanism to prevent data loss on crash.
 func (al *AgentLoop) RecordLastChannel(channel string) error {

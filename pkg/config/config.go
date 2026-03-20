@@ -477,7 +477,18 @@ type ToolsConfig struct {
 	Skills SkillsToolsConfig `json:"skills"`
 	GDEX   GDEXConfig        `json:"gdex"`
 	X402   X402Config        `json:"x402"`
+	ERC8004 ERC8004Config    `json:"erc8004"`
 	Tempo  TempoConfig       `json:"tempo"`
+}
+
+// ERC8004Config holds configuration for ERC-8004 on-chain agent identity.
+// When enabled, the agent publishes a registration document at
+// /.well-known/agent-registration.json.
+type ERC8004Config struct {
+	Enabled     bool   `json:"enabled"      env:"GCLAW_TOOLS_ERC8004_ENABLED"`
+	AgentName   string `json:"agent_name"   env:"GCLAW_TOOLS_ERC8004_AGENT_NAME"`
+	Description string `json:"description"  env:"GCLAW_TOOLS_ERC8004_DESCRIPTION"`
+	Image       string `json:"image"        env:"GCLAW_TOOLS_ERC8004_IMAGE"`
 }
 
 // X402Config holds configuration for the x402 payment protocol (ERC-8004).
