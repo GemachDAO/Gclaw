@@ -1,3 +1,8 @@
+---
+name: tempo-payment
+description: "Pay for HTTP resources using Machine Payments Protocol (MPP) on the Tempo blockchain. Handles 402 Payment Required challenges automatically."
+---
+
 # Tempo MPP Payment Skill
 
 ## Overview
