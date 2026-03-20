@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -230,7 +232,7 @@ func gatewayCmd() {
 		if description == "" {
 			description = "Gclaw autonomous AI agent"
 		}
-		endpoint := fmt.Sprintf("http://%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
+		endpoint := "http://" + net.JoinHostPort(cfg.Gateway.Host, strconv.Itoa(cfg.Gateway.Port))
 		return x402.AgentRegistration{
 			Type:        x402.RegistrationType,
 			Name:        agentName,

@@ -9,14 +9,14 @@ import (
 // Metabolism tracks the agent's GMAC token balance and enforces
 // the "trade to live" mechanic.
 type Metabolism struct {
-	balance          float64
-	goodwill         int
-	generation       int    // 0 = original, 1+ = replicated child
-	parentID         string // parent agent ID if replicated
-	ledger           []LedgerEntry
-	thresholds       Thresholds
+	balance           float64
+	goodwill          int
+	generation        int    // 0 = original, 1+ = replicated child
+	parentID          string // parent agent ID if replicated
+	ledger            []LedgerEntry
+	thresholds        Thresholds
 	onCreditCallbacks []func(newBalance float64)
-	mu               sync.RWMutex
+	mu                sync.RWMutex
 }
 
 // LedgerEntry records a single balance change event.

@@ -237,7 +237,6 @@ func TestRegisterOnCredit_MultipleCallbacks(t *testing.T) {
 
 	counts := [3]int{}
 	for i := range counts {
-		i := i
 		m.RegisterOnCredit(func(_ float64) { counts[i]++ })
 	}
 
