@@ -45,6 +45,7 @@ type AgentLoop struct {
 	summarizing    sync.Map
 	fallback       *providers.FallbackChain
 	channelManager *channels.Manager
+	dash           *dashboard.Dashboard
 }
 
 // processOptions configures how a message is processed
@@ -63,7 +64,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	registry := NewAgentRegistry(cfg, provider)
 
 	// Register shared tools to all agents
-	registerSharedTools(cfg, msgBus, registry, provider)
+	dash := registerSharedTools(cfg, msgBus, registry, provider)
 
 	// Set up shared fallback chain
 	cooldown := providers.NewCooldownTracker()
@@ -83,16 +84,20 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		state:       stateManager,
 		summarizing: sync.Map{},
 		fallback:    fallbackChain,
+		dash:        dash,
 	}
 }
 
 // registerSharedTools registers tools that are shared across all agents (web, message, spawn).
+// It returns the first-created Dashboard (if any) so the caller can wire it to
+// the HTTP server.
 func registerSharedTools(
 	cfg *config.Config,
 	msgBus *bus.MessageBus,
 	registry *AgentRegistry,
 	provider providers.LLMProvider,
-) {
+) *dashboard.Dashboard {
+	var firstDash *dashboard.Dashboard
 	for _, agentID := range registry.ListAgentIDs() {
 		agent, ok := registry.GetAgent(agentID)
 		if !ok {
@@ -330,11 +335,15 @@ func registerSharedTools(
 				},
 			})
 			agent.Tools.Register(tools.NewDashboardTool(dash))
+			if firstDash == nil {
+				firstDash = dash
+			}
 		}
 
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
+	return firstDash
 }
 
 // loadOrCreateMetabolism loads persisted metabolism state or creates a new one.
@@ -416,6 +425,12 @@ func (al *AgentLoop) RegisterTool(tool tools.Tool) {
 
 func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	al.channelManager = cm
+}
+
+// GetDashboard returns the dashboard instance if one was created during
+// agent initialization (requires dashboard.enabled in config).
+func (al *AgentLoop) GetDashboard() *dashboard.Dashboard {
+	return al.dash
 }
 
 // RecordLastChannel records the last active channel for this workspace.

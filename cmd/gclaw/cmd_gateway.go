@@ -18,6 +18,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/channels"
 	"github.com/GemachDAO/Gclaw/pkg/config"
 	"github.com/GemachDAO/Gclaw/pkg/cron"
+	"github.com/GemachDAO/Gclaw/pkg/dashboard"
 	"github.com/GemachDAO/Gclaw/pkg/devices"
 	"github.com/GemachDAO/Gclaw/pkg/health"
 	"github.com/GemachDAO/Gclaw/pkg/heartbeat"
@@ -197,6 +198,25 @@ func gatewayCmd() {
 	}
 
 	healthServer := health.NewServer(cfg.Gateway.Host, cfg.Gateway.Port)
+
+	// Wire dashboard routes to the health server's HTTP mux
+	if cfg.Dashboard.WebEnabled {
+		if dash := agentLoop.GetDashboard(); dash != nil {
+			mux := healthServer.Mux()
+			dashboard.RegisterHandlers(mux, dash)
+			// Redirect root to dashboard for convenience.
+			// "/" is a catch-all in http.ServeMux, so the path check ensures
+			// only the exact root redirects; all other unmatched paths get 404.
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/" {
+					http.Redirect(w, r, "/dashboard", http.StatusFound)
+					return
+				}
+				http.NotFound(w, r)
+			})
+		}
+	}
+
 	go func() {
 		if err := healthServer.Start(); err != nil && err != http.ErrServerClosed {
 			logger.ErrorCF("health", "Health server error", map[string]any{"error": err.Error()})

@@ -1,3 +1,8 @@
+---
+name: x402-payment
+description: "Access paid HTTP resources using the x402 payment protocol (ERC-8004) with automatic USDC payments via EIP-3009."
+---
+
 # x402 Payment Skill (ERC-8004)
 
 ## Overview
