@@ -89,7 +89,7 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 }
 
 // registerSharedTools registers tools that are shared across all agents (web, message, spawn).
-// It returns the last-created Dashboard (if any) so the caller can wire it to
+// It returns the first-created Dashboard (if any) so the caller can wire it to
 // the HTTP server.
 func registerSharedTools(
 	cfg *config.Config,
@@ -97,7 +97,7 @@ func registerSharedTools(
 	registry *AgentRegistry,
 	provider providers.LLMProvider,
 ) *dashboard.Dashboard {
-	var lastDash *dashboard.Dashboard
+	var firstDash *dashboard.Dashboard
 	for _, agentID := range registry.ListAgentIDs() {
 		agent, ok := registry.GetAgent(agentID)
 		if !ok {
@@ -335,13 +335,15 @@ func registerSharedTools(
 				},
 			})
 			agent.Tools.Register(tools.NewDashboardTool(dash))
-			lastDash = dash
+			if firstDash == nil {
+				firstDash = dash
+			}
 		}
 
 		// Update context builder with the complete tools registry
 		agent.ContextBuilder.SetToolsRegistry(agent.Tools)
 	}
-	return lastDash
+	return firstDash
 }
 
 // loadOrCreateMetabolism loads persisted metabolism state or creates a new one.

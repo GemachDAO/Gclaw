@@ -204,7 +204,9 @@ func gatewayCmd() {
 		if dash := agentLoop.GetDashboard(); dash != nil {
 			mux := healthServer.Mux()
 			dashboard.RegisterHandlers(mux, dash)
-			// Redirect root to dashboard for convenience
+			// Redirect root to dashboard for convenience.
+			// "/" is a catch-all in http.ServeMux, so the path check ensures
+			// only the exact root redirects; all other unmatched paths get 404.
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/" {
 					http.Redirect(w, r, "/dashboard", http.StatusFound)
