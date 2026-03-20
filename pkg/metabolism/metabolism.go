@@ -9,13 +9,14 @@ import (
 // Metabolism tracks the agent's GMAC token balance and enforces
 // the "trade to live" mechanic.
 type Metabolism struct {
-	balance    float64
-	goodwill   int
-	generation int    // 0 = original, 1+ = replicated child
-	parentID   string // parent agent ID if replicated
-	ledger     []LedgerEntry
-	thresholds Thresholds
-	mu         sync.RWMutex
+	balance           float64
+	goodwill          int
+	generation        int    // 0 = original, 1+ = replicated child
+	parentID          string // parent agent ID if replicated
+	ledger            []LedgerEntry
+	thresholds        Thresholds
+	onCreditCallbacks []func(newBalance float64)
+	mu                sync.RWMutex
 }
 
 // LedgerEntry records a single balance change event.
@@ -85,8 +86,8 @@ func (m *Metabolism) Debit(amount float64, action, details string) error {
 // Credit adds amount to the balance and records it in the ledger.
 func (m *Metabolism) Credit(amount float64, action, details string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.balance += amount
+	newBalance := m.balance
 	m.ledger = append(m.ledger, LedgerEntry{
 		Timestamp: time.Now().UnixMilli(),
 		Action:    action,
@@ -94,6 +95,22 @@ func (m *Metabolism) Credit(amount float64, action, details string) {
 		Balance:   m.balance,
 		Details:   details,
 	})
+	callbacks := make([]func(float64), len(m.onCreditCallbacks))
+	copy(callbacks, m.onCreditCallbacks)
+	m.mu.Unlock()
+
+	for _, fn := range callbacks {
+		fn(newBalance)
+	}
+}
+
+// RegisterOnCredit registers a callback that is invoked after every Credit call.
+// The callback receives the new balance after the credit. It is safe to call
+// SetAgentRegistration or other actions inside the callback.
+func (m *Metabolism) RegisterOnCredit(fn func(newBalance float64)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onCreditCallbacks = append(m.onCreditCallbacks, fn)
 }
 
 // GetBalance returns the current GMAC balance.

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
 func TestNewServer(t *testing.T) {
@@ -197,5 +199,64 @@ func TestHealthHandler_Uptime(t *testing.T) {
 	}
 	if body.Uptime == "" {
 		t.Error("expected non-empty uptime")
+	}
+}
+
+func TestAgentRegistrationHandler_NotSet(t *testing.T) {
+	s := NewServer("127.0.0.1", 0)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-registration.json", nil)
+	w := httptest.NewRecorder()
+	s.agentRegistrationHandler(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 when registration not set, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAgentRegistrationHandler_Set(t *testing.T) {
+	s := NewServer("127.0.0.1", 0)
+	reg := &x402.AgentRegistration{
+		Type:        x402.RegistrationType,
+		Name:        "TestAgent",
+		Description: "Gclaw autonomous AI agent",
+		X402Support: true,
+		Active:      true,
+		Services: []x402.ServiceDef{
+			{Name: "gateway", Endpoint: "http://127.0.0.1:18790"},
+		},
+	}
+	s.SetAgentRegistration(reg)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/agent-registration.json", nil)
+	w := httptest.NewRecorder()
+	s.agentRegistrationHandler(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 when registration set, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+
+	var decoded x402.AgentRegistration
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("failed to decode agent registration: %v", err)
+	}
+	if decoded.Type != x402.RegistrationType {
+		t.Errorf("expected type %q, got %q", x402.RegistrationType, decoded.Type)
+	}
+	if decoded.Name != "TestAgent" {
+		t.Errorf("expected name TestAgent, got %q", decoded.Name)
+	}
+	if !decoded.X402Support {
+		t.Error("expected X402Support=true")
+	}
+	if !decoded.Active {
+		t.Error("expected Active=true")
+	}
+	if len(decoded.Services) != 1 || decoded.Services[0].Name != "gateway" {
+		t.Errorf("unexpected services: %v", decoded.Services)
 	}
 }

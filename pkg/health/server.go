@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
 type Server struct {
@@ -16,6 +18,7 @@ type Server struct {
 	ready     bool
 	checks    map[string]Check
 	startTime time.Time
+	agentReg  *x402.AgentRegistration
 }
 
 type Check struct {
@@ -42,6 +45,7 @@ func NewServer(host string, port int) *Server {
 
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
+	mux.HandleFunc("/.well-known/agent-registration.json", s.agentRegistrationHandler)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	s.server = &http.Server{
@@ -162,6 +166,35 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime: uptime.String(),
 		Checks: checks,
 	})
+}
+
+// SetAgentRegistration stores an ERC-8004 AgentRegistration that will be
+// served at /.well-known/agent-registration.json.
+func (s *Server) SetAgentRegistration(reg *x402.AgentRegistration) {
+	s.mu.Lock()
+	s.agentReg = reg
+	s.mu.Unlock()
+}
+
+func (s *Server) agentRegistrationHandler(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	reg := s.agentReg
+	s.mu.RUnlock()
+
+	if reg == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	b, err := json.Marshal(reg)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(b)
 }
 
 func statusString(ok bool) string {

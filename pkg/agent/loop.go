@@ -427,6 +427,16 @@ func (al *AgentLoop) SetChannelManager(cm *channels.Manager) {
 	al.channelManager = cm
 }
 
+// GetDefaultAgentMetabolism returns the metabolism of the default agent, or nil
+// if metabolism is not enabled or the default agent has no metabolism attached.
+func (al *AgentLoop) GetDefaultAgentMetabolism() *metabolism.Metabolism {
+	agent := al.registry.GetDefaultAgent()
+	if agent == nil {
+		return nil
+	}
+	return agent.Tools.GetMetabolism()
+}
+
 // GetDashboard returns the dashboard instance if one was created during
 // agent initialization (requires dashboard.enabled in config).
 func (al *AgentLoop) GetDashboard() *dashboard.Dashboard {
