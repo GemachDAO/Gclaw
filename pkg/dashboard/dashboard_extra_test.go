@@ -102,6 +102,7 @@ func TestServeSection_ValidSection(t *testing.T) {
 		},
 		GetFamily:    func() *FamilySnapshot { return &FamilySnapshot{} },
 		GetAutonomy:  func() *runtimeinfo.AutonomyStatus { return &runtimeinfo.AutonomyStatus{} },
+		GetVenture:   func() *VentureSnapshot { return &VentureSnapshot{} },
 		GetTelepathy: func() *TelepathySnapshot { return &TelepathySnapshot{} },
 		GetSwarm:     func() *SwarmSnapshot { return &SwarmSnapshot{} },
 	})
@@ -114,6 +115,7 @@ func TestServeSection_ValidSection(t *testing.T) {
 		"/dashboard/api/trading",
 		"/dashboard/api/funding",
 		"/dashboard/api/autonomy",
+		"/dashboard/api/venture",
 		"/dashboard/api/family",
 		"/dashboard/api/telepathy",
 		"/dashboard/api/swarm",
@@ -260,6 +262,51 @@ func TestRenderHTML_FundingDepositQRCodes(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_TelepathyShowsRecentMessages(t *testing.T) {
+	html := renderHTML(&DashboardData{
+		AgentID: "main",
+		Uptime:  "1m",
+		Telepathy: &TelepathySnapshot{
+			TotalMessages:  74,
+			ActiveChannels: 3,
+			Persistent:     true,
+			RecentMessages: []TelepathyEntry{
+				{
+					From:      "child-alpha",
+					To:        "*",
+					Type:      "strategy_update",
+					Content:   "Shifting to preservation until a stronger GMAC rotation appears.",
+					Timestamp: time.Now().Add(-2 * time.Minute).UnixMilli(),
+					Priority:  1,
+				},
+				{
+					From:      "child-beta",
+					To:        "main",
+					Type:      "warning",
+					Content:   "Arbitrum route is thin; wait for better liquidity.",
+					Timestamp: time.Now().Add(-1 * time.Minute).UnixMilli(),
+					Priority:  2,
+				},
+			},
+		},
+	})
+
+	for _, want := range []string{
+		"Recent Messages",
+		"showing 2 recent messages of 74 total",
+		"strategy_update from child-alpha",
+		"warning from child-beta",
+		"Shifting to preservation until a stronger GMAC rotation appears.",
+		"Arbitrum route is thin; wait for better liquidity.",
+		"to family",
+		"to main",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected %q in rendered html", want)
+		}
+	}
+}
+
 func TestRenderHTML_TradingStatsAreHonestWithoutRealizedPnL(t *testing.T) {
 	html := renderHTML(&DashboardData{
 		AgentID: "main",
@@ -287,5 +334,62 @@ func TestRenderHTML_TradingStatsAreHonestWithoutRealizedPnL(t *testing.T) {
 	}
 	if strings.Contains(html, "Total Trades") {
 		t.Fatal("expected old misleading trade label to be absent")
+	}
+}
+
+func TestRenderHTML_TradingShowsDecisionsAndMissedOpportunities(t *testing.T) {
+	html := renderHTML(&DashboardData{
+		AgentID: "main",
+		Uptime:  "1m",
+		Trading: &TradingSnapshot{
+			TotalTrades:    3,
+			RealizedTrades: 0,
+			HasRealizedPnL: false,
+			RecentCycles: []TradeCycleEntry{
+				{
+					Timestamp:      123,
+					Status:         "executed",
+					Mode:           "pursue_signal",
+					Venue:          "route_aware",
+					Chain:          "Ethereum",
+					TokenSymbol:    "ALPHA",
+					TokenAddress:   "0xalpha",
+					Amount:         "0.01",
+					ExecutedAction: "buy",
+					Summary:        "Take a small liquid signal entry in ALPHA on Ethereum.",
+					Outcome:        "Auto-trade executed ALPHA on Ethereum using 0.01 native.",
+					Reasons:        []string{"liquidity and volume filters passed"},
+				},
+			},
+			LatestMissedOpportunities: []MissedOpportunityEntry{
+				{
+					Timestamp:    123,
+					TokenSymbol:  "BETA",
+					TokenAddress: "0xbeta",
+					Chain:        "Arbitrum",
+					Score:        88.4,
+					Change24H:    7.2,
+					LiquidityUSD: 180000,
+					Volume24H:    820000,
+					Reason:       "viable, but ranked below the selected signal ALPHA",
+				},
+			},
+		},
+	})
+
+	for _, want := range []string{
+		"Recent Decisions",
+		"Missed Opportunities",
+		"ALPHA",
+		"Ethereum",
+		"route_aware",
+		"Outcome:",
+		"BETA",
+		"Arbitrum",
+		"ranked below the selected signal ALPHA",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected %q in trading details HTML", want)
+		}
 	}
 }

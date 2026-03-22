@@ -64,6 +64,7 @@ func buildAutoTradeExecutionPlan(
 	profile *replication.ChildStrategyProfile,
 	memory *autoTradeLearningMemory,
 	directive *autoTradeSwarmDirective,
+	budget *autoTradeBudgetRegime,
 ) *autoTradeExecutionPlan {
 	if strategy == nil {
 		return &autoTradeExecutionPlan{
@@ -89,12 +90,13 @@ func buildAutoTradeExecutionPlan(
 		spendAmount = "0.01"
 	}
 	spendAmount = applySpendMultiplier(spendAmount, profile)
+	spendAmount = applyBudgetSpendMultiplier(spendAmount, budget)
 
 	if rotation, sinkAddress, ok := pickRotationCandidate(cfg, holdings, profile, memory); ok {
 		return &autoTradeExecutionPlan{
 			Mode:           "rotate_profits_to_gmac",
 			Summary:        fmt.Sprintf("Trim a strong non-GMAC position and route the realized proceeds back into GMAC on %s.", autoTradeChainLabel(rotation.ChainID)),
-			Reasons:        append([]string{"existing holding shows enough strength to bank gains", "GMAC sink is available on the same chain"}, profileReason(profile)...),
+			Reasons:        append(append([]string{"existing holding shows enough strength to bank gains", "GMAC sink is available on the same chain"}, budgetReason(budget)...), profileReason(profile)...),
 			ExitChainID:    rotation.ChainID,
 			ExitChainLabel: autoTradeChainLabel(rotation.ChainID),
 			ExitToken:      rotation.TokenAddress,
@@ -108,11 +110,24 @@ func buildAutoTradeExecutionPlan(
 		}
 	}
 
+	if budget != nil && budget.PreferDirectGMAC && strings.TrimSpace(strategy.AssetAddress) != "" {
+		return &autoTradeExecutionPlan{
+			Mode:            "accumulate_gmac",
+			Summary:         fmt.Sprintf("GMAC runway pressure is high, so accumulate GMAC directly on %s instead of paying for a wider hunt.", strategy.ChainLabel),
+			Reasons:         append([]string{"survival game theory favors preserving optionality and rebuilding the GMAC reserve"}, budgetReason(budget)...),
+			EntryChainID:    strategy.ChainID,
+			EntryChainLabel: strategy.ChainLabel,
+			EntryToken:      strategy.AssetAddress,
+			EntrySymbol:     strategy.AssetSymbol,
+			SpendAmount:     spendAmount,
+		}
+	}
+
 	if profile != nil && profile.Style == "gmac_accumulator" {
 		return &autoTradeExecutionPlan{
 			Mode:            "accumulate_gmac",
 			Summary:         fmt.Sprintf("%s profile is biasing this cycle toward direct GMAC accumulation on %s.", profile.Label, strategy.ChainLabel),
-			Reasons:         append([]string{"child DNA prefers compounding GMAC inventory over speculative entries"}, profileReason(profile)...),
+			Reasons:         append(append([]string{"child DNA prefers compounding GMAC inventory over speculative entries"}, budgetReason(budget)...), profileReason(profile)...),
 			EntryChainID:    strategy.ChainID,
 			EntryChainLabel: strategy.ChainLabel,
 			EntryToken:      strategy.AssetAddress,
@@ -125,7 +140,7 @@ func buildAutoTradeExecutionPlan(
 		return &autoTradeExecutionPlan{
 			Mode:            "pursue_signal",
 			Summary:         fmt.Sprintf("Take a small liquid signal entry in %s on %s and monitor it for later GMAC rotation.", signal.Symbol, autoTradeChainLabel(signal.ChainID)),
-			Reasons:         append([]string{"no winner was ready to rotate", "liquidity and volume filters passed"}, profileReason(profile)...),
+			Reasons:         append(append([]string{"no winner was ready to rotate", "liquidity and volume filters passed"}, budgetReason(budget)...), profileReason(profile)...),
 			EntryChainID:    signal.ChainID,
 			EntryChainLabel: autoTradeChainLabel(signal.ChainID),
 			EntryToken:      signal.TokenAddress,
@@ -138,7 +153,7 @@ func buildAutoTradeExecutionPlan(
 		return &autoTradeExecutionPlan{
 			Mode:            "accumulate_gmac",
 			Summary:         fmt.Sprintf("No strong profit setup was found, so accumulate GMAC directly on %s.", strategy.ChainLabel),
-			Reasons:         []string{"profit-hunt filters rejected current signals", "GMAC sink remains funded and available"},
+			Reasons:         append([]string{"profit-hunt filters rejected current signals", "GMAC sink remains funded and available"}, budgetReason(budget)...),
 			EntryChainID:    strategy.ChainID,
 			EntryChainLabel: strategy.ChainLabel,
 			EntryToken:      strategy.AssetAddress,
@@ -223,19 +238,33 @@ func pickSignalCandidate(
 	profile *replication.ChildStrategyProfile,
 	memory *autoTradeLearningMemory,
 ) (autoTradeSignalCandidate, bool) {
-	if len(signals) == 0 {
+	ranked := rankSignalCandidates(cfg, signals, profile, memory)
+	if len(ranked) == 0 {
 		return autoTradeSignalCandidate{}, false
 	}
+	return ranked[0], true
+}
 
+func rankSignalCandidates(
+	cfg *config.Config,
+	signals []autoTradeSignalCandidate,
+	profile *replication.ChildStrategyProfile,
+	memory *autoTradeLearningMemory,
+) []autoTradeSignalCandidate {
+	if len(signals) == 0 {
+		return nil
+	}
 	excluded := map[string]struct{}{}
-	for _, address := range []string{
-		cfg.Tools.GDEX.GmacToken.Ethereum,
-		cfg.Tools.GDEX.GmacToken.Arbitrum,
-		cfg.Tools.GDEX.GmacToken.Solana,
-	} {
-		address = strings.TrimSpace(strings.ToLower(address))
-		if address != "" {
-			excluded[address] = struct{}{}
+	if cfg != nil {
+		for _, address := range []string{
+			cfg.Tools.GDEX.GmacToken.Ethereum,
+			cfg.Tools.GDEX.GmacToken.Arbitrum,
+			cfg.Tools.GDEX.GmacToken.Solana,
+		} {
+			address = strings.TrimSpace(strings.ToLower(address))
+			if address != "" {
+				excluded[address] = struct{}{}
+			}
 		}
 	}
 
@@ -243,6 +272,9 @@ func pickSignalCandidate(
 	for _, signal := range signals {
 		address := strings.TrimSpace(strings.ToLower(signal.TokenAddress))
 		if address == "" {
+			continue
+		}
+		if isStablecoinLikeSignal(signal) {
 			continue
 		}
 		if _, skip := excluded[address]; skip {
@@ -259,13 +291,21 @@ func pickSignalCandidate(
 	}
 
 	if len(filtered) == 0 {
-		return autoTradeSignalCandidate{}, false
+		return nil
 	}
 
 	sort.SliceStable(filtered, func(i, j int) bool {
 		return filtered[i].Score > filtered[j].Score
 	})
-	return filtered[0], true
+	return filtered
+}
+
+func isStablecoinLikeSignal(signal autoTradeSignalCandidate) bool {
+	switch strings.ToUpper(strings.TrimSpace(signal.Symbol)) {
+	case "USDC", "USDT", "DAI", "USDE", "FDUSD", "TUSD", "USDS", "USDB", "BUSD", "PYUSD":
+		return true
+	}
+	return signal.PriceUSD >= 0.98 && signal.PriceUSD <= 1.02 && math.Abs(signal.Change24H) <= 3
 }
 
 func scoreSignalCandidate(
@@ -410,6 +450,32 @@ func applySpendMultiplier(amount string, profile *replication.ChildStrategyProfi
 		value = 0.0025
 	}
 	return runtimeinfo.FormatAutoTradeSpendAmount(value)
+}
+
+func applyBudgetSpendMultiplier(amount string, budget *autoTradeBudgetRegime) string {
+	if budget == nil || budget.SpendMultiplier == 0 || budget.SpendMultiplier == 1 {
+		return strings.TrimSpace(amount)
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(amount), 64)
+	if err != nil || value <= 0 {
+		return strings.TrimSpace(amount)
+	}
+	value *= budget.SpendMultiplier
+	if value < 0.0025 {
+		value = 0.0025
+	}
+	return runtimeinfo.FormatAutoTradeSpendAmount(value)
+}
+
+func budgetReason(budget *autoTradeBudgetRegime) []string {
+	if budget == nil {
+		return nil
+	}
+	reason := strings.TrimSpace(budget.Reason)
+	if reason == "" {
+		return nil
+	}
+	return []string{reason}
 }
 
 func parseAutoTradeHoldings(raw string) []autoTradeHolding {

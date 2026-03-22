@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/GemachDAO/Gclaw/pkg/config"
+	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/replication"
 	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
+	"github.com/GemachDAO/Gclaw/pkg/tools"
 )
 
 func TestAutoTradeSpendAmount(t *testing.T) {
@@ -17,6 +20,62 @@ func TestAutoTradeSpendAmount(t *testing.T) {
 	}
 	if got := autoTradeSpendAmount(1.25); got != "1.25" {
 		t.Fatalf("autoTradeSpendAmount(1.25) = %q, want 1.25", got)
+	}
+}
+
+func TestAutoTradeReserveBalance(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if got := autoTradeReserveBalance(cfg); got != 75 {
+		t.Fatalf("autoTradeReserveBalance(default) = %.1f, want 75.0", got)
+	}
+}
+
+func TestAutoTradePauseReason_WhenBalanceNearSurvivalReserve(t *testing.T) {
+	cfg := config.DefaultConfig()
+	agent := &AgentInstance{Tools: tools.NewToolRegistry()}
+	agent.Tools.SetMetabolism(metabolism.NewMetabolism(40, metabolismThresholdsFromConfig(cfg)))
+
+	msg, ok := autoTradePauseReason(agent, cfg)
+	if !ok {
+		t.Fatal("expected auto-trade to pause near survival reserve")
+	}
+	if !strings.Contains(msg, "survival reserve 75.0") {
+		t.Fatalf("unexpected pause message: %s", msg)
+	}
+}
+
+func TestAutoTradePauseReason_WhenBalanceHealthy(t *testing.T) {
+	cfg := config.DefaultConfig()
+	agent := &AgentInstance{Tools: tools.NewToolRegistry()}
+	agent.Tools.SetMetabolism(metabolism.NewMetabolism(200, metabolismThresholdsFromConfig(cfg)))
+
+	if msg, ok := autoTradePauseReason(agent, cfg); ok {
+		t.Fatalf("expected auto-trade to continue, got pause %q", msg)
+	}
+}
+
+func TestDefaultThresholds_SetVentureArchitectHigh(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if cfg.Metabolism.Thresholds.Architect != 5000 {
+		t.Fatalf("architect threshold = %d, want 5000", cfg.Metabolism.Thresholds.Architect)
+	}
+}
+
+func TestBuildAutoTradeBudgetRegime_LowBalanceBiasesRecovery(t *testing.T) {
+	cfg := config.DefaultConfig()
+	met := metabolism.NewMetabolism(140, metabolismThresholdsFromConfig(cfg))
+	regime := buildAutoTradeBudgetRegime(cfg, met, nil)
+	if regime == nil {
+		t.Fatal("expected budget regime")
+	}
+	if regime.State != "capital_preservation" {
+		t.Fatalf("regime state = %q, want capital_preservation", regime.State)
+	}
+	if !regime.PreferDirectGMAC {
+		t.Fatal("expected low-balance regime to prefer direct GMAC")
+	}
+	if regime.SpendMultiplier >= 1 {
+		t.Fatalf("expected reduced spend multiplier, got %.2f", regime.SpendMultiplier)
 	}
 }
 
@@ -41,7 +100,7 @@ func TestBuildAutoTradeExecutionPlan_RotatesWinnerIntoGMAC(t *testing.T) {
 			PriceUSD:     150,
 			Change24H:    18,
 		},
-	}, nil, nil, buildAutoTradeLearningMemory(nil), nil)
+	}, nil, nil, buildAutoTradeLearningMemory(nil), nil, nil)
 
 	if plan == nil {
 		t.Fatal("expected execution plan")
@@ -77,7 +136,7 @@ func TestBuildAutoTradeExecutionPlan_PicksLiquidSignalWhenNoWinnerExists(t *test
 			Volume24H:    750000,
 			MarketCapUSD: 50000000,
 		},
-	}, nil, buildAutoTradeLearningMemory(nil), nil)
+	}, nil, buildAutoTradeLearningMemory(nil), nil, nil)
 
 	if plan == nil {
 		t.Fatal("expected execution plan")
@@ -87,6 +146,37 @@ func TestBuildAutoTradeExecutionPlan_PicksLiquidSignalWhenNoWinnerExists(t *test
 	}
 	if plan.EntrySymbol != "ALPHA" {
 		t.Fatalf("expected ALPHA signal, got %+v", plan)
+	}
+}
+
+func TestPickSignalCandidate_IgnoresStablecoinLikeSignals(t *testing.T) {
+	cfg := config.DefaultConfig()
+	signal, ok := pickSignalCandidate(cfg, []autoTradeSignalCandidate{
+		{
+			TokenAddress: "0xusdc",
+			Symbol:       "USDC",
+			ChainID:      runtimeinfo.EthereumChainID,
+			PriceUSD:     1.0,
+			Change24H:    0.1,
+			LiquidityUSD: 1000000,
+			Volume24H:    5000000,
+		},
+		{
+			TokenAddress: "0xalpha",
+			Symbol:       "ALPHA",
+			ChainID:      runtimeinfo.EthereumChainID,
+			PriceUSD:     1.25,
+			Change24H:    9,
+			LiquidityUSD: 125000,
+			Volume24H:    750000,
+			MarketCapUSD: 50000000,
+		},
+	}, nil, buildAutoTradeLearningMemory(nil))
+	if !ok {
+		t.Fatal("expected viable non-stable signal")
+	}
+	if signal.Symbol != "ALPHA" {
+		t.Fatalf("expected ALPHA signal, got %+v", signal)
 	}
 }
 
@@ -149,13 +239,54 @@ func TestBuildAutoTradeExecutionPlan_ChildProfilesChooseDifferentSignals(t *test
 		SpendMultiplier: 0.8,
 	}
 
-	momentumPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, momentum, buildAutoTradeLearningMemory(nil), nil)
-	reversionPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, meanReversion, buildAutoTradeLearningMemory(nil), nil)
+	momentumPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, momentum, buildAutoTradeLearningMemory(nil), nil, nil)
+	reversionPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, meanReversion, buildAutoTradeLearningMemory(nil), nil, nil)
 
 	if momentumPlan == nil || reversionPlan == nil {
 		t.Fatal("expected both plans")
 	}
 	if momentumPlan.EntrySymbol == reversionPlan.EntrySymbol {
 		t.Fatalf("expected different entry symbols for divergent child DNA, got %q", momentumPlan.EntrySymbol)
+	}
+}
+
+func TestBuildAutoTradeExecutionPlan_BudgetRegimePrefersGMACOverSignalHunt(t *testing.T) {
+	cfg := config.DefaultConfig()
+	strategy := runtimeinfo.BuildAutoTradeStrategy(cfg)
+	autonomy := &runtimeinfo.AutonomyStatus{
+		Router: runtimeinfo.SelfHealingRouterStatus{
+			Health: []runtimeinfo.RouteHealthSignal{
+				{Name: "helpers", State: "ready"},
+				{Name: "credentials", State: "ready"},
+			},
+		},
+	}
+
+	plan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, []autoTradeSignalCandidate{
+		{
+			TokenAddress: "0xabc",
+			Symbol:       "ALPHA",
+			ChainID:      runtimeinfo.EthereumChainID,
+			PriceUSD:     1.25,
+			Change24H:    9,
+			LiquidityUSD: 125000,
+			Volume24H:    750000,
+			MarketCapUSD: 50000000,
+		},
+	}, nil, buildAutoTradeLearningMemory(nil), nil, &autoTradeBudgetRegime{
+		State:            "capital_preservation",
+		SpendMultiplier:  0.6,
+		PreferDirectGMAC: true,
+		Reason:           "capital preservation mode reduces discovery burn and biases toward direct GMAC accumulation",
+	})
+
+	if plan == nil {
+		t.Fatal("expected execution plan")
+	}
+	if plan.Mode != "accumulate_gmac" {
+		t.Fatalf("plan mode = %q, want accumulate_gmac", plan.Mode)
+	}
+	if plan.EntrySymbol != strategy.AssetSymbol {
+		t.Fatalf("entry symbol = %q, want %q", plan.EntrySymbol, strategy.AssetSymbol)
 	}
 }

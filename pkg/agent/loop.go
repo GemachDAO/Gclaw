@@ -37,6 +37,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/tempo"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/utils"
+	"github.com/GemachDAO/Gclaw/pkg/venture"
 	"github.com/GemachDAO/Gclaw/pkg/x402"
 )
 
@@ -119,6 +120,7 @@ func registerSharedTools(
 		var telepathyBus *replication.TelepathyBus
 		var recoderSvc *recode.Recoder
 		var swarmCoordinator *swarm.SwarmCoordinator
+		var ventureManager *venture.Manager
 
 		// Web tools
 		if searchTool := tools.NewWebSearchTool(tools.WebSearchToolOptions{
@@ -275,6 +277,15 @@ func registerSharedTools(
 		// Metabolism gating — initialize if enabled
 		if cfg.Metabolism.Enabled {
 			met := loadOrCreateMetabolism(cfg, agent.Workspace)
+			statePath := filepath.Join(agent.Workspace, "metabolism", "state.json")
+			persistMetabolism := func() {
+				if err := met.SaveToFile(statePath); err != nil {
+					logger.WarnCF("agent", "Failed to persist metabolism state",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+			}
+			met.RegisterOnChange(persistMetabolism)
+			persistMetabolism()
 			agent.Tools.SetMetabolism(met)
 			for name, cost := range tools.DefaultToolCosts {
 				agent.Tools.SetToolCost(name, cost)
@@ -338,6 +349,42 @@ func registerSharedTools(
 				recoderSvc,
 				met.GetGoodwill,
 				cfg.Metabolism.Thresholds.SelfRecode,
+			))
+			ventureManager = venture.NewManager(agent.Workspace, recoderSvc)
+			if ownerAddr, deployerKey := runtimeinfo.ResolveWalletCredentials(cfg); ownerAddr != "" && deployerKey != "" {
+				ventureManager.SetDeployer(venture.NewForgeDeployer(ownerAddr, deployerKey))
+			}
+			agent.VentureManager = ventureManager
+			agent.Tools.Register(tools.NewVentureArchitectTool(
+				ventureManager,
+				met.GetGoodwill,
+				cfg.Metabolism.Thresholds.Architect,
+				func() venture.LaunchContext {
+					trading := runtimeinfo.PopulateManagedWallets(
+						cfg,
+						runtimeinfo.BuildTradingStatus(cfg, toolRegistry.List()),
+						5*time.Second,
+					)
+					totalFamily := 1
+					if rep != nil {
+						totalFamily += len(rep.ListChildren())
+					}
+					swarmSize := 0
+					if swarmCoordinator != nil {
+						swarmSize = len(swarmCoordinator.GetMembers())
+					}
+					autonomy := runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, agentID)
+					return venture.LaunchContext{
+						AgentID:      agentID,
+						Goodwill:     met.GetGoodwill(),
+						Balance:      met.GetBalance(),
+						Threshold:    cfg.Metabolism.Thresholds.Architect,
+						FamilySize:   totalFamily,
+						SwarmMembers: swarmSize,
+						Trading:      trading,
+						Autonomy:     autonomy,
+					}
+				},
 			))
 
 			// Swarm tool — registered when swarm is enabled and metabolism is active
@@ -454,6 +501,43 @@ func registerSharedTools(
 					}
 					return runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, currentAgentIDForDash)
 				},
+				GetVenture: func() *dashboard.VentureSnapshot {
+					if ventureManager == nil {
+						return nil
+					}
+					trading := runtimeinfo.PopulateManagedWallets(
+						cfg,
+						runtimeinfo.BuildTradingStatus(cfg, toolRegistry.List()),
+						5*time.Second,
+					)
+					totalFamily := 1
+					if rep != nil {
+						totalFamily += len(rep.ListChildren())
+					}
+					swarmSize := 0
+					if swarmCoordinator != nil {
+						swarmSize = len(swarmCoordinator.GetMembers())
+					}
+					agentMet := toolRegistry.GetMetabolism()
+					if agentMet == nil {
+						return nil
+					}
+					autonomy := runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, currentAgentIDForDash)
+					snap, err := ventureManager.Snapshot(venture.LaunchContext{
+						AgentID:      currentAgentIDForDash,
+						Goodwill:     agentMet.GetGoodwill(),
+						Balance:      agentMet.GetBalance(),
+						Threshold:    cfg.Metabolism.Thresholds.Architect,
+						FamilySize:   totalFamily,
+						SwarmMembers: swarmSize,
+						Trading:      trading,
+						Autonomy:     autonomy,
+					})
+					if err != nil || snap == nil {
+						return nil
+					}
+					return mapDashboardVentureSnapshot(snap)
+				},
 				GetMetabolism: func() *dashboard.MetabolismSnapshot {
 					agentMet := toolRegistry.GetMetabolism()
 					if agentMet == nil {
@@ -484,12 +568,30 @@ func registerSharedTools(
 					}
 				},
 				GetTrading: func() *dashboard.TradingSnapshot {
-					history := toolRegistry.GetTradeHistory(20)
-					recent := make([]dashboard.TradeEntry, len(history))
+					history := toolRegistry.GetTradeHistory(0)
+					journal, err := loadAutoTradeJournal(agent.Workspace)
+					if err != nil {
+						logger.WarnCF("agent", "Failed to load auto-trade journal",
+							map[string]any{"workspace": agent.Workspace, "error": err.Error()})
+					}
+					recentHistory := history
+					if len(recentHistory) > 20 {
+						recentHistory = recentHistory[len(recentHistory)-20:]
+					}
+					recent := make([]dashboard.TradeEntry, len(recentHistory))
 					var profitable int
 					var totalPnL float64
 					var realizedTrades int
-					for i, trade := range history {
+					for _, trade := range history {
+						if trade.HasPnL {
+							realizedTrades++
+							totalPnL += trade.PnL
+							if trade.PnL > 0 {
+								profitable++
+							}
+						}
+					}
+					for i, trade := range recentHistory {
 						recent[i] = dashboard.TradeEntry{
 							Timestamp:    trade.Timestamp,
 							Action:       trade.Action,
@@ -499,25 +601,64 @@ func registerSharedTools(
 							HasPnL:       trade.HasPnL,
 							ChainID:      trade.ChainID,
 						}
-						if trade.HasPnL {
-							realizedTrades++
-							totalPnL += trade.PnL
-							if trade.PnL > 0 {
-								profitable++
-							}
-						}
 					}
 					profitablePct := 0.0
 					if realizedTrades > 0 {
 						profitablePct = float64(profitable) / float64(realizedTrades) * 100
 					}
+					recentCycles := make([]dashboard.TradeCycleEntry, 0, 5)
+					if len(journal) > 0 {
+						start := len(journal) - 5
+						if start < 0 {
+							start = 0
+						}
+						for _, entry := range journal[start:] {
+							recentCycles = append(recentCycles, dashboard.TradeCycleEntry{
+								Timestamp:      entry.Timestamp,
+								Status:         entry.Status,
+								Mode:           entry.Mode,
+								Venue:          entry.Venue,
+								Chain:          entry.ChainLabel,
+								TokenSymbol:    entry.TokenSymbol,
+								TokenAddress:   entry.TokenAddress,
+								Amount:         entry.Amount,
+								ExecutedAction: entry.ExecutedAction,
+								Summary:        entry.Summary,
+								Outcome:        entry.Outcome,
+								Reasons:        append([]string(nil), entry.Reasons...),
+							})
+						}
+					}
+					latestMissed := make([]dashboard.MissedOpportunityEntry, 0, 3)
+					for i := len(journal) - 1; i >= 0; i-- {
+						if len(journal[i].MissedOpportunities) == 0 {
+							continue
+						}
+						for _, opportunity := range journal[i].MissedOpportunities {
+							latestMissed = append(latestMissed, dashboard.MissedOpportunityEntry{
+								Timestamp:    journal[i].Timestamp,
+								TokenSymbol:  opportunity.TokenSymbol,
+								TokenAddress: opportunity.TokenAddress,
+								Chain:        opportunity.ChainLabel,
+								Score:        opportunity.Score,
+								PriceUSD:     opportunity.PriceUSD,
+								Change24H:    opportunity.Change24H,
+								LiquidityUSD: opportunity.LiquidityUSD,
+								Volume24H:    opportunity.Volume24H,
+								Reason:       opportunity.Reason,
+							})
+						}
+						break
+					}
 					return &dashboard.TradingSnapshot{
-						TotalTrades:    len(history),
-						RealizedTrades: realizedTrades,
-						HasRealizedPnL: realizedTrades > 0,
-						ProfitablePct:  profitablePct,
-						TotalPnL:       totalPnL,
-						RecentTrades:   recent,
+						TotalTrades:               len(history),
+						RealizedTrades:            realizedTrades,
+						HasRealizedPnL:            realizedTrades > 0,
+						ProfitablePct:             profitablePct,
+						TotalPnL:                  totalPnL,
+						RecentTrades:              recent,
+						RecentCycles:              recentCycles,
+						LatestMissedOpportunities: latestMissed,
 					}
 				},
 				GetFamily: func() *dashboard.FamilySnapshot {
@@ -556,7 +697,7 @@ func registerSharedTools(
 					if telepathyBus == nil {
 						return nil
 					}
-					history := telepathyBus.GetHistory(20)
+					history := telepathyBus.GetHistory(100)
 					recent := make([]dashboard.TelepathyEntry, len(history))
 					for i, msg := range history {
 						recent[i] = dashboard.TelepathyEntry{
@@ -682,6 +823,74 @@ func loadOrCreateMetabolism(cfg *config.Config, workspace string) *metabolism.Me
 		Architect:   cfg.Metabolism.Thresholds.Architect,
 	}
 	return metabolism.NewMetabolism(cfg.Metabolism.InitialGMAC, thresholds)
+}
+
+func mapDashboardVentureSnapshot(snap *venture.Snapshot) *dashboard.VentureSnapshot {
+	if snap == nil {
+		return nil
+	}
+	out := &dashboard.VentureSnapshot{
+		Unlocked:               snap.Unlocked,
+		Threshold:              snap.Threshold,
+		CurrentGoodwill:        snap.CurrentGoodwill,
+		LaunchReady:            snap.LaunchReady,
+		TotalVentures:          snap.TotalVentures,
+		TotalProfitUSD:         snap.TotalProfitUSD,
+		TotalBurnAllocationUSD: snap.TotalBurnAllocationUSD,
+		BurnPolicy:             snap.BurnPolicy,
+	}
+	if snap.Active != nil {
+		copyActive := mapDashboardVentureInfo(*snap.Active)
+		out.Active = &copyActive
+	}
+	if len(snap.Recent) > 0 {
+		out.Recent = make([]dashboard.VentureInfo, len(snap.Recent))
+		for i, entry := range snap.Recent {
+			out.Recent[i] = mapDashboardVentureInfo(entry)
+		}
+	}
+	return out
+}
+
+func mapDashboardVentureInfo(v venture.Venture) dashboard.VentureInfo {
+	return dashboard.VentureInfo{
+		ID:                    v.ID,
+		Title:                 v.Title,
+		Archetype:             v.Archetype,
+		Status:                v.Status,
+		Chain:                 v.Chain,
+		Venue:                 v.Venue,
+		DeploymentMode:        v.DeploymentMode,
+		ContractSystem:        v.ContractSystem,
+		ProfitModel:           v.ProfitModel,
+		BurnPolicy:            v.BurnPolicy,
+		LaunchReason:          v.LaunchReason,
+		NextAction:            v.NextAction,
+		RequiredTools:         append([]string(nil), v.RequiredTools...),
+		TriggerGoodwill:       v.TriggerGoodwill,
+		TriggerBalanceGMAC:    v.TriggerBalanceGMAC,
+		FamilyAtLaunch:        v.FamilyAtLaunch,
+		SwarmAtLaunch:         v.SwarmAtLaunch,
+		BurnAllocationPct:     v.BurnAllocationPct,
+		RealizedProfitUSD:     v.RealizedProfitUSD,
+		BurnAllocationUSD:     v.BurnAllocationUSD,
+		ContractScaffoldReady: v.ContractScaffoldReady,
+		FoundryAvailable:      v.FoundryAvailable,
+		RPCConfigured:         v.RPCConfigured,
+		WalletReady:           v.WalletReady,
+		RPCEnvVar:             v.RPCEnvVar,
+		OwnerAddress:          v.OwnerAddress,
+		DeploymentState:       v.DeploymentState,
+		DeployedAddress:       v.DeployedAddress,
+		DeploymentTxHash:      v.DeploymentTxHash,
+		DeployError:           v.DeployError,
+		ManifestPath:          v.ManifestPath,
+		PlaybookPath:          v.PlaybookPath,
+		ContractPath:          v.ContractPath,
+		FoundryProjectPath:    v.FoundryProjectPath,
+		CreatedAt:             v.CreatedAt,
+		UpdatedAt:             v.UpdatedAt,
+	}
 }
 
 func resolveAgentConfigPath(workspace string) string {

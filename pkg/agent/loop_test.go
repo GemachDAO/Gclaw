@@ -362,7 +362,7 @@ func TestNewAgentLoop_LivingDashboardAndTools(t *testing.T) {
 		t.Fatal("expected default agent")
 	}
 
-	for _, toolName := range []string{"replicate", "telepathy", "self_recode", "dashboard", "swarm"} {
+	for _, toolName := range []string{"replicate", "telepathy", "self_recode", "venture_architect", "dashboard", "swarm"} {
 		if _, ok := defaultAgent.Tools.Get(toolName); !ok {
 			t.Fatalf("expected tool %q to be registered", toolName)
 		}
@@ -374,7 +374,7 @@ func TestNewAgentLoop_LivingDashboardAndTools(t *testing.T) {
 	}
 
 	data := dash.GetData()
-	if data.Metabolism == nil || data.Trading == nil || data.Family == nil || data.Telepathy == nil || data.System == nil {
+	if data.Metabolism == nil || data.Trading == nil || data.Venture == nil || data.Family == nil || data.Telepathy == nil || data.System == nil {
 		t.Fatal("expected living dashboard sections to be wired")
 	}
 	if data.Family.TotalFamily != 1 {

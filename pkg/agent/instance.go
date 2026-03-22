@@ -12,6 +12,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/session"
 	"github.com/GemachDAO/Gclaw/pkg/swarm"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
+	"github.com/GemachDAO/Gclaw/pkg/venture"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,
@@ -37,6 +38,7 @@ type AgentInstance struct {
 	TelepathyBus   *replication.TelepathyBus
 	TelepathyInbox <-chan replication.TelepathyMessage
 	Swarm          *swarm.SwarmCoordinator
+	VentureManager *venture.Manager
 }
 
 // NewAgentInstance creates an agent instance from config.

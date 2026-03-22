@@ -499,6 +499,42 @@ async function prepareHyperLiquidDeposit(skill, sessionKey, sessionPrivateKey, p
   };
 }
 
+async function prepareHyperLiquidWithdraw(skill, sessionKey, params) {
+  const requestedAmount = toFiniteNumber(params.amount);
+  if (!(requestedAmount > 0)) {
+    throw new Error(`Invalid HyperLiquid withdraw amount: "${params.amount}"`);
+  }
+
+  // The backend currently rounds HL withdrawals to one decimal place and applies
+  // about a 1 USDC fee, so tiny withdrawals and near-full-balance requests fail.
+  const roundedAmount = Number(requestedAmount.toFixed(1));
+  if (!(roundedAmount > 1)) {
+    throw new Error(
+      `HyperLiquid withdraw amount must round above 1.0 USDC because the backend currently applies about a 1 USDC withdraw fee`
+    );
+  }
+
+  try {
+    const user = await getManagedUserForChain(skill, sessionKey, ARBITRUM_CHAIN_ID);
+    const managedAddress = pickManagedAddress(user) || 'unknown';
+    if (managedAddress && managedAddress !== 'unknown') {
+      const state = await skill.getHlAccountState(managedAddress);
+      const withdrawable = toFiniteNumber(state?.withdrawable);
+      if (withdrawable > 0 && roundedAmount + 1 > withdrawable) {
+        throw new Error(
+          `HyperLiquid withdraw ${formatAmount(roundedAmount, 1)} USDC plus the current 1 USDC fee exceeds withdrawable ${formatAmount(withdrawable, 6)} USDC on managed wallet ${managedAddress}`
+        );
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+  }
+
+  return { withdrawAmount: formatAmount(roundedAmount, 1) };
+}
+
 let inputData = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { inputData += chunk; });
@@ -664,10 +700,10 @@ process.stdin.on('end', async () => {
       }
 
       case 'hl_withdraw': {
-        const { sessionPrivateKey } = await signIn(skill, 1);
-        const withdrawAmount = ethers.parseUnits(formatAmount(params.amount, 6), 6).toString();
+        const { sessionPrivateKey, sessionKey } = await signIn(skill, 1);
+        const withdraw = await prepareHyperLiquidWithdraw(skill, sessionKey, params);
         result = await skill.perpWithdraw({
-          amount: withdrawAmount,
+          amount: withdraw.withdrawAmount,
           apiKey,
           walletAddress,
           sessionPrivateKey,

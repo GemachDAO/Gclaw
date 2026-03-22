@@ -12,7 +12,7 @@ func defaultThresholds() Thresholds {
 		Replicate:   50,
 		SelfRecode:  100,
 		SwarmLeader: 200,
-		Architect:   500,
+		Architect:   5000,
 	}
 }
 
@@ -101,9 +101,9 @@ func TestGoodwillThresholds(t *testing.T) {
 		t.Error("should not architect with 200 goodwill")
 	}
 
-	m.AddGoodwill(300, "architect")
+	m.AddGoodwill(4800, "architect")
 	if !m.CanArchitect() {
-		t.Error("should architect with 500 goodwill")
+		t.Error("should architect with 5000 goodwill")
 	}
 }
 
@@ -269,6 +269,37 @@ func TestRegisterOnCredit_DeregisterViaFlag(t *testing.T) {
 
 	if callCount != 1 {
 		t.Errorf("expected callback to self-limit to 1 invocation, got %d", callCount)
+	}
+}
+
+func TestRegisterOnChange_CalledOnMutations(t *testing.T) {
+	m := NewMetabolism(100, defaultThresholds())
+
+	count := 0
+	m.RegisterOnChange(func() { count++ })
+
+	if err := m.Debit(10, "tool_exec", "search"); err != nil {
+		t.Fatalf("unexpected debit error: %v", err)
+	}
+	m.Credit(5, "trade_profit", "win")
+	m.AddGoodwill(3, "helpful")
+
+	if count != 3 {
+		t.Fatalf("expected on-change callback 3 times, got %d", count)
+	}
+}
+
+func TestRegisterOnChange_NotCalledOnFailedDebit(t *testing.T) {
+	m := NewMetabolism(1, defaultThresholds())
+
+	count := 0
+	m.RegisterOnChange(func() { count++ })
+
+	if err := m.Debit(5, "tool_exec", "too_expensive"); err == nil {
+		t.Fatal("expected debit error")
+	}
+	if count != 0 {
+		t.Fatalf("expected no on-change callback on failed debit, got %d", count)
 	}
 }
 

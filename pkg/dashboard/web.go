@@ -92,6 +92,15 @@ func RegisterHandlers(mux *http.ServeMux, d *Dashboard) {
 		})
 	})
 
+	mux.HandleFunc("/dashboard/api/venture", func(w http.ResponseWriter, r *http.Request) {
+		serveSection(w, r, func() any {
+			if d.opts.GetVenture != nil {
+				return d.opts.GetVenture()
+			}
+			return nil
+		})
+	})
+
 	mux.HandleFunc("/dashboard/api/family", func(w http.ResponseWriter, r *http.Request) {
 		serveSection(w, r, func() any {
 			if d.opts.GetFamily != nil {
@@ -196,6 +205,8 @@ func renderHTML(data *DashboardData) string {
 			winRateValue = fmt.Sprintf("%.1f%%", t.ProfitablePct)
 			pnlValue = fmt.Sprintf(`<span class="value %s">%+.2f GMAC</span>`, pnlClass, t.TotalPnL)
 		}
+		cyclesHTML := buildTradingCycleHTML(t.RecentCycles)
+		missedHTML := buildMissedOpportunityHTML(t.LatestMissedOpportunities)
 		tradingHTML = fmt.Sprintf(`
 <div class="stat-row">
   <span class="label">Trade Executions</span><span class="value">%d</span>
@@ -208,7 +219,11 @@ func renderHTML(data *DashboardData) string {
 </div>
 <div class="stat-row">
   <span class="label">Realized P&amp;L</span>%s
-</div>`, t.TotalTrades, t.RealizedTrades, winRateValue, pnlValue)
+</div>
+<div class="tool-list">Recent Decisions</div>
+%s
+<div class="tool-list">Missed Opportunities</div>
+%s`, t.TotalTrades, t.RealizedTrades, winRateValue, pnlValue, cyclesHTML, missedHTML)
 	}
 
 	fundingHTML := "<p><em>not configured</em></p>"
@@ -486,19 +501,146 @@ func renderHTML(data *DashboardData) string {
 		)
 	}
 
+	ventureHTML := "<p><em>not configured</em></p>"
+	if data.Venture != nil {
+		v := data.Venture
+		unlocked := "locked"
+		if v.Unlocked {
+			unlocked = "unlocked"
+		}
+		launchReady := "no"
+		if v.LaunchReady {
+			launchReady = "yes"
+		}
+		activeHTML := `<div class="tool-list">No active venture yet.</div>`
+		if v.Active != nil {
+			active := v.Active
+			required := "none"
+			if len(active.RequiredTools) > 0 {
+				required = htmlEscape(strings.Join(active.RequiredTools, ", "))
+			}
+			activeHTML = fmt.Sprintf(`
+<div class="autonomy-block">
+  <div class="autonomy-title">Active Venture</div>
+  <div class="stat-row">
+    <span class="label">Title</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Status</span><span class="value">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Archetype</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Chain</span><span class="value">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Venue</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Deploy Mode</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Contract</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Profit Model</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Tracked Profit</span><span class="value">$%.2f</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Burn Allocation</span><span class="value">$%.2f (%.0f%%)</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Contract Scaffold</span><span class="value">%t</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Deployment</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Deploy Ready</span><span class="value">%t / %t / %t</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Owner</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">RPC Source</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Contract Address</span><span class="value wrap">%s</span>
+  </div>
+  <div class="stat-row">
+    <span class="label">Deploy Tx</span><span class="value wrap">%s</span>
+  </div>
+  <div class="tool-list">Required tools: %s</div>
+  <div class="tool-list">%s</div>
+  <div class="tool-list">%s</div>
+  <div class="tool-list">%s</div>
+</div>`,
+				htmlEscape(active.Title),
+				htmlEscape(active.Status),
+				htmlEscape(active.Archetype),
+				htmlEscape(active.Chain),
+				htmlEscape(active.Venue),
+				htmlEscape(active.DeploymentMode),
+				htmlEscape(active.ContractSystem),
+				htmlEscape(active.ProfitModel),
+				active.RealizedProfitUSD,
+				active.BurnAllocationUSD,
+				active.BurnAllocationPct,
+				active.ContractScaffoldReady,
+				htmlEscape(active.DeploymentState),
+				active.FoundryAvailable,
+				active.RPCConfigured,
+				active.WalletReady,
+				htmlEscape(firstNonEmptyString(active.OwnerAddress, "not configured")),
+				htmlEscape(formatRPCSource(active.RPCEnvVar)),
+				htmlEscape(firstNonEmptyString(active.DeployedAddress, "not deployed")),
+				htmlEscape(firstNonEmptyString(active.DeploymentTxHash, "not deployed")),
+				required,
+				htmlEscape(active.LaunchReason),
+				htmlEscape(active.NextAction),
+				htmlEscape(firstNonEmptyString(active.DeployError, "deployment path healthy")),
+			)
+		}
+		ventureHTML = fmt.Sprintf(`
+<div class="stat-row">
+  <span class="label">Tier</span><span class="value">%s</span>
+</div>
+<div class="stat-row">
+  <span class="label">Goodwill</span><span class="value">%d / %d</span>
+</div>
+<div class="stat-row">
+  <span class="label">Launch Ready</span><span class="value">%s</span>
+</div>
+<div class="stat-row">
+  <span class="label">Ventures</span><span class="value">%d</span>
+</div>
+<div class="stat-row">
+  <span class="label">Tracked Profit</span><span class="value">$%.2f</span>
+</div>
+<div class="stat-row">
+  <span class="label">GMAC Burn Pool</span><span class="value">$%.2f</span>
+</div>
+<div class="tool-list">%s</div>
+%s`,
+			unlocked,
+			v.CurrentGoodwill,
+			v.Threshold,
+			launchReady,
+			v.TotalVentures,
+			v.TotalProfitUSD,
+			v.TotalBurnAllocationUSD,
+			htmlEscape(v.BurnPolicy),
+			activeHTML,
+		)
+	}
+
 	telepathyHTML := "<p><em>not configured</em></p>"
 	if data.Telepathy != nil {
 		tp := data.Telepathy
-		latestLine := ""
-		if len(tp.RecentMessages) > 0 {
-			last := tp.RecentMessages[len(tp.RecentMessages)-1]
-			latestLine = fmt.Sprintf(
-				`<div class="stat-row"><span class="label">Latest</span><span class="value">%s from %s (%s)</span></div>`,
-				htmlEscape(last.Type),
-				htmlEscape(last.From),
-				formatAgo(last.Timestamp),
-			)
-		}
+		recentMessagesHTML := buildTelepathyMessagesHTML(tp.RecentMessages, tp.TotalMessages)
 		telepathyHTML = fmt.Sprintf(`
 <div class="stat-row">
   <span class="label">Messages</span><span class="value">%d</span>
@@ -508,7 +650,9 @@ func renderHTML(data *DashboardData) string {
 </div>
 <div class="stat-row">
   <span class="label">Persistence</span><span class="value">%t</span>
-</div>%s`, tp.TotalMessages, tp.ActiveChannels, tp.Persistent, latestLine)
+</div>
+<div class="tool-list">Recent Messages</div>
+%s`, tp.TotalMessages, tp.ActiveChannels, tp.Persistent, recentMessagesHTML)
 	}
 
 	swarmHTML := "<p><em>not configured</em></p>"
@@ -645,6 +789,12 @@ func renderHTML(data *DashboardData) string {
   .route-summary, .health-detail { color: #94a3b8; font-size: .75rem; line-height: 1.45; margin-top: .35rem; }
   .route-steps, .route-blockers { color: #cbd5e1; font-size: .74rem; line-height: 1.5; margin-top: .45rem; overflow-wrap: anywhere; }
   .route-blockers { color: #fca5a5; }
+  .telepathy-stream { display: grid; gap: .65rem; margin-top: .35rem; max-height: 420px; overflow-y: auto; padding-right: .2rem; }
+  .telepathy-card { background: rgba(15,23,42,.72); border: 1px solid #334155; border-radius: 12px; padding: .7rem; }
+  .telepathy-top { display: flex; justify-content: space-between; gap: .6rem; align-items: center; }
+  .telepathy-title { color: #f8fafc; font-size: .83rem; font-weight: 700; }
+  .telepathy-meta { color: #94a3b8; font-size: .72rem; margin-top: .35rem; overflow-wrap: anywhere; }
+  .telepathy-body { color: #cbd5e1; font-size: .75rem; line-height: 1.5; margin-top: .45rem; overflow-wrap: anywhere; white-space: pre-wrap; }
   .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .18rem .5rem; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border: 1px solid #334155; }
   .state-ready { background: rgba(22,163,74,.16); color: #86efac; border-color: rgba(34,197,94,.35); }
   .state-self-healing { background: rgba(14,165,233,.16); color: #7dd3fc; border-color: rgba(56,189,248,.35); }
@@ -683,6 +833,9 @@ func renderHTML(data *DashboardData) string {
 	sb.WriteString(`</div>
   <div class="card"><h2>🧬 Autonomy</h2>`)
 	sb.WriteString(autonomyHTML)
+	sb.WriteString(`</div>
+  <div class="card"><h2>🏗️ Venture Architect</h2>`)
+	sb.WriteString(ventureHTML)
 	sb.WriteString(`</div>
   <div class="card"><h2>👨‍👧‍👦 Family Tree</h2>`)
 	sb.WriteString(familyHTML)
@@ -997,6 +1150,208 @@ func buildAutonomyRouteHTML(routes []runtimeinfo.RouteCandidate) string {
 </div>`, htmlEscape(topline), buildStateBadge(route.State), body))
 	}
 	return `<div class="route-stack">` + strings.Join(items, "") + `</div>`
+}
+
+func buildTradingCycleHTML(entries []TradeCycleEntry) string {
+	if len(entries) == 0 {
+		return `<div class="tool-list">no auto-trade journal yet</div>`
+	}
+
+	items := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		title := strings.TrimSpace(entry.TokenSymbol)
+		if title == "" {
+			title = strings.TrimSpace(entry.Mode)
+		}
+		if title == "" {
+			title = "cycle"
+		}
+		meta := []string{}
+		if strings.TrimSpace(entry.ExecutedAction) != "" {
+			meta = append(meta, entry.ExecutedAction)
+		}
+		if strings.TrimSpace(entry.Chain) != "" {
+			meta = append(meta, entry.Chain)
+		}
+		if strings.TrimSpace(entry.Venue) != "" {
+			meta = append(meta, entry.Venue)
+		}
+		if strings.TrimSpace(entry.Amount) != "" {
+			meta = append(meta, "size "+entry.Amount)
+		}
+		body := ""
+		if strings.TrimSpace(entry.Summary) != "" {
+			body += `<div class="route-summary">` + htmlEscape(entry.Summary) + `</div>`
+		}
+		if strings.TrimSpace(entry.Outcome) != "" && strings.TrimSpace(entry.Outcome) != strings.TrimSpace(entry.Summary) {
+			body += `<div class="route-steps">Outcome: ` + htmlEscape(entry.Outcome) + `</div>`
+		}
+		if len(entry.Reasons) > 0 {
+			body += `<div class="route-blockers">Why: ` + htmlEscape(strings.Join(entry.Reasons, "; ")) + `</div>`
+		}
+		items = append(items, fmt.Sprintf(`
+<div class="route-card">
+  <div class="route-top">
+    <span class="route-name">%s</span>
+    %s
+  </div>
+  <div class="route-steps">%s</div>
+  %s
+</div>`,
+			htmlEscape(title),
+			buildStateBadge(entry.Status),
+			htmlEscape(strings.Join(meta, " · ")),
+			body,
+		))
+	}
+	return `<div class="route-stack">` + strings.Join(items, "") + `</div>`
+}
+
+func buildMissedOpportunityHTML(entries []MissedOpportunityEntry) string {
+	if len(entries) == 0 {
+		return `<div class="tool-list">no viable missed opportunities recorded yet</div>`
+	}
+
+	items := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		title := strings.TrimSpace(entry.TokenSymbol)
+		if title == "" {
+			title = strings.TrimSpace(entry.TokenAddress)
+		}
+		if title == "" {
+			title = "signal"
+		}
+		meta := []string{}
+		if strings.TrimSpace(entry.Chain) != "" {
+			meta = append(meta, entry.Chain)
+		}
+		if entry.Score != 0 {
+			meta = append(meta, fmt.Sprintf("score %.1f", entry.Score))
+		}
+		if entry.Change24H != 0 {
+			meta = append(meta, fmt.Sprintf("24h %+.1f%%", entry.Change24H))
+		}
+		if entry.LiquidityUSD > 0 {
+			meta = append(meta, fmt.Sprintf("liq $%.0fk", entry.LiquidityUSD/1000))
+		}
+		if entry.Volume24H > 0 {
+			meta = append(meta, fmt.Sprintf("vol $%.0fk", entry.Volume24H/1000))
+		}
+		body := ""
+		if strings.TrimSpace(entry.Reason) != "" {
+			body += `<div class="route-summary">` + htmlEscape(entry.Reason) + `</div>`
+		}
+		if entry.PriceUSD > 0 || strings.TrimSpace(entry.TokenAddress) != "" {
+			detail := []string{}
+			if entry.PriceUSD > 0 {
+				detail = append(detail, fmt.Sprintf("price $%.6g", entry.PriceUSD))
+			}
+			if strings.TrimSpace(entry.TokenAddress) != "" {
+				detail = append(detail, entry.TokenAddress)
+			}
+			body += `<div class="route-steps">` + htmlEscape(strings.Join(detail, " · ")) + `</div>`
+		}
+		items = append(items, fmt.Sprintf(`
+<div class="route-card">
+  <div class="route-top">
+    <span class="route-name">%s</span>
+    %s
+  </div>
+  <div class="route-steps">%s</div>
+  %s
+</div>`,
+			htmlEscape(title),
+			buildStateBadge("missed"),
+			htmlEscape(strings.Join(meta, " · ")),
+			body,
+		))
+	}
+	return `<div class="route-stack">` + strings.Join(items, "") + `</div>`
+}
+
+func buildTelepathyMessagesHTML(entries []TelepathyEntry, total int) string {
+	if len(entries) == 0 {
+		if total == 0 {
+			return `<div class="tool-list">no telepathy chatter yet</div>`
+		}
+		return `<div class="tool-list">telepathy history exists, but no recent messages are loaded</div>`
+	}
+
+	items := make([]string, 0, len(entries))
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		target := "family"
+		if strings.TrimSpace(entry.To) != "" && entry.To != "*" {
+			target = entry.To
+		}
+		content := strings.TrimSpace(entry.Content)
+		if content == "" {
+			content = "(empty message)"
+		}
+		meta := []string{
+			"to " + target,
+			formatAgo(entry.Timestamp),
+			"priority " + telepathyPriorityLabel(entry.Priority),
+		}
+		items = append(items, fmt.Sprintf(`
+<div class="telepathy-card">
+  <div class="telepathy-top">
+    <span class="telepathy-title">%s from %s</span>
+    %s
+  </div>
+  <div class="telepathy-meta">%s</div>
+  <div class="telepathy-body">%s</div>
+</div>`,
+			htmlEscape(entry.Type),
+			htmlEscape(entry.From),
+			buildStateBadge(entry.Type),
+			htmlEscape(strings.Join(meta, " · ")),
+			htmlEscape(content),
+		))
+	}
+
+	caption := fmt.Sprintf("showing %d recent message", len(entries))
+	if len(entries) != 1 {
+		caption += "s"
+	}
+	if total > len(entries) {
+		caption += fmt.Sprintf(" of %d total", total)
+	}
+
+	return `<div class="tool-list">` + htmlEscape(caption) + `</div><div class="telepathy-stream">` + strings.Join(items, "") + `</div>`
+}
+
+func telepathyPriorityLabel(priority int) string {
+	switch priority {
+	case 2:
+		return "urgent"
+	case 1:
+		return "normal"
+	default:
+		return "low"
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func formatRPCSource(source string) string {
+	source = strings.TrimSpace(source)
+	switch source {
+	case "":
+		return "not configured"
+	case "builtin_public_rpc":
+		return "built-in public RPC"
+	default:
+		return source
+	}
 }
 
 func buildStateBadge(state string) string {

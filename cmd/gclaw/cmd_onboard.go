@@ -211,7 +211,7 @@ func onboard() {
 		fmt.Println("     Dashboard:  http://127.0.0.1:18790/dashboard")
 		fmt.Println()
 		fmt.Println("  Living Agent features are active by default:")
-		fmt.Println("    GMAC Metabolism: 1000 GMAC starting balance")
+		fmt.Println("    GMAC Metabolism: 1000 seeded internal GMAC starting balance (meant to be earned back with real GMAC over time)")
 		fmt.Println("    Auto-Trade Loop: heartbeat-driven, small and conservative")
 		fmt.Println("    Swarm Mode:      ready when goodwill >= 200")
 		fmt.Println()

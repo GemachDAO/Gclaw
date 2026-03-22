@@ -270,6 +270,7 @@ compound goodwill, and expand the family only when the balance and strategy just
 - When goodwill reaches the replication threshold and family size is below the cap, create a child agent.
 - When goodwill reaches the self-recode threshold, refine prompts or trading parameters that are underperforming.
 - When goodwill reaches swarm-leader threshold, coordinate strategy through swarm and telepathy.
+- When goodwill reaches the venture-architect threshold, use venture_architect to launch a higher-order profit system and route 10%% of realized venture profit into GMAC buy-and-burn on Ethereum.
 
 ## Constraints
 

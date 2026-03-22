@@ -446,6 +446,35 @@ setup_gdex_helpers() {
   fi
 }
 
+# ── Venture deployer: install Foundry if possible ────────────────────────────
+setup_foundry() {
+  if command -v forge &>/dev/null || [ -x "${HOME}/.foundry/bin/forge" ]; then
+    return 0
+  fi
+
+  if ! command -v curl &>/dev/null; then
+    warn "curl not found — skipping optional Foundry install for venture deployment."
+    return 0
+  fi
+
+  info "Installing Foundry for live venture deployment..."
+  if ! curl -fsSL https://foundry.paradigm.xyz | bash >/tmp/gclaw-foundry-install.log 2>&1; then
+    warn "Foundry bootstrap failed. Venture deployment will stay scaffold-only until Foundry is installed."
+    return 0
+  fi
+
+  if [ ! -x "${HOME}/.foundry/bin/foundryup" ]; then
+    warn "Foundry bootstrap finished, but foundryup was not installed."
+    return 0
+  fi
+
+  if "${HOME}/.foundry/bin/foundryup" >/tmp/gclaw-foundryup.log 2>&1; then
+    success "Foundry installed for venture deployment."
+  else
+    warn "foundryup failed. Venture deployment will stay scaffold-only until Foundry is installed."
+  fi
+}
+
 main() {
   print_banner
   detect_platform || exit 1
@@ -455,6 +484,7 @@ main() {
     ensure_path
     run_onboard
     setup_gdex_helpers || exit 1
+    setup_foundry
     maybe_launch_gateway
     exit 0
   fi
@@ -466,6 +496,7 @@ main() {
   ensure_path
   run_onboard
   setup_gdex_helpers || exit 1
+  setup_foundry
   maybe_launch_gateway
 }
 

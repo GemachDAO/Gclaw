@@ -24,6 +24,7 @@ type DashboardData struct {
 	Trading       *TradingSnapshot                `json:"trading,omitempty"`
 	TradingAccess *runtimeinfo.TradingStatus      `json:"trading_access,omitempty"`
 	Autonomy      *runtimeinfo.AutonomyStatus     `json:"autonomy,omitempty"`
+	Venture       *VentureSnapshot                `json:"venture,omitempty"`
 	Family        *FamilySnapshot                 `json:"family,omitempty"`
 	Telepathy     *TelepathySnapshot              `json:"telepathy,omitempty"`
 	Swarm         *SwarmSnapshot                  `json:"swarm,omitempty"`
@@ -52,13 +53,15 @@ type LedgerEntry struct {
 
 // TradingSnapshot captures recent trading activity.
 type TradingSnapshot struct {
-	TotalTrades     int          `json:"total_trades"`
-	RealizedTrades  int          `json:"realized_trades"`
-	HasRealizedPnL  bool         `json:"has_realized_pnl"`
-	ProfitablePct   float64      `json:"profitable_pct"`
-	TotalPnL        float64      `json:"total_pnl"`
-	ActivePositions int          `json:"active_positions"`
-	RecentTrades    []TradeEntry `json:"recent_trades"`
+	TotalTrades               int                      `json:"total_trades"`
+	RealizedTrades            int                      `json:"realized_trades"`
+	HasRealizedPnL            bool                     `json:"has_realized_pnl"`
+	ProfitablePct             float64                  `json:"profitable_pct"`
+	TotalPnL                  float64                  `json:"total_pnl"`
+	ActivePositions           int                      `json:"active_positions"`
+	RecentTrades              []TradeEntry             `json:"recent_trades"`
+	RecentCycles              []TradeCycleEntry        `json:"recent_cycles,omitempty"`
+	LatestMissedOpportunities []MissedOpportunityEntry `json:"latest_missed_opportunities,omitempty"`
 }
 
 // TradeEntry records a single trade event.
@@ -70,6 +73,90 @@ type TradeEntry struct {
 	PnL          float64 `json:"pnl,omitempty"`
 	HasPnL       bool    `json:"has_pnl,omitempty"`
 	ChainID      int     `json:"chain_id"`
+}
+
+// TradeCycleEntry records one auto-trade planning/execution cycle with context.
+type TradeCycleEntry struct {
+	Timestamp      int64    `json:"timestamp"`
+	Status         string   `json:"status"`
+	Mode           string   `json:"mode"`
+	Venue          string   `json:"venue"`
+	Chain          string   `json:"chain,omitempty"`
+	TokenSymbol    string   `json:"token_symbol,omitempty"`
+	TokenAddress   string   `json:"token_address,omitempty"`
+	Amount         string   `json:"amount,omitempty"`
+	ExecutedAction string   `json:"executed_action,omitempty"`
+	Summary        string   `json:"summary,omitempty"`
+	Outcome        string   `json:"outcome,omitempty"`
+	Reasons        []string `json:"reasons,omitempty"`
+}
+
+// MissedOpportunityEntry describes a viable setup the agent observed but did not take.
+type MissedOpportunityEntry struct {
+	Timestamp    int64   `json:"timestamp"`
+	TokenSymbol  string  `json:"token_symbol,omitempty"`
+	TokenAddress string  `json:"token_address,omitempty"`
+	Chain        string  `json:"chain,omitempty"`
+	Score        float64 `json:"score,omitempty"`
+	PriceUSD     float64 `json:"price_usd,omitempty"`
+	Change24H    float64 `json:"change_24h,omitempty"`
+	LiquidityUSD float64 `json:"liquidity_usd,omitempty"`
+	Volume24H    float64 `json:"volume_24h,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
+}
+
+// VentureSnapshot captures the current venture-architect state.
+type VentureSnapshot struct {
+	Unlocked               bool          `json:"unlocked"`
+	Threshold              int           `json:"threshold"`
+	CurrentGoodwill        int           `json:"current_goodwill"`
+	LaunchReady            bool          `json:"launch_ready"`
+	TotalVentures          int           `json:"total_ventures"`
+	TotalProfitUSD         float64       `json:"total_profit_usd"`
+	TotalBurnAllocationUSD float64       `json:"total_burn_allocation_usd"`
+	BurnPolicy             string        `json:"burn_policy,omitempty"`
+	Active                 *VentureInfo  `json:"active,omitempty"`
+	Recent                 []VentureInfo `json:"recent,omitempty"`
+}
+
+// VentureInfo is one venture shown in the dashboard.
+type VentureInfo struct {
+	ID                    string   `json:"id"`
+	Title                 string   `json:"title"`
+	Archetype             string   `json:"archetype"`
+	Status                string   `json:"status"`
+	Chain                 string   `json:"chain"`
+	Venue                 string   `json:"venue"`
+	DeploymentMode        string   `json:"deployment_mode"`
+	ContractSystem        string   `json:"contract_system"`
+	ProfitModel           string   `json:"profit_model"`
+	BurnPolicy            string   `json:"burn_policy"`
+	LaunchReason          string   `json:"launch_reason"`
+	NextAction            string   `json:"next_action"`
+	RequiredTools         []string `json:"required_tools,omitempty"`
+	TriggerGoodwill       int      `json:"trigger_goodwill"`
+	TriggerBalanceGMAC    float64  `json:"trigger_balance_gmac"`
+	FamilyAtLaunch        int      `json:"family_at_launch"`
+	SwarmAtLaunch         int      `json:"swarm_at_launch"`
+	BurnAllocationPct     float64  `json:"burn_allocation_pct"`
+	RealizedProfitUSD     float64  `json:"realized_profit_usd"`
+	BurnAllocationUSD     float64  `json:"burn_allocation_usd"`
+	ContractScaffoldReady bool     `json:"contract_scaffold_ready"`
+	FoundryAvailable      bool     `json:"foundry_available"`
+	RPCConfigured         bool     `json:"rpc_configured"`
+	WalletReady           bool     `json:"wallet_ready"`
+	RPCEnvVar             string   `json:"rpc_env_var,omitempty"`
+	OwnerAddress          string   `json:"owner_address,omitempty"`
+	DeploymentState       string   `json:"deployment_state,omitempty"`
+	DeployedAddress       string   `json:"deployed_address,omitempty"`
+	DeploymentTxHash      string   `json:"deployment_tx_hash,omitempty"`
+	DeployError           string   `json:"deploy_error,omitempty"`
+	ManifestPath          string   `json:"manifest_path,omitempty"`
+	PlaybookPath          string   `json:"playbook_path,omitempty"`
+	ContractPath          string   `json:"contract_path,omitempty"`
+	FoundryProjectPath    string   `json:"foundry_project_path,omitempty"`
+	CreatedAt             int64    `json:"created_at"`
+	UpdatedAt             int64    `json:"updated_at"`
 }
 
 // FamilySnapshot captures the agent family tree.
@@ -183,6 +270,7 @@ type DashboardOptions struct {
 	GetMetabolism    func() *MetabolismSnapshot
 	GetTradingAccess func() *runtimeinfo.TradingStatus
 	GetAutonomy      func() *runtimeinfo.AutonomyStatus
+	GetVenture       func() *VentureSnapshot
 	GetFamily        func() *FamilySnapshot
 	GetTelepathy     func() *TelepathySnapshot
 	GetSwarm         func() *SwarmSnapshot
@@ -237,6 +325,12 @@ func (d *Dashboard) GetData() *DashboardData {
 	if d.opts.GetAutonomy != nil {
 		if snap := d.opts.GetAutonomy(); snap != nil {
 			data.Autonomy = snap
+		}
+	}
+
+	if d.opts.GetVenture != nil {
+		if snap := d.opts.GetVenture(); snap != nil {
+			data.Venture = snap
 		}
 	}
 

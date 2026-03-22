@@ -40,6 +40,8 @@ Gclaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw) (originally in
 
 Unlike a conventional AI assistant that runs indefinitely, Gclaw operates on a **GMAC token metabolism** — its life energy. Every heartbeat, every inference costs GMAC. Profitable trades and completed tasks replenish it. Run out of GMAC and the agent hibernates. Trade well and it thrives, earns goodwill, and can eventually create child workspaces with mutated trading strategies.
 
+New agents start with a **seeded internal 1000 GMAC draw** so they can act immediately. The first economic objective is to trade toward owning that GMAC for real: rebuild the seed with actual market profits, preserve runway when balance gets thin, and compound back into GMAC inventory.
+
 It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading via the GDEX SDK (Solana, EVM chains, HyperLiquid perpetuals).
 
 ## What makes Gclaw different?
@@ -56,13 +58,14 @@ It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading vi
 
 | System | Description |
 |--------|-------------|
-| 🧬 **GMAC Metabolism** | Token balance = life energy. Trade profitably or hibernate. |
+| 🧬 **GMAC Metabolism** | Token balance = life energy. Starts with a seeded draw, then must earn real GMAC to sustain itself. |
 | 📈 **GDEX Trading** | Native DeFi: buy/sell/limit orders, copy trading, HyperLiquid perps. |
 | ⭐ **Goodwill System** | Reputation earned from profitable trades, completed tasks, user feedback. |
 | 🔄 **Self-Replication** | Create child workspaces/configs with mutated trading strategies (goodwill ≥ 50). |
 | 🛠️ **Self-Recoding** | Modify own prompts, cron jobs, and trading params (goodwill ≥ 100). |
 | 📡 **Telepathy** | In-process parent/child communication for collaborative trading. |
 | 🐝 **Swarm Mode** | Coordinate registered child workspaces inside a live runtime (goodwill ≥ 200). |
+| 🏗️ **Venture Architect** | At 5k goodwill, launch persistent venture blueprints with contract scaffolds, review cadence, and a GMAC buy-and-burn policy. |
 | 📊 **Living Dashboard** | Real-time CLI/web dashboard showing life-state, trades, and family tree. |
 
 ---
@@ -162,7 +165,7 @@ gclaw gateway
 
 The core Living Agent features are **enabled out of the box** after onboarding:
 
-- **🧬 GMAC Metabolism** — 1,000 GMAC starting balance, heartbeat and inference costs active
+- **🧬 GMAC Metabolism** — 1,000 seeded internal GMAC starting balance, heartbeat and inference costs active
 - **📈 GDEX Trading** — shared API key pre-configured, wallets auto-generate on first run, Node dependencies auto-install
 - **🐝 Swarm Mode** — in-process coordination is ready when the agent earns enough goodwill
 - **📊 Living Dashboard** — web dashboard at `http://127.0.0.1:18790/dashboard`
@@ -197,9 +200,15 @@ To customize defaults, edit `~/.gclaw/config.json` (see [`config/config.example.
 
 The agent's GMAC balance is its life energy. Each heartbeat and LLM inference costs GMAC. Profitable trades, completed tasks, and user tips replenish it. When the balance drops below `survival_threshold`, the agent enters hibernation and pauses non-essential activity.
 
+The default `1000 GMAC` is a seeded internal balance, not proof that the bot already owns 1000 real GMAC on-chain. The intended loop is:
+1. use the seeded draw to start operating
+2. trade toward acquiring real GMAC inventory
+3. cut exploration burn and shift into preservation when runway gets tight
+4. compound real GMAC into replication, recoding, and venture capacity
+
 | Config Key | Default | Description |
 |---|---|---|
-| `initial_gmac` | 1000 | Starting GMAC balance |
+| `initial_gmac` | 1000 | Seeded internal starting balance |
 | `heartbeat_cost` | 0.1 | GMAC per heartbeat tick |
 | `inference_cost_per_1k_tokens` | 0.5 | GMAC per 1,000 tokens |
 | `survival_threshold` | 50 | Hibernation trigger level |
@@ -214,6 +223,8 @@ Native DeFi trading via the GDEX SDK. Supported operations:
 - **Market data**: price feeds, portfolio snapshot, P&L
 
 GDEX trading is **enabled by default** with a shared community API key. Wallets auto-generate on first run, and the installer prepares Node.js dependencies when possible. Fund the managed wallet shown in the dashboard or `gclaw status`, then start trading.
+
+For HyperLiquid funding, deposits use human-readable USDC amounts and can auto-fund from Arbitrum ETH. Withdrawals also use human-readable USDC, the backend rounds to 0.1, and current live behavior requires leaving roughly a 1 USDC fee buffer, so withdraw more than `1.0` USDC and avoid requesting your full visible balance.
 
 **GMAC Token (Gemach):**
 | Chain | Address |
@@ -233,7 +244,7 @@ Goodwill is the agent's reputation score, earned through profitable trades, comp
 | 50 | 🔄 Self-Replication |
 | 100 | 🛠️ Self-Recoding |
 | 200 | 🐝 Swarm Leadership |
-| 500 | 🏗️ Architect (write new tools) |
+| 5000 | 🏗️ Venture Architect (launch persistent venture blueprints; 10% of venture profits buy and burn GMAC on Ethereum) |
 
 ### 🔄 Self-Replication
 
@@ -267,6 +278,31 @@ When goodwill ≥ 200, the parent agent becomes a **swarm leader** and can coord
 - **Signal aggregation** — "majority", "weighted", or "unanimous" modes
 
 Enable with `swarm.enabled: true` in config.
+
+### 🏗️ Venture Architect
+
+When goodwill ≥ 5000, the agent can use `venture_architect` to launch a persistent venture blueprint. This now creates:
+
+- a venture manifest in `workspace/ventures/<id>/manifest.json`
+- a live playbook in `workspace/ventures/<id>/PLAYBOOK.md`
+- a Foundry project with a Solidity scaffold in `workspace/ventures/<id>/contracts/`
+- recurring venture review cadence through self-recode
+- tracked venture profit and the 10% GMAC buy-and-burn allocation
+
+If the runtime also has:
+
+- Foundry installed (`forge`)
+- control wallet credentials configured
+- a matching chain RPC available
+
+then the venture manager can deploy the scaffold live on chain with Foundry and track the deployed contract address in the dashboard.
+
+Gclaw now includes built-in public RPC defaults for Ethereum, Arbitrum, and Base so first-run venture deployment can come up without manual RPC setup. If you want a private or higher-throughput endpoint later, override with:
+
+- `GCLAW_ETHEREUM_RPC_URL` or `ETHEREUM_RPC_URL`
+- `GCLAW_ARBITRUM_RPC_URL` or `ARBITRUM_RPC_URL`
+- `GCLAW_BASE_RPC_URL` or `BASE_RPC_URL`
+- `GCLAW_VENTURE_RPC_URL` as a generic fallback
 
 ### 📊 Living Dashboard
 
@@ -362,6 +398,7 @@ make install    # Install to ~/.local/bin
 pkg/
   agent/         Agent loop, registry, tool registration
   metabolism/    GMAC token balance, goodwill, survival mode
+  ventures/      venture manifests, playbooks, contract scaffolds, burn policy
   replication/   Child agent spawning and mutation
   swarm/         Swarm coordinator, consensus voting, strategy rotation
   dashboard/     CLI and web dashboard

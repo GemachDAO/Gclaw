@@ -16,6 +16,7 @@ type Metabolism struct {
 	ledger            []LedgerEntry
 	thresholds        Thresholds
 	onCreditCallbacks []func(newBalance float64)
+	onChangeCallbacks []func()
 	mu                sync.RWMutex
 }
 
@@ -34,7 +35,7 @@ type Thresholds struct {
 	Replicate   int     `json:"replicate"`    // Goodwill needed to replicate (default 50)
 	SelfRecode  int     `json:"self_recode"`  // Goodwill needed to self-modify (default 100)
 	SwarmLeader int     `json:"swarm_leader"` // Goodwill needed to lead swarm (default 200)
-	Architect   int     `json:"architect"`    // Goodwill needed to write tools (default 500)
+	Architect   int     `json:"architect"`    // Goodwill needed to unlock the venture-architect tier (default 5000)
 }
 
 // MetabolismStatus is a snapshot summary of current metabolism state.
@@ -68,8 +69,8 @@ func (m *Metabolism) CanAfford(cost float64) bool {
 // Returns ErrInsufficientGMAC if the balance would go negative.
 func (m *Metabolism) Debit(amount float64, action, details string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.balance < amount {
+		m.mu.Unlock()
 		return fmt.Errorf("%w: balance=%.4f, required=%.4f", ErrInsufficientGMAC, m.balance, amount)
 	}
 	m.balance -= amount
@@ -80,6 +81,13 @@ func (m *Metabolism) Debit(amount float64, action, details string) error {
 		Balance:   m.balance,
 		Details:   details,
 	})
+	changeCallbacks := make([]func(), len(m.onChangeCallbacks))
+	copy(changeCallbacks, m.onChangeCallbacks)
+	m.mu.Unlock()
+
+	for _, fn := range changeCallbacks {
+		fn()
+	}
 	return nil
 }
 
@@ -97,10 +105,15 @@ func (m *Metabolism) Credit(amount float64, action, details string) {
 	})
 	callbacks := make([]func(float64), len(m.onCreditCallbacks))
 	copy(callbacks, m.onCreditCallbacks)
+	changeCallbacks := make([]func(), len(m.onChangeCallbacks))
+	copy(changeCallbacks, m.onChangeCallbacks)
 	m.mu.Unlock()
 
 	for _, fn := range callbacks {
 		fn(newBalance)
+	}
+	for _, fn := range changeCallbacks {
+		fn()
 	}
 }
 
@@ -111,6 +124,14 @@ func (m *Metabolism) RegisterOnCredit(fn func(newBalance float64)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onCreditCallbacks = append(m.onCreditCallbacks, fn)
+}
+
+// RegisterOnChange registers a callback that is invoked after every successful
+// debit, credit, or goodwill mutation. It is safe to persist state inside the callback.
+func (m *Metabolism) RegisterOnChange(fn func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onChangeCallbacks = append(m.onChangeCallbacks, fn)
 }
 
 // GetBalance returns the current GMAC balance.
@@ -130,7 +151,6 @@ func (m *Metabolism) GetGoodwill() int {
 // AddGoodwill adjusts goodwill by points (may be negative). Clamped to minimum 0.
 func (m *Metabolism) AddGoodwill(points int, reason string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.goodwill += points
 	if m.goodwill < 0 {
 		m.goodwill = 0
@@ -142,6 +162,13 @@ func (m *Metabolism) AddGoodwill(points int, reason string) {
 		Balance:   m.balance,
 		Details:   reason,
 	})
+	changeCallbacks := make([]func(), len(m.onChangeCallbacks))
+	copy(changeCallbacks, m.onChangeCallbacks)
+	m.mu.Unlock()
+
+	for _, fn := range changeCallbacks {
+		fn()
+	}
 }
 
 // CanReplicate returns true if goodwill meets the replicate threshold.
@@ -165,7 +192,7 @@ func (m *Metabolism) CanLeadSwarm() bool {
 	return m.goodwill >= m.thresholds.SwarmLeader
 }
 
-// CanArchitect returns true if goodwill meets the architect threshold.
+// CanArchitect returns true if goodwill meets the venture-architect threshold.
 func (m *Metabolism) CanArchitect() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -204,7 +231,7 @@ func (m *Metabolism) GetStatus() MetabolismStatus {
 		abilities = append(abilities, "swarm_leader")
 	}
 	if m.goodwill >= m.thresholds.Architect {
-		abilities = append(abilities, "architect")
+		abilities = append(abilities, "venture_architect")
 	}
 
 	return MetabolismStatus{

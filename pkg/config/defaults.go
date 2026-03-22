@@ -361,7 +361,7 @@ func DefaultConfig() *Config {
 				Replicate:   50,
 				SelfRecode:  100,
 				SwarmLeader: 200,
-				Architect:   500,
+				Architect:   5000,
 			},
 		},
 		Swarm: SwarmConfig{

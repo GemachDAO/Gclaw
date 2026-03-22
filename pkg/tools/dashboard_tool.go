@@ -19,7 +19,7 @@ func NewDashboardTool(dash *dashboard.Dashboard) *DashboardTool {
 func (t *DashboardTool) Name() string { return "dashboard" }
 
 func (t *DashboardTool) Description() string {
-	return "View your living agent dashboard. Use section funding for wallet addresses, auto-trade flag, helper readiness, and loaded trading tool names. Use section autonomy for DNA, route selection, and knowledge graph state. Use section registration for ERC-8004 and x402 status."
+	return "View your living agent dashboard. Use section funding for wallet addresses, auto-trade flag, helper readiness, and loaded trading tool names. Use section autonomy for DNA, route selection, and knowledge graph state. Use section venture for architect-tier venture launch state and GMAC burn allocation. Use section registration for ERC-8004 and x402 status."
 }
 
 func (t *DashboardTool) Parameters() map[string]any {
@@ -28,8 +28,8 @@ func (t *DashboardTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"section": map[string]any{
 				"type":        "string",
-				"description": "Section to display: all | metabolism | trading | funding | autonomy | family | telepathy | swarm | registration | system",
-				"enum":        []string{"all", "metabolism", "trading", "funding", "autonomy", "family", "telepathy", "swarm", "registration", "system"},
+				"description": "Section to display: all | metabolism | trading | funding | autonomy | venture | family | telepathy | swarm | registration | system",
+				"enum":        []string{"all", "metabolism", "trading", "funding", "autonomy", "venture", "family", "telepathy", "swarm", "registration", "system"},
 			},
 		},
 		"required": []string{},
@@ -98,6 +98,16 @@ func (t *DashboardTool) Execute(_ context.Context, args map[string]any) *ToolRes
 			Uptime:    data.Uptime,
 			StartedAt: data.StartedAt,
 			Autonomy:  data.Autonomy,
+		}))
+	case "venture":
+		if data.Venture == nil {
+			return SilentResult("venture: not configured")
+		}
+		return SilentResult(dashboard.FormatCLI(&dashboard.DashboardData{
+			AgentID:   data.AgentID,
+			Uptime:    data.Uptime,
+			StartedAt: data.StartedAt,
+			Venture:   data.Venture,
 		}))
 	case "telepathy":
 		if data.Telepathy == nil {

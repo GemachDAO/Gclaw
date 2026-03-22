@@ -49,14 +49,20 @@ await skill.perpDeposit({
 ## Withdraw USDC from HyperLiquid
 
 ```typescript
-await skill.perpWithdraw({ amount: '5' });   // withdraw 5 USDC
+await skill.perpWithdraw({ amount: '5.0' });   // withdraw 5 USDC
 ```
+
+Withdraw amounts must be human-readable USDC strings. In live testing, the backend rounds to 1 decimal place and behaves like it charges about a `1 USDC` withdraw fee, so:
+
+- withdraw more than `1.0` USDC
+- leave about `1.0` USDC of extra headroom instead of requesting the full visible balance
+- prefer a test amount like `5.0`
 
 ### Managed-Custody Withdraw (Explicit)
 
 ```typescript
 await skill.perpWithdraw({
-  amount: '25',
+  amount: '25.0',
   apiKey,
   walletAddress,
   sessionPrivateKey,
@@ -112,6 +118,11 @@ Withdraw ABI schema:
 - Normal delivery time is ~10 minutes after Arbitrum tx confirmation
 - Use `getHlUsdcBalance()` or `getHlAccountState()` to check
 
+### Generic "Withdraw failed"
+- Use a human-readable USD string like `'5.0'`, not smallest units
+- The backend rounds to 1 decimal place before calling HyperLiquid
+- Live behavior matches about a `1 USDC` withdraw fee, so values at or below `1.0` and near-full-balance withdrawals can fail
+
 ### 400 Unauthorized (code 103)
 - **Most common cause:** Passing the managed address as `walletAddress` instead of the control wallet address — see **gdex-authentication**
 - Second cause: `uint256` vs `uint64` encoding mismatch for chainId — see **gdex-perp-trading** for full ABI details
@@ -121,8 +132,9 @@ Withdraw ABI schema:
 1. **Deposit of 10 USDC was E2E verified.** Takes ~10 minutes for USDC to appear on HyperLiquid after Arbitrum tx confirms.
 2. **After deposit, check balance with `getHlAccountState()`** — `getGbotUsdcBalance` returns 404.
 3. **Amount is human-readable for high-level methods** (`perpDeposit({ amount: '10' })`), but the ABI encoding internally converts to 6-decimal smallest unit (10 USDC = 10000000).
-4. **Sign-in must use `chainId: 1`** (EVM) for HL deposit/withdraw operations.
-5. **`walletAddress` MUST be control wallet** — passing managed address → 400 Unauthorized (code 103).
+4. **HyperLiquid withdraws are human-readable too** (`perpWithdraw({ amount: '5.0' })`) and currently need more than `1.0` USDC plus a little headroom for the observed `~1 USDC` fee behavior.
+5. **Sign-in must use `chainId: 1`** (EVM) for HL deposit/withdraw operations.
+6. **`walletAddress` MUST be control wallet** — passing managed address → 400 Unauthorized (code 103).
 
 ## Related Skills
 

@@ -230,7 +230,7 @@ type GDEXHLWithdrawTool struct{}
 func (t *GDEXHLWithdrawTool) Name() string { return "gdex_hl_withdraw" }
 
 func (t *GDEXHLWithdrawTool) Description() string {
-	return "Withdraw USDC from HyperLiquid back to the managed Arbitrum wallet via the GDEX /v1/hl/withdraw endpoint. Amount is human-readable USDC, for example '1' to withdraw 1 USDC."
+	return "Withdraw USDC from HyperLiquid back to the managed Arbitrum wallet via the GDEX /v1/hl/withdraw endpoint. Amount is human-readable USDC and the backend rounds to 0.1. Practical rule: withdraw more than 1 USDC and leave about 1 USDC fee buffer; for example '5.0' is a safe test amount."
 }
 
 func (t *GDEXHLWithdrawTool) Parameters() map[string]any {
@@ -239,7 +239,7 @@ func (t *GDEXHLWithdrawTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"amount": map[string]any{
 				"type":        "string",
-				"description": "Human-readable USDC amount to withdraw from HyperLiquid (e.g. '1').",
+				"description": "Human-readable USDC amount to withdraw from HyperLiquid (e.g. '5.0'). Values at or below 1 USDC and near-full-balance withdrawals can fail because the backend rounds to 0.1 and currently applies about a 1 USDC fee.",
 			},
 		},
 		"required": []string{"amount"},

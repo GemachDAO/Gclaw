@@ -403,14 +403,28 @@ func TestGDEXMarketHelper_HLDepositTraversesHoldingArrays(t *testing.T) {
 	}
 }
 
-func TestGDEXMarketHelper_HLWithdrawConvertsHumanAmountToSmallestUnit(t *testing.T) {
+func TestGDEXMarketHelper_HLWithdrawUsesHumanReadableAmount(t *testing.T) {
 	dir := gdexHelpersDir(t)
 	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
 	if err != nil {
 		t.Fatalf("read market helper: %v", err)
 	}
 	text := string(content)
-	for _, want := range []string{"case 'hl_withdraw'", "ethers.parseUnits(formatAmount(params.amount, 6), 6).toString()"} {
+	for _, want := range []string{"case 'hl_withdraw'", "const withdraw = await prepareHyperLiquidWithdraw(skill, sessionKey, params);", "amount: withdraw.withdrawAmount"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in market helper", want)
+		}
+	}
+}
+
+func TestGDEXMarketHelper_HLWithdrawDocumentsFeeBuffer(t *testing.T) {
+	dir := gdexHelpersDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
+	if err != nil {
+		t.Fatalf("read market helper: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"prepareHyperLiquidWithdraw", "must round above 1.0 USDC", "plus the current 1 USDC fee exceeds withdrawable"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in market helper", want)
 		}

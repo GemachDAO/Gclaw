@@ -17,16 +17,16 @@ import (
 
 // DefaultToolCosts maps tool names to their GMAC cost per execution.
 var DefaultToolCosts = map[string]float64{
-	"gdex_buy":        2.0,
-	"gdex_sell":       2.0,
-	"gdex_limit_buy":  3.0,
-	"gdex_limit_sell": 3.0,
-	"gdex_trending":   1.0,
+	"gdex_buy":        1.0,
+	"gdex_sell":       1.0,
+	"gdex_limit_buy":  1.5,
+	"gdex_limit_sell": 1.5,
+	"gdex_trending":   0.25,
 	"gdex_search":     1.0,
-	"gdex_price":      0.5,
-	"gdex_holdings":   0.5,
-	"gdex_scan":       5.0,
-	"gdex_copy_trade": 10.0,
+	"gdex_price":      0.25,
+	"gdex_holdings":   0.25,
+	"gdex_scan":       1.5,
+	"gdex_copy_trade": 4.0,
 	"web_search":      1.0,
 	"web_fetch":       0.5,
 	"exec":            1.5,
@@ -57,6 +57,7 @@ type ToolRegistry struct {
 	tradeObservers   []TradeObserver
 	maxTradeHistory  int
 	tradeHistoryPath string
+	tradeHistoryMod  time.Time
 	mu               sync.RWMutex
 }
 
@@ -107,7 +108,9 @@ func (r *ToolRegistry) SetTradeHistoryPersistence(path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tradeHistoryPath = path
+	r.tradeHistoryMod = tradeHistoryModTime(path)
 	if len(records) == 0 {
+		r.recentTrades = nil
 		return nil
 	}
 	if len(records) > r.maxTradeHistory {
@@ -456,6 +459,8 @@ func (r *ToolRegistry) GetSummaries() []string {
 
 // GetTradeHistory returns up to the last `limit` successful GDEX trade records.
 func (r *ToolRegistry) GetTradeHistory(limit int) []TradeRecord {
+	r.refreshTradeHistoryFromDisk()
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -487,7 +492,50 @@ func (r *ToolRegistry) recordTrade(record TradeRecord) {
 	if err := persistTradeHistory(path, records); err != nil {
 		logger.WarnCF("tool", "Failed to persist trade history",
 			map[string]any{"path": path, "error": err.Error()})
+		return
 	}
+
+	r.mu.Lock()
+	if path == r.tradeHistoryPath {
+		r.tradeHistoryMod = tradeHistoryModTime(path)
+	}
+	r.mu.Unlock()
+}
+
+func (r *ToolRegistry) refreshTradeHistoryFromDisk() {
+	r.mu.RLock()
+	path := r.tradeHistoryPath
+	lastMod := r.tradeHistoryMod
+	maxHistory := r.maxTradeHistory
+	r.mu.RUnlock()
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return
+	}
+
+	modTime := tradeHistoryModTime(path)
+	if !modTime.After(lastMod) {
+		return
+	}
+
+	records, err := loadTradeHistory(path)
+	if err != nil {
+		logger.WarnCF("tool", "Failed to refresh trade history from disk",
+			map[string]any{"path": path, "error": err.Error()})
+		return
+	}
+	if len(records) > maxHistory {
+		records = records[len(records)-maxHistory:]
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if path != r.tradeHistoryPath {
+		return
+	}
+	r.recentTrades = append([]TradeRecord(nil), records...)
+	r.tradeHistoryMod = modTime
 }
 
 func (r *ToolRegistry) notifyTradeObservers(record TradeRecord) {
@@ -587,4 +635,12 @@ func persistTradeHistory(path string, records []TradeRecord) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func tradeHistoryModTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }

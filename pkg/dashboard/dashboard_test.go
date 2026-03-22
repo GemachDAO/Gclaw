@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
@@ -36,6 +37,9 @@ func TestGetData_AllNilSources(t *testing.T) {
 	}
 	if data.Autonomy != nil {
 		t.Error("expected nil autonomy when no callback")
+	}
+	if data.Venture != nil {
+		t.Error("expected nil venture when no callback")
 	}
 	if data.Telepathy != nil {
 		t.Error("expected nil telepathy when no callback")
@@ -90,6 +94,31 @@ func TestGetData_WithFamily(t *testing.T) {
 	}
 	if len(data.Family.Children) != 1 {
 		t.Errorf("expected 1 child, got %d", len(data.Family.Children))
+	}
+}
+
+func TestGetData_WithVenture(t *testing.T) {
+	snap := &VentureSnapshot{
+		Unlocked:        true,
+		Threshold:       5000,
+		CurrentGoodwill: 5200,
+		TotalVentures:   1,
+		Active: &VentureInfo{
+			ID:             "venture-1",
+			Title:          "GMAC Treasury Router",
+			Archetype:      "gmac_treasury_router",
+			ContractSystem: "GMACBurnTreasury",
+		},
+	}
+	d := NewDashboard(DashboardOptions{
+		GetVenture: func() *VentureSnapshot { return snap },
+	})
+	data := d.GetData()
+	if data.Venture == nil {
+		t.Fatal("expected non-nil venture")
+	}
+	if data.Venture.TotalVentures != 1 {
+		t.Fatalf("expected 1 venture, got %d", data.Venture.TotalVentures)
 	}
 }
 
@@ -191,10 +220,35 @@ func TestFormatCLI_WithAllSections(t *testing.T) {
 				},
 			}
 		},
+		GetVenture: func() *VentureSnapshot {
+			return &VentureSnapshot{
+				Unlocked:        true,
+				Threshold:       5000,
+				CurrentGoodwill: 5100,
+				TotalVentures:   1,
+				Active: &VentureInfo{
+					ID:             "venture-1",
+					Title:          "GMAC Treasury Router",
+					ContractSystem: "GMACBurnTreasury",
+					Status:         "live_strategy",
+					Chain:          "Ethereum",
+				},
+			}
+		},
 		GetTelepathy: func() *TelepathySnapshot {
 			return &TelepathySnapshot{
 				TotalMessages:  47,
 				ActiveChannels: 3,
+				RecentMessages: []TelepathyEntry{
+					{
+						From:      "child-alpha",
+						To:        "*",
+						Type:      "strategy_update",
+						Content:   "Rotating recent signal wins toward GMAC inventory.",
+						Timestamp: time.Now().Add(-2 * time.Minute).UnixMilli(),
+						Priority:  1,
+					},
+				},
 			}
 		},
 		GetSwarm: func() *SwarmSnapshot {
@@ -235,6 +289,7 @@ func TestFormatCLI_WithAllSections(t *testing.T) {
 		"TRADING",
 		"FUNDING",
 		"AUTONOMY",
+		"VENTURE",
 		"FAMILY",
 		"TELEPATHY",
 		"REGISTRATION",
@@ -243,6 +298,15 @@ func TestFormatCLI_WithAllSections(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("expected %q in CLI output", want)
+		}
+	}
+	for _, want := range []string{
+		"Recent:",
+		"strategy_update",
+		"Rotating recent signal wins",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in CLI telepathy output", want)
 		}
 	}
 }

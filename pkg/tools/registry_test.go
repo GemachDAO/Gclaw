@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
@@ -261,6 +262,44 @@ func TestToolRegistry_PersistsTradeHistory(t *testing.T) {
 	}
 	if history[0].TokenAddress != "0xabc" {
 		t.Fatalf("unexpected persisted trade history: %+v", history[0])
+	}
+}
+
+func TestToolRegistry_RefreshesPersistedTradeHistoryOnRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime", "trade_history.json")
+
+	gateway := NewToolRegistry()
+	if err := gateway.SetTradeHistoryPersistence(path); err != nil {
+		t.Fatalf("gateway persistence setup failed: %v", err)
+	}
+
+	worker := NewToolRegistry()
+	if err := worker.SetTradeHistoryPersistence(path); err != nil {
+		t.Fatalf("worker persistence setup failed: %v", err)
+	}
+	worker.Register(&mockRegistryTool{
+		name:   "gdex_buy",
+		desc:   "buy token",
+		params: map[string]any{"type": "object"},
+		result: SilentResult(`{"tokenAddress":"0xdef","amount":"0.25","chainID":42161}`),
+	})
+
+	if got := gateway.GetTradeHistory(0); len(got) != 0 {
+		t.Fatalf("expected empty gateway history before external write, got %d", len(got))
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	result := worker.Execute(context.Background(), "gdex_buy", nil)
+	if result.IsError {
+		t.Fatalf("expected successful worker trade execution, got %s", result.ForLLM)
+	}
+
+	history := gateway.GetTradeHistory(0)
+	if len(history) != 1 {
+		t.Fatalf("expected gateway to observe 1 persisted trade after refresh, got %d", len(history))
+	}
+	if history[0].TokenAddress != "0xdef" || history[0].ChainID != 42161 {
+		t.Fatalf("unexpected refreshed trade history: %+v", history[0])
 	}
 }
 

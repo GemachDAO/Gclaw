@@ -76,6 +76,19 @@ func FormatCLI(data *DashboardData) string {
 			line(fmt.Sprintf("  Execs: %-4d  Realized: %-4d  Win Rate: n/a   P&L: pending",
 				t.TotalTrades, t.RealizedTrades))
 		}
+		if len(t.RecentCycles) > 0 {
+			last := t.RecentCycles[len(t.RecentCycles)-1]
+			target := truncate(firstNonEmptyCLI(last.TokenSymbol, last.Mode), 14)
+			line(fmt.Sprintf("  Last Cycle: %-8s %-14s %s",
+				truncate(last.Status, 8),
+				target,
+				truncate(firstNonEmptyCLI(last.Chain, last.Venue), 16)))
+		}
+		if len(t.LatestMissedOpportunities) > 0 {
+			missed := t.LatestMissedOpportunities[0]
+			line(fmt.Sprintf("  Missed: %s",
+				truncate(firstNonEmptyCLI(missed.TokenSymbol, missed.TokenAddress), 38)))
+		}
 	} else {
 		line("  (not configured)")
 	}
@@ -194,6 +207,30 @@ func FormatCLI(data *DashboardData) string {
 	}
 	divider()
 
+	// Venture architect
+	line("🏗️  VENTURE")
+	if data.Venture != nil {
+		v := data.Venture
+		tier := "locked"
+		if v.Unlocked {
+			tier = "unlocked"
+		}
+		line(fmt.Sprintf("  Tier: %-10s Goodwill: %d/%d", tier, v.CurrentGoodwill, v.Threshold))
+		line(fmt.Sprintf("  Ventures: %-3d Launch Ready: %t", v.TotalVentures, v.LaunchReady))
+		line(fmt.Sprintf("  Profit: $%-8.2f Burn Pool: $%.2f", v.TotalProfitUSD, v.TotalBurnAllocationUSD))
+		if v.Active != nil {
+			line(fmt.Sprintf("  Active: %s", truncate(v.Active.Title, 38)))
+			line(fmt.Sprintf("  Mode: %-12s Chain: %s", truncate(v.Active.Status, 12), truncate(v.Active.Chain, 18)))
+			line(fmt.Sprintf("  Contract: %s", truncate(v.Active.ContractSystem, 35)))
+			line(fmt.Sprintf("  Deploy: %-13s Addr: %s", truncate(v.Active.DeploymentState, 13), truncate(firstNonEmptyCLI(v.Active.DeployedAddress, "not deployed"), 23)))
+			line(fmt.Sprintf("  Ready: forge=%t rpc=%t wallet=%t", v.Active.FoundryAvailable, v.Active.RPCConfigured, v.Active.WalletReady))
+			line(fmt.Sprintf("  RPC Source: %s", truncate(formatRPCSourceCLI(v.Active.RPCEnvVar), 28)))
+		}
+	} else {
+		line("  (not configured)")
+	}
+	divider()
+
 	// Family tree
 	line("👨‍👧‍👦 FAMILY TREE")
 	if data.Family != nil && len(data.Family.Children) > 0 {
@@ -221,12 +258,24 @@ func FormatCLI(data *DashboardData) string {
 		line(fmt.Sprintf("  Messages: %-4d  Active Channels: %d",
 			tp.TotalMessages, tp.ActiveChannels))
 		if len(tp.RecentMessages) > 0 {
-			last := tp.RecentMessages[len(tp.RecentMessages)-1]
-			ago := formatAgo(last.Timestamp)
-			line(fmt.Sprintf("  Latest: %s from %s (%s)",
-				truncate(last.Type, 16),
-				truncate(last.From, 12),
-				ago))
+			line("  Recent:")
+			start := len(tp.RecentMessages) - 3
+			if start < 0 {
+				start = 0
+			}
+			for i := len(tp.RecentMessages) - 1; i >= start; i-- {
+				msg := tp.RecentMessages[i]
+				target := "family"
+				if msg.To != "" && msg.To != "*" {
+					target = msg.To
+				}
+				line(fmt.Sprintf("   %s %s -> %s",
+					truncate(msg.Type, 16),
+					truncate(msg.From, 12),
+					truncate(target, 12)))
+				line(fmt.Sprintf("    %s",
+					truncate(strings.TrimSpace(msg.Content), 44)))
+			}
 		}
 	} else {
 		line("  (not configured)")
@@ -316,4 +365,26 @@ func formatAgo(ms int64) string {
 		return fmt.Sprintf("%dm ago", mins)
 	}
 	return fmt.Sprintf("%dh ago", mins/60)
+}
+
+func firstNonEmptyCLI(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func formatRPCSourceCLI(source string) string {
+	source = strings.TrimSpace(source)
+	switch source {
+	case "":
+		return "not configured"
+	case "builtin_public_rpc":
+		return "built-in public RPC"
+	default:
+		return source
+	}
 }

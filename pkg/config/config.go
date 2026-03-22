@@ -521,7 +521,7 @@ type MetabolismConfig struct {
 		Replicate   int `json:"replicate"`
 		SelfRecode  int `json:"self_recode"`
 		SwarmLeader int `json:"swarm_leader"`
-		Architect   int `json:"architect"`
+		Architect   int `json:"architect"` // venture-architect threshold (default 5000)
 	} `json:"thresholds"`
 }
 
