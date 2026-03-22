@@ -211,14 +211,19 @@ func (al *AgentLoop) runAutoTradeCycle(ctx context.Context, agent *AgentInstance
 		return "", fmt.Errorf("auto-trade strategy is not configured")
 	}
 	if msg, ok := autoTradePauseReason(agent, al.cfg); ok {
-		al.persistAutoTradeJournal(agent, autoTradeJournalEntry{
+		entry := autoTradeJournalEntry{
 			Timestamp: time.Now().UnixMilli(),
 			Status:    "paused",
 			Mode:      "paused",
 			Venue:     "system",
 			Summary:   msg,
 			Outcome:   msg,
-		})
+		}
+		al.persistAutoTradeJournal(agent, entry)
+		emitAutoTradeTelepathyNarrative(agent, &autoTradeBudgetRegime{
+			State:  "paused",
+			Reason: msg,
+		}, &entry, msg, nil)
 		return msg, nil
 	}
 
@@ -245,14 +250,16 @@ func (al *AgentLoop) runAutoTradeCycle(ctx context.Context, agent *AgentInstance
 	signals := al.fetchAutoTradeSignals(ctx, agent, strategy, childProfile, budget)
 	plan := buildAutoTradeExecutionPlan(al.cfg, strategy, autonomy, holdings, signals, childProfile, memory, directive, budget)
 	if plan == nil {
-		al.persistAutoTradeJournal(agent, autoTradeJournalEntry{
+		entry := autoTradeJournalEntry{
 			Timestamp: time.Now().UnixMilli(),
 			Status:    "failed",
 			Mode:      "unknown",
 			Venue:     "unknown",
 			Summary:   "auto-trade planner returned no executable plan",
 			Outcome:   "auto-trade planner returned no executable plan",
-		})
+		}
+		al.persistAutoTradeJournal(agent, entry)
+		emitAutoTradeTelepathyNarrative(agent, budget, &entry, entry.Outcome, fmt.Errorf("%s", entry.Outcome))
 		return "", fmt.Errorf("auto-trade planner returned no executable plan")
 	}
 	journalEntry := newAutoTradeJournalEntry(al.cfg, plan, strategy, signals, childProfile, memory)
@@ -267,6 +274,7 @@ func (al *AgentLoop) runAutoTradeCycle(ctx context.Context, agent *AgentInstance
 			entry.Outcome = err.Error()
 		}
 		al.persistAutoTradeJournal(agent, entry)
+		emitAutoTradeTelepathyNarrative(agent, budget, &entry, entry.Outcome, err)
 	}
 
 	switch plan.Mode {
@@ -321,6 +329,178 @@ func prependAutoTradeMessage(prefix, body string) string {
 		return prefix
 	default:
 		return prefix + " " + body
+	}
+}
+
+func emitAutoTradeTelepathyNarrative(
+	agent *AgentInstance,
+	budget *autoTradeBudgetRegime,
+	entry *autoTradeJournalEntry,
+	outcome string,
+	err error,
+) {
+	if agent == nil || agent.TelepathyBus == nil || entry == nil {
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	if content := buildAutoTradeStrategyUpdate(entry, budget); content != "" {
+		agent.TelepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: agent.ID,
+			ToAgentID:   "*",
+			Type:        "strategy_update",
+			Content:     content,
+			Timestamp:   now,
+			Priority:    1,
+		})
+	}
+	if content := buildAutoTradeMarketInsight(entry); content != "" {
+		agent.TelepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: agent.ID,
+			ToAgentID:   "*",
+			Type:        "market_insight",
+			Content:     content,
+			Timestamp:   now,
+			Priority:    1,
+		})
+	}
+	if content, priority := buildAutoTradeWarning(entry, budget, outcome, err); content != "" {
+		agent.TelepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: agent.ID,
+			ToAgentID:   "*",
+			Type:        "warning",
+			Content:     content,
+			Timestamp:   now,
+			Priority:    priority,
+		})
+	}
+}
+
+func buildAutoTradeStrategyUpdate(entry *autoTradeJournalEntry, budget *autoTradeBudgetRegime) string {
+	if entry == nil {
+		return ""
+	}
+
+	parts := make([]string, 0, 3)
+	switch strings.TrimSpace(entry.Status) {
+	case "paused":
+		return ""
+	case "failed":
+		if budget != nil && strings.TrimSpace(budget.State) != "" {
+			parts = append(parts, "Cycle stayed in "+budget.State+" mode")
+		}
+	default:
+		if strings.TrimSpace(entry.Mode) != "" {
+			parts = append(parts, "Cycle mode "+entry.Mode)
+		}
+	}
+	if strings.TrimSpace(entry.TokenSymbol) != "" && strings.TrimSpace(entry.ChainLabel) != "" {
+		parts = append(parts, "targeted "+entry.TokenSymbol+" on "+entry.ChainLabel)
+	} else if strings.TrimSpace(entry.TokenSymbol) != "" {
+		parts = append(parts, "targeted "+entry.TokenSymbol)
+	}
+	if strings.TrimSpace(entry.Venue) != "" {
+		parts = append(parts, "via "+entry.Venue)
+	}
+
+	message := strings.Join(parts, ". ")
+	if message != "" {
+		message += "."
+	}
+	if strings.TrimSpace(entry.Summary) != "" {
+		if message != "" {
+			message += " "
+		}
+		message += entry.Summary
+	}
+	if len(entry.Reasons) > 0 {
+		reasons := entry.Reasons
+		if len(reasons) > 2 {
+			reasons = reasons[:2]
+		}
+		if message != "" {
+			message += " "
+		}
+		message += "Why: " + strings.Join(reasons, "; ") + "."
+	}
+	if budget != nil && strings.TrimSpace(budget.State) != "" && budget.State != "growth" && budget.State != "paused" {
+		if message != "" {
+			message += " "
+		}
+		message += "Budget regime: " + budget.State + "."
+	}
+	return strings.TrimSpace(message)
+}
+
+func buildAutoTradeMarketInsight(entry *autoTradeJournalEntry) string {
+	if entry == nil || len(entry.MissedOpportunities) == 0 {
+		return ""
+	}
+
+	picks := make([]string, 0, len(entry.MissedOpportunities))
+	for i, missed := range entry.MissedOpportunities {
+		if i >= 3 {
+			break
+		}
+		name := strings.TrimSpace(missed.TokenSymbol)
+		if name == "" {
+			name = strings.TrimSpace(missed.TokenAddress)
+		}
+		if name == "" {
+			continue
+		}
+		line := name
+		if strings.TrimSpace(missed.ChainLabel) != "" {
+			line += " on " + missed.ChainLabel
+		}
+		if missed.Score > 0 {
+			line += fmt.Sprintf(" (score %.1f)", missed.Score)
+		}
+		picks = append(picks, line)
+	}
+	if len(picks) == 0 {
+		return ""
+	}
+
+	selected := strings.TrimSpace(entry.TokenSymbol)
+	if selected == "" {
+		selected = "the committed setup"
+	}
+	return fmt.Sprintf(
+		"Watched %s, but committed this cycle to %s instead.",
+		strings.Join(picks, "; "),
+		selected,
+	)
+}
+
+func buildAutoTradeWarning(
+	entry *autoTradeJournalEntry,
+	budget *autoTradeBudgetRegime,
+	outcome string,
+	err error,
+) (string, int) {
+	if err != nil {
+		content := strings.TrimSpace(outcome)
+		if content == "" {
+			content = err.Error()
+		}
+		return "Execution warning: " + content, 2
+	}
+	if budget == nil {
+		return "", 0
+	}
+	switch strings.TrimSpace(budget.State) {
+	case "paused", "survival_rebuild":
+		reason := strings.TrimSpace(budget.Reason)
+		if reason == "" && entry != nil {
+			reason = strings.TrimSpace(entry.Summary)
+		}
+		if reason == "" {
+			reason = "runway pressure is high, so the family is protecting survival reserves"
+		}
+		return reason, 2
+	default:
+		return "", 0
 	}
 }
 

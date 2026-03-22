@@ -17,21 +17,21 @@ import (
 
 // DefaultToolCosts maps tool names to their GMAC cost per execution.
 var DefaultToolCosts = map[string]float64{
-	"gdex_buy":        1.0,
-	"gdex_sell":       1.0,
-	"gdex_limit_buy":  1.5,
-	"gdex_limit_sell": 1.5,
-	"gdex_trending":   0.25,
-	"gdex_search":     1.0,
-	"gdex_price":      0.25,
-	"gdex_holdings":   0.25,
-	"gdex_scan":       1.5,
-	"gdex_copy_trade": 4.0,
-	"web_search":      1.0,
-	"web_fetch":       0.5,
-	"exec":            1.5,
-	"spawn":           5.0,
-	"x402_fetch":      3.0,
+	"gdex_buy":        0.001,
+	"gdex_sell":       0.001,
+	"gdex_limit_buy":  0.0015,
+	"gdex_limit_sell": 0.0015,
+	"gdex_trending":   0.0005,
+	"gdex_search":     0.002,
+	"gdex_price":      0.0005,
+	"gdex_holdings":   0.001,
+	"gdex_scan":       0.0025,
+	"gdex_copy_trade": 0.02,
+	"web_search":      0.002,
+	"web_fetch":       0.001,
+	"exec":            0.003,
+	"spawn":           0.01,
+	"x402_fetch":      0.01,
 }
 
 // TradeRecord captures a single successful GDEX trade result for dashboarding.

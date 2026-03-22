@@ -298,15 +298,8 @@ func (sc *SwarmCoordinator) RunConsensus(tokenAddress string, chainID int) (*Con
 	}
 	sc.mu.Unlock()
 
-	if result.Approved && sc.telepathyBus != nil {
-		sc.telepathyBus.Broadcast(replication.TelepathyMessage{
-			FromAgentID: sc.leaderID,
-			ToAgentID:   "*",
-			Type:        "swarm_execution_plan",
-			Content:     result.Action + " " + result.TokenAddress,
-			Timestamp:   time.Now().UnixMilli(),
-			Priority:    2,
-		})
+	if sc.telepathyBus != nil {
+		sc.broadcastConsensusNarrative(result, sc.GetLastDecision())
 	}
 
 	return result, nil
@@ -422,6 +415,103 @@ func (sc *SwarmCoordinator) MarkDecisionStatus(status, notes string) {
 	sc.lastDecision.Status = status
 	sc.lastDecision.Notes = strings.TrimSpace(notes)
 	sc.lastDecision.UpdatedAt = time.Now().UnixMilli()
+}
+
+func (sc *SwarmCoordinator) broadcastConsensusNarrative(result *ConsensusResult, decision *ExecutionDecision) {
+	if sc.telepathyBus == nil || result == nil {
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	voteSummary := formatConsensusVotes(result.Votes)
+	if result.Approved {
+		sc.telepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: sc.leaderID,
+			ToAgentID:   "*",
+			Type:        "market_insight",
+			Content: fmt.Sprintf(
+				"Consensus approved %s on %s with %.2f confidence from %d participants. Votes: %s.",
+				result.Action,
+				result.TokenAddress,
+				result.Confidence,
+				result.Participants,
+				voteSummary,
+			),
+			Timestamp: now,
+			Priority:  1,
+		})
+		sc.telepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: sc.leaderID,
+			ToAgentID:   "*",
+			Type:        "swarm_execution_plan",
+			Content:     result.Action + " " + result.TokenAddress,
+			Timestamp:   now,
+			Priority:    2,
+		})
+		if decision != nil {
+			target := "*"
+			if strings.TrimSpace(decision.ExecutorID) != "" {
+				target = decision.ExecutorID
+			}
+			content := strings.TrimSpace(decision.Summary)
+			if content == "" {
+				content = fmt.Sprintf(
+					"Execute %s on %s with confidence %.2f.",
+					result.Action,
+					result.TokenAddress,
+					result.Confidence,
+				)
+			}
+			if strings.TrimSpace(decision.Strategy) != "" {
+				content += " Strategy: " + decision.Strategy + "."
+			}
+			sc.telepathyBus.SendTo(target, replication.TelepathyMessage{
+				FromAgentID: sc.leaderID,
+				Type:        "strategy_update",
+				Content:     strings.TrimSpace(content),
+				Timestamp:   now,
+				Priority:    1,
+			})
+		}
+		return
+	}
+
+	content := fmt.Sprintf(
+		"Consensus rejected %s on %s. Votes: %s. Threshold %.2f was not met.",
+		result.Action,
+		result.TokenAddress,
+		voteSummary,
+		sc.config.ConsensusThreshold,
+	)
+	if strings.TrimSpace(result.Reasoning) != "" {
+		content += " Reasoning: " + result.Reasoning
+	}
+	sc.telepathyBus.Broadcast(replication.TelepathyMessage{
+		FromAgentID: sc.leaderID,
+		ToAgentID:   "*",
+		Type:        "warning",
+		Content:     content,
+		Timestamp:   now,
+		Priority:    2,
+	})
+}
+
+func formatConsensusVotes(votes map[string]int) string {
+	if len(votes) == 0 {
+		return "no votes"
+	}
+
+	keys := make([]string, 0, len(votes))
+	for action := range votes {
+		keys = append(keys, action)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, action := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", action, votes[action]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // majorityAction returns the action with the highest vote count.

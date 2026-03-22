@@ -272,15 +272,17 @@ func renderHTML(data *DashboardData) string {
 		managedSolana := "pending"
 		depositPanels := ""
 		managedNote := ""
+		fundingGuidance := buildFundingInstructionHTML(nil)
+		capitalMobility := buildCapitalMobilityHTML(nil)
 		if ta.ManagedWallets != nil {
 			managedState = htmlEscape(ta.ManagedWallets.State)
 			if ta.ManagedWallets.EVMAddress != "" {
 				managedEVM = htmlEscape(ta.ManagedWallets.EVMAddress)
-				depositPanels += buildDepositPanelHTML("Managed EVM", "Deposit", ta.ManagedWallets.EVMAddress)
+				depositPanels += buildDepositPanelHTML("Managed EVM", "Deposit ETH", ta.ManagedWallets.EVMAddress)
 			}
 			if ta.ManagedWallets.SolanaAddress != "" {
 				managedSolana = htmlEscape(ta.ManagedWallets.SolanaAddress)
-				depositPanels += buildDepositPanelHTML("Managed Solana", "Deposit", ta.ManagedWallets.SolanaAddress)
+				depositPanels += buildDepositPanelHTML("Managed Solana", "Deposit SOL", ta.ManagedWallets.SolanaAddress)
 			}
 			if ta.ManagedWallets.Error != "" {
 				managedNote = fmt.Sprintf(`<div class="tool-list">%s</div>`, htmlEscape(ta.ManagedWallets.Error))
@@ -288,6 +290,8 @@ func renderHTML(data *DashboardData) string {
 				managedNote = fmt.Sprintf(`<div class="tool-list">%s</div>`, htmlEscape(strings.Join(ta.ManagedWallets.Warnings, "; ")))
 			}
 		}
+		fundingGuidance = buildFundingInstructionHTML(ta.FundingInstructions)
+		capitalMobility = buildCapitalMobilityHTML(ta.CapitalMobility)
 		if depositPanels != "" {
 			depositPanels = `<div class="deposit-grid">` + depositPanels + `</div>`
 		}
@@ -331,7 +335,11 @@ func renderHTML(data *DashboardData) string {
 <div class="stat-row">
   <span class="label">Managed Solana</span><span class="value wrap">%s</span>
 </div>
-<div class="tool-list">%s</div>%s%s%s`, controlWallet, apiKey, privKey, autoTrade, autoTradeRuntime, autoTradeSchedule, autoTradePlan, autoTradeGoal, ta.ToolCount, ta.HelpersInstalled, managedState, managedEVM, managedSolana, toolList, autoTradeNote, depositPanels, managedNote)
+<div class="tool-list">%s</div>%s
+<div class="tool-list">Funding Guidance</div>
+%s
+<div class="tool-list">Capital Mobility</div>
+%s%s%s`, controlWallet, apiKey, privKey, autoTrade, autoTradeRuntime, autoTradeSchedule, autoTradePlan, autoTradeGoal, ta.ToolCount, ta.HelpersInstalled, managedState, managedEVM, managedSolana, toolList, autoTradeNote, fundingGuidance, capitalMobility, depositPanels, managedNote)
 	}
 
 	familyHTML := "<p>No children</p>"
@@ -1267,6 +1275,90 @@ func buildMissedOpportunityHTML(entries []MissedOpportunityEntry) string {
 		))
 	}
 	return `<div class="route-stack">` + strings.Join(items, "") + `</div>`
+}
+
+func buildFundingInstructionHTML(entries []runtimeinfo.FundingInstruction) string {
+	if len(entries) == 0 {
+		return `<div class="tool-list">deposit ETH into the managed EVM wallet for EVM spot, bridging, and HyperLiquid. deposit SOL into the managed Solana wallet for Solana spot routing.</div>`
+	}
+
+	items := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		title := strings.TrimSpace(entry.Label)
+		if title == "" {
+			title = "Deposit"
+		}
+		meta := []string{}
+		if strings.TrimSpace(entry.Asset) != "" {
+			meta = append(meta, entry.Asset)
+		}
+		if strings.TrimSpace(entry.Network) != "" {
+			meta = append(meta, entry.Network)
+		}
+		body := ""
+		if strings.TrimSpace(entry.Purpose) != "" {
+			body += `<div class="route-summary">` + htmlEscape(entry.Purpose) + `</div>`
+		}
+		if strings.TrimSpace(entry.Address) != "" {
+			body += `<div class="route-steps">` + htmlEscape(entry.Address) + `</div>`
+		}
+		items = append(items, fmt.Sprintf(`
+<div class="route-card">
+  <div class="route-top">
+    <span class="route-name">%s</span>
+    %s
+  </div>
+  <div class="route-steps">%s</div>
+  %s
+</div>`,
+			htmlEscape(title),
+			buildStateBadge("ready"),
+			htmlEscape(strings.Join(meta, " · ")),
+			body,
+		))
+	}
+	return `<div class="route-stack">` + strings.Join(items, "") + `</div>`
+}
+
+func buildCapitalMobilityHTML(mobility *runtimeinfo.CapitalMobilityStatus) string {
+	if mobility == nil {
+		return `<div class="tool-list">capital router status is not available yet</div>`
+	}
+
+	chips := []string{}
+	if mobility.CanSpotTrade {
+		chips = append(chips, "spot ready")
+	}
+	if mobility.CanBridge {
+		chips = append(chips, "native bridge ready")
+	}
+	if mobility.CanHyperLiquidFund {
+		chips = append(chips, "HyperLiquid funding ready")
+	}
+	if mobility.CanHyperLiquidTrade {
+		chips = append(chips, "HyperLiquid trade ready")
+	}
+	if mobility.NativeBridgeOnly {
+		chips = append(chips, "native-asset bridge only")
+	}
+	body := ""
+	if strings.TrimSpace(mobility.Summary) != "" {
+		body += `<div class="route-summary">` + htmlEscape(mobility.Summary) + `</div>`
+	}
+	if len(chips) > 0 {
+		body += `<div class="route-steps">` + htmlEscape(strings.Join(chips, " · ")) + `</div>`
+	}
+	if len(mobility.Guidance) > 0 {
+		body += `<div class="route-blockers">` + htmlEscape(strings.Join(mobility.Guidance, " ")) + `</div>`
+	}
+	return fmt.Sprintf(`
+<div class="route-card">
+  <div class="route-top">
+    <span class="route-name">Capital Router</span>
+    %s
+  </div>
+  %s
+</div>`, buildStateBadge(mobility.State), body)
 }
 
 func buildTelepathyMessagesHTML(entries []TelepathyEntry, total int) string {

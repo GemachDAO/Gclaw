@@ -3,6 +3,7 @@ package swarm
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -285,6 +286,68 @@ func TestRunConsensus_Weighted(t *testing.T) {
 	}
 	if result.Action != "buy" {
 		t.Errorf("expected weighted action 'buy', got %q", result.Action)
+	}
+}
+
+func TestRunConsensus_WithBusBroadcastsNarrativeMessages(t *testing.T) {
+	tb := replication.NewTelepathyBus(nil, "family", "leader")
+	sc := NewSwarmCoordinator("leader", SwarmConfig{ConsensusThreshold: 0.5}, tb)
+	_ = sc.AddMember("leader", RoleLeader, "profit_to_gmach")
+	_ = sc.AddMember("executor-1", RoleExecutor, "liquid_executor")
+
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "leader", Action: "buy", TokenAddress: "0xabc", Confidence: 0.9, Reasoning: "momentum held"})
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "executor-1", Action: "buy", TokenAddress: "0xabc", Confidence: 0.8, Reasoning: "liquidity confirmed"})
+
+	result, err := sc.RunConsensus("0xabc", 1)
+	if err != nil {
+		t.Fatalf("RunConsensus failed: %v", err)
+	}
+	if !result.Approved {
+		t.Fatalf("expected approved consensus, got %+v", result)
+	}
+
+	messages := tb.GetHistory(0)
+	types := make(map[string]string, len(messages))
+	for _, msg := range messages {
+		types[msg.Type] = msg.Content
+	}
+	if !strings.Contains(types["market_insight"], "Votes: buy=2") {
+		t.Fatalf("expected market insight vote summary, got %q", types["market_insight"])
+	}
+	if types["swarm_execution_plan"] != "buy 0xabc" {
+		t.Fatalf("expected execution plan broadcast, got %q", types["swarm_execution_plan"])
+	}
+	if !strings.Contains(types["strategy_update"], "Consensus approved a small liquid entry") {
+		t.Fatalf("expected strategy update to describe assigned decision, got %q", types["strategy_update"])
+	}
+}
+
+func TestRunConsensus_RejectedBroadcastsWarning(t *testing.T) {
+	tb := replication.NewTelepathyBus(nil, "family", "leader")
+	sc := NewSwarmCoordinator("leader", SwarmConfig{ConsensusThreshold: 0.75}, tb)
+	ch := tb.Subscribe("observer")
+
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "a1", Action: "buy", TokenAddress: "0xdef", Confidence: 0.9, Reasoning: "breakout"})
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "a2", Action: "sell", TokenAddress: "0xdef", Confidence: 0.8, Reasoning: "mean reversion"})
+
+	result, err := sc.RunConsensus("0xdef", 1)
+	if err != nil {
+		t.Fatalf("RunConsensus failed: %v", err)
+	}
+	if result.Approved {
+		t.Fatalf("expected rejected consensus, got %+v", result)
+	}
+
+	select {
+	case msg := <-ch:
+		if msg.Type != "warning" {
+			t.Fatalf("expected warning message, got %+v", msg)
+		}
+		if !strings.Contains(msg.Content, "Threshold 0.75 was not met") {
+			t.Fatalf("expected threshold detail in warning, got %q", msg.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for warning broadcast")
 	}
 }
 

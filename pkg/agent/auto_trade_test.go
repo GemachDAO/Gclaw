@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -288,5 +289,53 @@ func TestBuildAutoTradeExecutionPlan_BudgetRegimePrefersGMACOverSignalHunt(t *te
 	}
 	if plan.EntrySymbol != strategy.AssetSymbol {
 		t.Fatalf("entry symbol = %q, want %q", plan.EntrySymbol, strategy.AssetSymbol)
+	}
+}
+
+func TestEmitAutoTradeTelepathyNarrative_BroadcastsStrategyInsightAndWarning(t *testing.T) {
+	tb := replication.NewTelepathyBus(nil, "family", "main")
+	ch := tb.Subscribe("observer")
+	agent := &AgentInstance{ID: "main", TelepathyBus: tb}
+	entry := &autoTradeJournalEntry{
+		Status:      "failed",
+		Mode:        "pursue_signal",
+		Venue:       "route_aware",
+		ChainLabel:  "Ethereum",
+		TokenSymbol: "The Glitch",
+		Summary:     "Take a small liquid signal entry in The Glitch on Ethereum and monitor it for later GMAC rotation.",
+		Reasons:     []string{"no winner was ready to rotate", "liquidity and volume filters passed"},
+		MissedOpportunities: []autoTradeOpportunityRecord{
+			{TokenSymbol: "GOLDEN", ChainLabel: "Ethereum", Score: 84},
+			{TokenSymbol: "WBTC", ChainLabel: "Ethereum", Score: 82},
+		},
+	}
+
+	emitAutoTradeTelepathyNarrative(agent, &autoTradeBudgetRegime{
+		State:  "survival_rebuild",
+		Reason: "runway is thin or the loss streak is elevated, so stop paying for new signal hunts and rebuild GMAC directly",
+	}, entry, "gdex_buy failed", errors.New("gdex_buy failed"))
+
+	var messages []replication.TelepathyMessage
+	for i := 0; i < 3; i++ {
+		select {
+		case msg := <-ch:
+			messages = append(messages, msg)
+		default:
+			t.Fatalf("expected 3 telepathy messages, got %d", len(messages))
+		}
+	}
+
+	types := make(map[string]string, len(messages))
+	for _, msg := range messages {
+		types[msg.Type] = msg.Content
+	}
+	if !strings.Contains(types["strategy_update"], "The Glitch") {
+		t.Fatalf("expected strategy update to mention selected token, got %q", types["strategy_update"])
+	}
+	if !strings.Contains(types["market_insight"], "GOLDEN") || !strings.Contains(types["market_insight"], "WBTC") {
+		t.Fatalf("expected market insight to mention missed opportunities, got %q", types["market_insight"])
+	}
+	if !strings.Contains(types["warning"], "Execution warning") {
+		t.Fatalf("expected warning message, got %q", types["warning"])
 	}
 }

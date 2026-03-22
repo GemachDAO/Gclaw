@@ -48,6 +48,9 @@ func TestBuildTradingStatus(t *testing.T) {
 	if status.ToolCount != 3 {
 		t.Fatalf("expected 3 filtered tools, got %d", status.ToolCount)
 	}
+	if status.CapitalMobility == nil {
+		t.Fatal("expected capital mobility summary")
+	}
 }
 
 func TestBuildTradingStatus_DefaultExpectedToolsIncludeBridgeAndHLFunding(t *testing.T) {
@@ -258,6 +261,52 @@ func TestFetchTradingStatus(t *testing.T) {
 	}
 	if status.ManagedWallets == nil || status.ManagedWallets.SolanaAddress != "solana123" {
 		t.Fatalf("expected managed solana wallet in status: %+v", status)
+	}
+	if len(status.FundingInstructions) == 0 {
+		t.Fatalf("expected funding instructions to be populated, got %+v", status.FundingInstructions)
+	}
+	if status.CapitalMobility == nil {
+		t.Fatal("expected capital mobility status")
+	}
+}
+
+func TestBuildFundingInstructionsAndCapitalMobility(t *testing.T) {
+	status := &TradingStatus{
+		Tools: []string{
+			"gdex_buy",
+			"gdex_sell",
+			"gdex_bridge_estimate",
+			"gdex_bridge_request",
+			"gdex_hl_deposit",
+			"gdex_hl_create_order",
+		},
+		ManagedWallets: &ManagedWalletStatus{
+			State:         "ready",
+			EVMAddress:    "0xevm",
+			SolanaAddress: "solana123",
+		},
+	}
+
+	instructions := buildFundingInstructions(status)
+	if len(instructions) != 2 {
+		t.Fatalf("expected 2 funding instructions, got %+v", instructions)
+	}
+	if instructions[0].Label != "Deposit ETH" || instructions[1].Label != "Deposit SOL" {
+		t.Fatalf("unexpected funding instruction labels: %+v", instructions)
+	}
+
+	mobility := buildCapitalMobilityStatus(status)
+	if mobility == nil {
+		t.Fatal("expected mobility status")
+	}
+	if mobility.State != "ready" {
+		t.Fatalf("mobility state = %q, want ready", mobility.State)
+	}
+	if !mobility.CanBridge || !mobility.CanHyperLiquidFund || !mobility.CanSpotTrade {
+		t.Fatalf("expected bridge, HL funding, and spot readiness, got %+v", mobility)
+	}
+	if !mobility.NativeBridgeOnly {
+		t.Fatal("expected bridge flow to be marked native-only")
 	}
 }
 

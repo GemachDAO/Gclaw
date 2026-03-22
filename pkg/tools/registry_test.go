@@ -72,6 +72,29 @@ func TestNewToolRegistry(t *testing.T) {
 	}
 }
 
+func TestDefaultToolCosts_AreLowBurn(t *testing.T) {
+	for tool, want := range map[string]float64{
+		"gdex_buy":      0.001,
+		"gdex_scan":     0.0025,
+		"gdex_holdings": 0.001,
+		"spawn":         0.01,
+	} {
+		if got := DefaultToolCosts[tool]; got != want {
+			t.Fatalf("DefaultToolCosts[%q] = %.3f, want %.3f", tool, got, want)
+		}
+	}
+}
+
+func TestDefaultToolCosts_AutoTradeCycleIsNearPointZeroOneGMAC(t *testing.T) {
+	cycleCost := 2*DefaultToolCosts["gdex_holdings"] +
+		2*DefaultToolCosts["gdex_scan"] +
+		2*DefaultToolCosts["gdex_trending"] +
+		DefaultToolCosts["gdex_buy"]
+	if cycleCost > 0.01 {
+		t.Fatalf("expected standard auto-trade cycle cost <= 0.01 GMAC, got %.6f", cycleCost)
+	}
+}
+
 func TestToolRegistry_RegisterAndGet(t *testing.T) {
 	r := NewToolRegistry()
 	tool := newMockTool("echo", "echoes input")

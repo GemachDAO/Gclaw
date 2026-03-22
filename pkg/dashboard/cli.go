@@ -155,6 +155,15 @@ func FormatCLI(data *DashboardData) string {
 			line(fmt.Sprintf("  Managed: %-8s Solana: %s", mw.State, solana))
 			line(fmt.Sprintf("  Managed EVM: %s", evm))
 		}
+		for _, instruction := range ta.FundingInstructions {
+			line(fmt.Sprintf("  %s: %s on %s", truncate(instruction.Label, 12), truncate(instruction.Asset, 6), truncate(instruction.Network, 24)))
+		}
+		if mobility := ta.CapitalMobility; mobility != nil {
+			line(fmt.Sprintf("  Capital Router: %s", truncate(mobility.State, 16)))
+			if mobility.Summary != "" {
+				line(fmt.Sprintf("  Mobility: %s", truncate(mobility.Summary, 38)))
+			}
+		}
 	} else {
 		line("  (not configured)")
 	}

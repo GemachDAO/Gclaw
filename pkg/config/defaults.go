@@ -349,7 +349,7 @@ func DefaultConfig() *Config {
 		Metabolism: MetabolismConfig{
 			Enabled:            true,
 			InitialGMAC:        1000,
-			HeartbeatCost:      0.1,
+			HeartbeatCost:      0.001,
 			InferenceCostPer1k: 0.5,
 			SurvivalThreshold:  50,
 			Thresholds: struct {

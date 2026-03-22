@@ -48,6 +48,8 @@ func PopulateManagedWallets(cfg *config.Config, status *TradingStatus, timeout t
 		status = BuildTradingStatus(cfg, nil)
 	}
 	status.ManagedWallets = resolveManagedWalletsCached(cfg, timeout)
+	status.FundingInstructions = buildFundingInstructions(status)
+	status.CapitalMobility = buildCapitalMobilityStatus(status)
 	return status
 }
 

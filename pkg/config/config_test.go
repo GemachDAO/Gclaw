@@ -195,6 +195,9 @@ func TestDefaultConfig_HeartbeatEnabled(t *testing.T) {
 	if !cfg.Heartbeat.Enabled {
 		t.Error("Heartbeat should be enabled by default")
 	}
+	if cfg.Metabolism.HeartbeatCost != 0.001 {
+		t.Errorf("expected low-burn heartbeat cost 0.001, got %.4f", cfg.Metabolism.HeartbeatCost)
+	}
 }
 
 // TestDefaultConfig_WorkspacePath verifies workspace path is correctly set

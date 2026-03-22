@@ -18,19 +18,43 @@ import (
 
 // TradingStatus summarizes wallet and trading-tool readiness for GDEX.
 type TradingStatus struct {
-	Enabled          bool                    `json:"enabled"`
-	APIKeyConfigured bool                    `json:"api_key_configured"`
-	WalletAddress    string                  `json:"wallet_address,omitempty"`
-	HasPrivateKey    bool                    `json:"has_private_key"`
-	AutoTradeEnabled bool                    `json:"auto_trade_enabled"`
-	AutoTradeRuntime *AutoTradeRuntimeStatus `json:"auto_trade_runtime,omitempty"`
-	AutoTradePlan    *AutoTradeStrategy      `json:"auto_trade_plan,omitempty"`
-	DefaultChainID   int64                   `json:"default_chain_id"`
-	HelpersDir       string                  `json:"helpers_dir,omitempty"`
-	HelpersInstalled bool                    `json:"helpers_installed"`
-	ToolCount        int                     `json:"tool_count"`
-	Tools            []string                `json:"tools,omitempty"`
-	ManagedWallets   *ManagedWalletStatus    `json:"managed_wallets,omitempty"`
+	Enabled             bool                    `json:"enabled"`
+	APIKeyConfigured    bool                    `json:"api_key_configured"`
+	WalletAddress       string                  `json:"wallet_address,omitempty"`
+	HasPrivateKey       bool                    `json:"has_private_key"`
+	AutoTradeEnabled    bool                    `json:"auto_trade_enabled"`
+	AutoTradeRuntime    *AutoTradeRuntimeStatus `json:"auto_trade_runtime,omitempty"`
+	AutoTradePlan       *AutoTradeStrategy      `json:"auto_trade_plan,omitempty"`
+	DefaultChainID      int64                   `json:"default_chain_id"`
+	HelpersDir          string                  `json:"helpers_dir,omitempty"`
+	HelpersInstalled    bool                    `json:"helpers_installed"`
+	ToolCount           int                     `json:"tool_count"`
+	Tools               []string                `json:"tools,omitempty"`
+	ManagedWallets      *ManagedWalletStatus    `json:"managed_wallets,omitempty"`
+	FundingInstructions []FundingInstruction    `json:"funding_instructions,omitempty"`
+	CapitalMobility     *CapitalMobilityStatus  `json:"capital_mobility,omitempty"`
+}
+
+// FundingInstruction tells the user what asset to deposit into which managed
+// wallet to unlock a trading path.
+type FundingInstruction struct {
+	Label   string `json:"label"`
+	Asset   string `json:"asset"`
+	Network string `json:"network"`
+	Address string `json:"address"`
+	Purpose string `json:"purpose"`
+}
+
+// CapitalMobilityStatus summarizes how the agent can move capital around.
+type CapitalMobilityStatus struct {
+	State               string   `json:"state"`
+	NativeBridgeOnly    bool     `json:"native_bridge_only"`
+	CanSpotTrade        bool     `json:"can_spot_trade"`
+	CanBridge           bool     `json:"can_bridge"`
+	CanHyperLiquidFund  bool     `json:"can_hyperliquid_fund"`
+	CanHyperLiquidTrade bool     `json:"can_hyperliquid_trade"`
+	Summary             string   `json:"summary,omitempty"`
+	Guidance            []string `json:"guidance,omitempty"`
 }
 
 // RegistrationStatus summarizes ERC-8004 registration state.
@@ -161,7 +185,7 @@ func BuildTradingStatus(cfg *config.Config, toolNames []string) *TradingStatus {
 		tools = expectedTradingTools(cfg, addr, key)
 	}
 
-	return &TradingStatus{
+	status := &TradingStatus{
 		Enabled:          cfg.Tools.GDEX.Enabled || apiKey != "",
 		APIKeyConfigured: apiKey != "",
 		WalletAddress:    addr,
@@ -175,6 +199,9 @@ func BuildTradingStatus(cfg *config.Config, toolNames []string) *TradingStatus {
 		ToolCount:        len(tools),
 		Tools:            tools,
 	}
+	status.FundingInstructions = buildFundingInstructions(status)
+	status.CapitalMobility = buildCapitalMobilityStatus(status)
+	return status
 }
 
 // BuildRegistrationStatus summarizes ERC-8004 readiness from the current config.
@@ -239,7 +266,85 @@ func FetchTradingStatus(cfg *config.Config, timeout time.Duration) (*TradingStat
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 		return nil, err
 	}
+	status.FundingInstructions = buildFundingInstructions(&status)
+	status.CapitalMobility = buildCapitalMobilityStatus(&status)
 	return &status, nil
+}
+
+func buildFundingInstructions(status *TradingStatus) []FundingInstruction {
+	if status == nil || status.ManagedWallets == nil {
+		return nil
+	}
+
+	instructions := make([]FundingInstruction, 0, 2)
+	if address := strings.TrimSpace(status.ManagedWallets.EVMAddress); address != "" {
+		instructions = append(instructions, FundingInstruction{
+			Label:   "Deposit ETH",
+			Asset:   "ETH",
+			Network: "Ethereum / Arbitrum / Base",
+			Address: address,
+			Purpose: "Use ETH here for EVM spot trading, native bridge moves, and HyperLiquid funding. On Arbitrum, the agent can auto-swap ETH into USDC before gdex_hl_deposit.",
+		})
+	}
+	if address := strings.TrimSpace(status.ManagedWallets.SolanaAddress); address != "" {
+		instructions = append(instructions, FundingInstruction{
+			Label:   "Deposit SOL",
+			Asset:   "SOL",
+			Network: "Solana",
+			Address: address,
+			Purpose: "Use SOL here for Solana spot trading and native bridge moves into other supported chains.",
+		})
+	}
+	return instructions
+}
+
+func buildCapitalMobilityStatus(status *TradingStatus) *CapitalMobilityStatus {
+	if status == nil {
+		return nil
+	}
+
+	canSpot := hasTradingTool(status, "gdex_buy") && hasTradingTool(status, "gdex_sell")
+	canBridge := hasTradingTool(status, "gdex_bridge_estimate") && hasTradingTool(status, "gdex_bridge_request")
+	canHLFund := hasTradingTool(status, "gdex_hl_deposit")
+	canHLTrade := hasTradingTool(status, "gdex_hl_create_order")
+	state := "limited"
+	switch {
+	case canSpot && canBridge && canHLFund:
+		state = "ready"
+	case canSpot || canBridge || canHLFund || canHLTrade:
+		state = "partial"
+	}
+
+	guidance := []string{}
+	if canBridge {
+		guidance = append(guidance, "Bridge flow is native-asset only today, for example ETH to SOL, SOL to ETH, or Base ETH to ETH.")
+	}
+	if canHLFund {
+		guidance = append(guidance, "For HyperLiquid leverage, the fastest funding path is Arbitrum ETH on the managed EVM wallet; the agent can auto-swap ETH into USDC before depositing.")
+	}
+	if canSpot {
+		guidance = append(guidance, "Once capital is on the target chain, the bot can rotate into spot opportunities and later recycle profits back toward GMAC.")
+	}
+
+	summary := "Capital mobility is limited until the bridge, spot, and HyperLiquid tools are all online."
+	if canSpot && canBridge && canHLFund {
+		summary = "The bot can move native capital across supported spot chains, route Arbitrum ETH or USDC into HyperLiquid, and rotate profits back into spot GMAC accumulation."
+	} else if canSpot && canBridge {
+		summary = "The bot can move native capital across supported spot chains and chase spot opportunities, but HyperLiquid funding is not fully ready."
+	} else if canSpot {
+		summary = "The bot can trade spot on supported chains, but capital routing between chains is still limited."
+	}
+
+	return &CapitalMobilityStatus{
+		State:               state,
+		NativeBridgeOnly:    true,
+		CanSpotTrade:        canSpot,
+		CanBridge:           canBridge,
+		CanHyperLiquidFund:  canHLFund,
+		CanHyperLiquidTrade: canHLTrade,
+		Summary:             summary,
+		Guidance:            guidance,
+	}
 }
 
 // FilterTradingTools keeps only GDEX/x402/Tempo tools in stable display order.
