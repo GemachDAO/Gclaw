@@ -54,6 +54,9 @@ func agentCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
+	if err := repairLegacyWorkspaceFiles(cfg.WorkspacePath()); err != nil {
+		fmt.Printf("Warning: could not repair legacy workspace skills: %v\n", err)
+	}
 
 	if modelOverride != "" {
 		cfg.Agents.Defaults.ModelName = modelOverride

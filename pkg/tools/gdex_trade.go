@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/GemachDAO/Gclaw/pkg/logger"
+	"github.com/GemachDAO/Gclaw/pkg/utils"
 )
 
 // helperScriptDir returns the path to the GDEX trading helpers directory.
@@ -18,14 +20,7 @@ import (
 // falls back to workspace/skills/gdex-trading/helpers relative to the
 // process working directory.
 func helperScriptDir() string {
-	if dir := os.Getenv("GDEX_HELPERS_DIR"); dir != "" {
-		return dir
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "workspace/skills/gdex-trading/helpers"
-	}
-	return filepath.Join(wd, "workspace", "skills", "gdex-trading", "helpers")
+	return utils.ResolveWorkspaceSkillDir("GDEX_HELPERS_DIR", "gdex-trading/helpers")
 }
 
 // ensureNodeDeps checks whether the helpers directory has node_modules installed.
@@ -36,11 +31,25 @@ var (
 	errEnsureDeps  error
 )
 
+func helperDepsReady(dir string) bool {
+	requiredDirs := []string{
+		filepath.Join(dir, "node_modules"),
+		filepath.Join(dir, "node_modules", "@gdexsdk", "gdex-skill"),
+		filepath.Join(dir, "node_modules", "ethers"),
+	}
+	for _, path := range requiredDirs {
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
 func ensureNodeDeps() error {
 	ensureDepsOnce.Do(func() {
 		dir := helperScriptDir()
-		nodeModules := filepath.Join(dir, "node_modules")
-		if _, err := os.Stat(nodeModules); err == nil {
+		if helperDepsReady(dir) {
 			return // already installed
 		}
 
@@ -56,9 +65,12 @@ func ensureNodeDeps() error {
 			if out, err := cmd.CombinedOutput(); err != nil {
 				logger.WarnCF("tool", "setup.sh failed, trying npm install",
 					map[string]any{"error": err.Error(), "output": string(out)})
-			} else {
+			} else if helperDepsReady(dir) {
 				logger.InfoCF("tool", "GDEX helpers: dependencies installed via setup.sh", nil)
 				return
+			} else {
+				logger.WarnCF("tool", "setup.sh completed but required GDEX helper packages are still missing; trying npm install",
+					map[string]any{"dir": dir})
 			}
 		}
 
@@ -70,6 +82,10 @@ func ensureNodeDeps() error {
 			errEnsureDeps = fmt.Errorf("failed to install GDEX helper dependencies: %w — %s", err, string(out))
 			logger.ErrorCF("tool", "npm install failed for GDEX helpers",
 				map[string]any{"error": errEnsureDeps.Error()})
+		} else if !helperDepsReady(dir) {
+			errEnsureDeps = fmt.Errorf("GDEX helper dependencies are still incomplete after npm install")
+			logger.ErrorCF("tool", "npm install completed but required GDEX helper packages are still missing",
+				map[string]any{"dir": dir})
 		} else {
 			logger.InfoCF("tool", "GDEX helpers: dependencies installed via npm install", nil)
 		}
@@ -95,17 +111,34 @@ func runNodeHelper(ctx context.Context, scriptName string, input map[string]any)
 
 	cmd := exec.CommandContext(ctx, "node", scriptPath)
 	cmd.Stdin = bytes.NewReader(inputJSON)
-	cmd.Env = os.Environ()
+	cmd.Env = buildGDEXHelperEnv()
 
-	out, err := cmd.Output()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	stdoutBytes := stdout.Bytes()
 	if err != nil {
-		var stderr string
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			stderr = string(exitErr.Stderr)
+		if result, parseErr := parseNodeHelperOutput(stdoutBytes); parseErr == nil {
+			return result, nil
 		}
-		return nil, fmt.Errorf("node helper failed: %w — %s", err, stderr)
+		stderrText := strings.TrimSpace(stderr.String())
+		if stderrText == "" {
+			stderrText = strings.TrimSpace(string(stdoutBytes))
+		}
+		return nil, fmt.Errorf("node helper failed: %w — %s", err, stderrText)
 	}
 
+	result, err := parseNodeHelperOutput(stdoutBytes)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func parseNodeHelperOutput(out []byte) (map[string]any, error) {
 	var result map[string]any
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse helper output: %w", err)
@@ -138,7 +171,7 @@ type GDEXBuyTool struct{}
 func (t *GDEXBuyTool) Name() string { return "gdex_buy" }
 
 func (t *GDEXBuyTool) Description() string {
-	return "Market buy a token using GDEX. Amount is in the smallest unit (lamports for Solana, wei for EVM chains)."
+	return "Market buy a token using GDEX. Amount is the native input amount to spend, for example 0.01 SOL or 0.001 ETH."
 }
 
 func (t *GDEXBuyTool) Parameters() map[string]any {
@@ -151,7 +184,7 @@ func (t *GDEXBuyTool) Parameters() map[string]any {
 			},
 			"amount": map[string]any{
 				"type":        "string",
-				"description": "Amount to spend in smallest unit (lamports for Solana, wei for EVM)",
+				"description": "Native input amount to spend, for example 0.01 SOL or 0.001 ETH",
 			},
 			"chain_id": map[string]any{
 				"type":        "number",
@@ -200,7 +233,7 @@ type GDEXSellTool struct{}
 func (t *GDEXSellTool) Name() string { return "gdex_sell" }
 
 func (t *GDEXSellTool) Description() string {
-	return "Market sell a token using GDEX. Amount is in the smallest unit (lamports for Solana, wei for EVM chains)."
+	return "Market sell a token using GDEX. Amount is either an absolute token amount or a percentage such as 50%."
 }
 
 func (t *GDEXSellTool) Parameters() map[string]any {
@@ -213,7 +246,7 @@ func (t *GDEXSellTool) Parameters() map[string]any {
 			},
 			"amount": map[string]any{
 				"type":        "string",
-				"description": "Amount to sell in smallest unit (lamports for Solana, wei for EVM)",
+				"description": "Token amount to sell, or a percentage such as 50%",
 			},
 			"chain_id": map[string]any{
 				"type":        "number",

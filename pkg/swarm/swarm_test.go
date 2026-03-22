@@ -214,6 +214,8 @@ func TestRunConsensus_NoSignals(t *testing.T) {
 
 func TestRunConsensus_Majority(t *testing.T) {
 	sc := NewSwarmCoordinator("leader", SwarmConfig{ConsensusThreshold: 0.5}, nil)
+	_ = sc.AddMember("leader", RoleLeader, "profit_to_gmach")
+	_ = sc.AddMember("executor-1", RoleExecutor, "liquid_executor")
 
 	// 3 buy, 1 sell -> majority = buy
 	for i := 0; i < 3; i++ {
@@ -232,6 +234,9 @@ func TestRunConsensus_Majority(t *testing.T) {
 	}
 	if !result.Approved {
 		t.Error("expected consensus to be approved")
+	}
+	if decision := sc.GetLastDecision(); decision == nil || decision.ExecutorID == "" {
+		t.Fatalf("expected execution decision to be created, got %+v", decision)
 	}
 }
 
@@ -333,6 +338,36 @@ func TestUpdateMemberPerformance(t *testing.T) {
 	m, _ := sc.GetMember("agent-1")
 	if m.Performance != 10.5 {
 		t.Errorf("expected performance 10.5, got %.2f", m.Performance)
+	}
+}
+
+func TestSaveAndLoadSwarmState_PersistsDecision(t *testing.T) {
+	dir := t.TempDir()
+	sc := NewSwarmCoordinator("leader-1", SwarmConfig{ConsensusThreshold: 0.5}, nil)
+	_ = sc.AddMember("leader-1", RoleLeader, "profit_to_gmach")
+	_ = sc.AddMember("exec-1", RoleExecutor, "liquid_executor")
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "exec-1", Action: "buy", TokenAddress: "0xabc", Confidence: 0.9})
+
+	result, err := sc.RunConsensus("0xabc", 1)
+	if err != nil {
+		t.Fatalf("RunConsensus failed: %v", err)
+	}
+	if !result.Approved {
+		t.Fatalf("expected approved consensus, got %+v", result)
+	}
+	if err := SaveSwarmState(dir, sc); err != nil {
+		t.Fatalf("SaveSwarmState failed: %v", err)
+	}
+
+	loaded, err := LoadSwarmState(dir)
+	if err != nil {
+		t.Fatalf("LoadSwarmState failed: %v", err)
+	}
+	if loaded.GetLastConsensus() == nil {
+		t.Fatal("expected last consensus to persist")
+	}
+	if loaded.GetLastDecision() == nil || loaded.GetLastDecision().ExecutorID == "" {
+		t.Fatalf("expected decision to persist, got %+v", loaded.GetLastDecision())
 	}
 }
 
@@ -450,6 +485,7 @@ func TestSaveAndLoadSwarmState(t *testing.T) {
 	sc := NewSwarmCoordinator("leader-1", SwarmConfig{MaxSwarmSize: 10}, nil)
 	_ = sc.AddMember("agent-1", RoleScout, "momentum")
 	_ = sc.AddMember("agent-2", RoleExecutor, "dip_buyer")
+	_ = sc.SubmitSignal(SwarmSignal{AgentID: "agent-1", Action: "buy", TokenAddress: "0xabc", Confidence: 0.9})
 
 	err := SaveSwarmState(dir, sc)
 	if err != nil {
@@ -474,6 +510,9 @@ func TestSaveAndLoadSwarmState(t *testing.T) {
 	}
 	if len(loaded.GetMembers()) != 2 {
 		t.Errorf("expected 2 members, got %d", len(loaded.GetMembers()))
+	}
+	if len(loaded.GetSignals("0xabc")) != 1 {
+		t.Fatalf("expected 1 persisted signal, got %d", len(loaded.GetSignals("0xabc")))
 	}
 }
 

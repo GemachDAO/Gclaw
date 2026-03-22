@@ -18,6 +18,22 @@ func TestBuildAgentMainSessionKey_Normalizes(t *testing.T) {
 	}
 }
 
+func TestBuildAgentScopedSessionKey(t *testing.T) {
+	got := BuildAgentScopedSessionKey("Sales Bot", "CLI", " Fresh Session/01 ")
+	want := "agent:sales-bot:cli:fresh-session-01"
+	if got != want {
+		t.Errorf("BuildAgentScopedSessionKey() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildAgentScopedSessionKey_EmptyCustomFallsBackToMain(t *testing.T) {
+	got := BuildAgentScopedSessionKey("sales", "cli", "   ")
+	want := "agent:sales:main"
+	if got != want {
+		t.Errorf("BuildAgentScopedSessionKey(empty) = %q, want %q", got, want)
+	}
+}
+
 func TestBuildAgentPeerSessionKey_DMScopeMain(t *testing.T) {
 	got := BuildAgentPeerSessionKey(SessionKeyParams{
 		AgentID: "main",

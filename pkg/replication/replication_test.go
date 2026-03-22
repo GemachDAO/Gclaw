@@ -59,7 +59,7 @@ func TestCanReplicate(t *testing.T) {
 func TestReplicate_Disabled(t *testing.T) {
 	r := NewReplicator("parent", ReplicationConfig{Enabled: false})
 	gmac := 100.0
-	_, err := r.Replicate(newMinimalConfig(), "/tmp/workspace", &gmac)
+	_, err := r.Replicate(newMinimalConfig(), "/tmp/workspace", &gmac, nil)
 	if err == nil {
 		t.Error("expected error when replication is disabled")
 	}
@@ -75,13 +75,13 @@ func TestReplicate_MaxChildren(t *testing.T) {
 	gmac := 100.0
 	workspace := dir
 
-	_, err := r.Replicate(parentCfg, workspace, &gmac)
+	_, err := r.Replicate(parentCfg, workspace, &gmac, nil)
 	if err != nil {
 		t.Fatalf("first replicate failed: %v", err)
 	}
 
 	gmac = 100.0
-	_, err = r.Replicate(parentCfg, workspace, &gmac)
+	_, err = r.Replicate(parentCfg, workspace, &gmac, nil)
 	if err == nil {
 		t.Error("expected error when max children reached")
 	}
@@ -96,7 +96,10 @@ func TestReplicate_Success(t *testing.T) {
 	gmac := 200.0
 	workspace := dir
 
-	child, err := r.Replicate(parentCfg, workspace, &gmac)
+	child, err := r.Replicate(parentCfg, workspace, &gmac, &ReplicateOptions{
+		Name:         "solana scout",
+		StrategyHint: "Focus on Solana momentum and bridge profits back to GMAC",
+	})
 	if err != nil {
 		t.Fatalf("Replicate failed: %v", err)
 	}
@@ -104,8 +107,8 @@ func TestReplicate_Success(t *testing.T) {
 	if child.ParentID != "parent" {
 		t.Errorf("unexpected ParentID: %s", child.ParentID)
 	}
-	if child.Status != "running" {
-		t.Errorf("expected status 'running', got %q", child.Status)
+	if child.Status != "provisioned" {
+		t.Errorf("expected status 'provisioned', got %q", child.Status)
 	}
 	if child.GMACBalance != 100.0 {
 		t.Errorf("expected child GMAC=100, got %.2f", child.GMACBalance)
@@ -116,10 +119,26 @@ func TestReplicate_Success(t *testing.T) {
 	if child.ConfigPath == "" {
 		t.Error("expected non-empty config path")
 	}
+	if child.Profile.Style == "" || len(child.Profile.PreferredChains) == 0 {
+		t.Fatalf("expected non-empty child profile, got %+v", child.Profile)
+	}
+	if child.Profile.Role == "" {
+		t.Fatalf("expected derived child role, got %+v", child.Profile)
+	}
+	if child.Profile.StrategyHint == "" {
+		t.Fatalf("expected strategy hint to persist, got %+v", child.Profile)
+	}
 
 	// Verify config file was created
 	if _, err := os.Stat(child.ConfigPath); os.IsNotExist(err) {
 		t.Error("expected child config file to exist")
+	}
+	profile, err := LoadChildStrategyProfile(child.WorkspacePath)
+	if err != nil {
+		t.Fatalf("LoadChildStrategyProfile failed: %v", err)
+	}
+	if profile == nil || profile.Style != child.Profile.Style {
+		t.Fatalf("expected saved profile to match child profile, got %+v", profile)
 	}
 }
 
@@ -130,9 +149,9 @@ func TestListChildren(t *testing.T) {
 	parentCfg := newMinimalConfig()
 
 	gmac := 200.0
-	_, _ = r.Replicate(parentCfg, dir, &gmac)
+	_, _ = r.Replicate(parentCfg, dir, &gmac, nil)
 	gmac = 200.0
-	_, _ = r.Replicate(parentCfg, dir, &gmac)
+	_, _ = r.Replicate(parentCfg, dir, &gmac, nil)
 
 	children := r.ListChildren()
 	if len(children) != 2 {
@@ -146,7 +165,7 @@ func TestGetChild(t *testing.T) {
 	r := NewReplicator("parent", cfg)
 
 	gmac := 200.0
-	child, _ := r.Replicate(newMinimalConfig(), dir, &gmac)
+	child, _ := r.Replicate(newMinimalConfig(), dir, &gmac, nil)
 
 	got, ok := r.GetChild(child.ID)
 	if !ok {
@@ -168,7 +187,7 @@ func TestStopChild(t *testing.T) {
 	r := NewReplicator("parent", cfg)
 
 	gmac := 200.0
-	child, _ := r.Replicate(newMinimalConfig(), dir, &gmac)
+	child, _ := r.Replicate(newMinimalConfig(), dir, &gmac, nil)
 
 	err := r.StopChild(child.ID)
 	if err != nil {
@@ -197,7 +216,7 @@ func TestSaveAndLoadChildren(t *testing.T) {
 	r := NewReplicator("parent", cfg)
 
 	gmac := 200.0
-	_, _ = r.Replicate(newMinimalConfig(), dir, &gmac)
+	_, _ = r.Replicate(newMinimalConfig(), dir, &gmac, nil)
 
 	err := r.SaveChildren(dir)
 	if err != nil {
@@ -282,6 +301,35 @@ func TestSubscribeAndBroadcast(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Error("timeout waiting for message")
+	}
+}
+
+func TestTelepathyBus_EnableFilePersistence_ReplaysHistoryToSubscriber(t *testing.T) {
+	dir := t.TempDir()
+	msg := TelepathyMessage{
+		FromAgentID: "parent",
+		ToAgentID:   "*",
+		Type:        "strategy_update",
+		Content:     "rotate to bridge route",
+		Timestamp:   time.Now().UnixMilli(),
+	}
+	if err := WriteMessage(dir, msg); err != nil {
+		t.Fatalf("WriteMessage failed: %v", err)
+	}
+
+	tb := NewTelepathyBus(nil, "fam", "agent-1")
+	if err := tb.EnableFilePersistence(dir); err != nil {
+		t.Fatalf("EnableFilePersistence failed: %v", err)
+	}
+	ch := tb.Subscribe("agent-2")
+
+	select {
+	case replayed := <-ch:
+		if replayed.Content != msg.Content {
+			t.Fatalf("expected replayed content %q, got %q", msg.Content, replayed.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for replayed telepathy message")
 	}
 }
 

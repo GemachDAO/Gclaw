@@ -107,6 +107,14 @@ func TestGetConfigPath(t *testing.T) {
 	}
 }
 
+func TestGetConfigPath_EnvOverride(t *testing.T) {
+	override := "/tmp/gclaw-test-config.json"
+	t.Setenv("GCLAW_CONFIG_PATH", override)
+	if got := getConfigPath(); got != override {
+		t.Fatalf("getConfigPath() = %q, want %q", got, override)
+	}
+}
+
 func TestCopyEmbeddedToTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -115,7 +123,7 @@ func TestCopyEmbeddedToTarget(t *testing.T) {
 	}
 
 	// Verify core files are present
-	files := []string{"AGENT.md", "IDENTITY.md", "SOUL.md", "USER.md"}
+	files := []string{"AGENT.md", "IDENTITY.md", "SOUL.md", "USER.md", "HEARTBEAT.md", "TRADING_STRATEGY.md"}
 	for _, f := range files {
 		path := tmpDir + "/" + f
 		if _, err := os.Stat(path); err != nil {

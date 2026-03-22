@@ -14,6 +14,8 @@ type SwarmTool struct {
 	coordinator   *swarm.SwarmCoordinator
 	goodwillCheck func() int
 	threshold     int
+	agentID       string
+	persist       func() error
 }
 
 // NewSwarmTool creates a SwarmTool wired to the given SwarmCoordinator.
@@ -28,6 +30,12 @@ func NewSwarmTool(
 		goodwillCheck: goodwillCheck,
 		threshold:     threshold,
 	}
+}
+
+// SetRuntimeContext configures the owning agent ID and optional persistence hook.
+func (t *SwarmTool) SetRuntimeContext(agentID string, persist func() error) {
+	t.agentID = agentID
+	t.persist = persist
 }
 
 func (t *SwarmTool) Name() string { return "swarm" }
@@ -148,6 +156,9 @@ func (t *SwarmTool) addMember(args map[string]any) *ToolResult {
 	if err := t.coordinator.AddMember(agentID, role, strategy); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to add member: %v", err))
 	}
+	if err := t.persistState(); err != nil {
+		return ErrorResult(fmt.Sprintf("member added but failed to persist swarm state: %v", err))
+	}
 	return SilentResult(fmt.Sprintf("agent %s added to swarm with role %s", agentID, role))
 }
 
@@ -158,6 +169,9 @@ func (t *SwarmTool) removeMember(args map[string]any) *ToolResult {
 	}
 	if err := t.coordinator.RemoveMember(agentID); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to remove member: %v", err))
+	}
+	if err := t.persistState(); err != nil {
+		return ErrorResult(fmt.Sprintf("member removed but failed to persist swarm state: %v", err))
 	}
 	return SilentResult(fmt.Sprintf("agent %s removed from swarm", agentID))
 }
@@ -170,6 +184,9 @@ func (t *SwarmTool) listMembers() *ToolResult {
 
 func (t *SwarmTool) submitSignal(args map[string]any) *ToolResult {
 	agentID, _ := args["agent_id"].(string)
+	if agentID == "" {
+		agentID = t.agentID
+	}
 	tokenAddress, _ := args["token_address"].(string)
 	actionSignal, _ := args["action_signal"].(string)
 	reasoning, _ := args["reasoning"].(string)
@@ -201,6 +218,9 @@ func (t *SwarmTool) submitSignal(args map[string]any) *ToolResult {
 	if err := t.coordinator.SubmitSignal(sig); err != nil {
 		return ErrorResult(fmt.Sprintf("failed to submit signal: %v", err))
 	}
+	if err := t.persistState(); err != nil {
+		return ErrorResult(fmt.Sprintf("signal submitted but failed to persist swarm state: %v", err))
+	}
 	return SilentResult(
 		fmt.Sprintf("signal submitted: %s %s (confidence=%.2f)", actionSignal, tokenAddress, confidence),
 	)
@@ -221,8 +241,15 @@ func (t *SwarmTool) runConsensus(args map[string]any) *ToolResult {
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("consensus failed: %v", err))
 	}
+	if err := t.persistState(); err != nil {
+		return ErrorResult(fmt.Sprintf("consensus computed but failed to persist swarm state: %v", err))
+	}
 
-	out, _ := json.MarshalIndent(result, "", "  ")
+	payload := map[string]any{"consensus": result}
+	if decision := t.coordinator.GetLastDecision(); decision != nil {
+		payload["decision"] = decision
+	}
+	out, _ := json.MarshalIndent(payload, "", "  ")
 	status := "REJECTED"
 	if result.Approved {
 		status = "APPROVED"
@@ -236,6 +263,7 @@ func (t *SwarmTool) broadcastStrategy(args map[string]any) *ToolResult {
 		return ErrorResult("strategy is required for broadcast_strategy")
 	}
 	t.coordinator.BroadcastStrategy(strategy)
+	_ = t.persistState()
 	return SilentResult(fmt.Sprintf("strategy broadcast: %s", strategy))
 }
 
@@ -250,8 +278,18 @@ func (t *SwarmTool) getStatus() *ToolResult {
 		"consensus_threshold": cfg.ConsensusThreshold,
 		"signal_aggregation":  cfg.SignalAggregation,
 		"strategy_rotation":   cfg.StrategyRotation,
+		"last_consensus":      t.coordinator.GetLastConsensus(),
+		"last_decision":       t.coordinator.GetLastDecision(),
+		"last_rebalanced_at":  t.coordinator.GetLastRebalancedAt(),
 		"members":             members,
 	}
 	out, _ := json.MarshalIndent(status, "", "  ")
 	return SilentResult(fmt.Sprintf("swarm status:\n%s", string(out)))
+}
+
+func (t *SwarmTool) persistState() error {
+	if t.persist == nil {
+		return nil
+	}
+	return t.persist()
 }

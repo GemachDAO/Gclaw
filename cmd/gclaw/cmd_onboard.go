@@ -120,6 +120,9 @@ func onboard() {
 	var apiKey string
 	if selected.modelName != "" && !selected.isLocal {
 		fmt.Println()
+		fmt.Println("  This prompt is for your LLM provider key.")
+		fmt.Println("  GDEX trading access is configured separately and does not replace this key.")
+		fmt.Println()
 		if selected.keyURL != "" {
 			fmt.Printf("  Get your free API key at: %s\n\n", selected.keyURL)
 		}
@@ -154,13 +157,30 @@ func onboard() {
 
 	workspace := cfg.WorkspacePath()
 	createWorkspaceTemplates(workspace)
+	if err := repairLegacyWorkspaceFiles(workspace); err != nil {
+		fmt.Printf("Warning: could not repair legacy workspace skills: %v\n", err)
+	}
+
+	walletAddress, walletGenerated, walletErr := ensureGDEXWallet(cfg)
 
 	// ── Success message ───────────────────────────────────────────────────────
 	fmt.Printf("\n%s  gclaw is ready!\n", logo)
 	fmt.Println()
 	fmt.Println("  Config:    ", configPath)
 	fmt.Println("  Workspace: ", workspace)
+	if walletAddress != "" {
+		fmt.Println("  GDEX Control Wallet:", walletAddress)
+	}
 	fmt.Println()
+	if walletGenerated {
+		fmt.Println("  A GDEX control wallet was generated automatically.")
+		fmt.Println("  It is used to authenticate GDEX and for EVM-side agent payments.")
+		fmt.Println("  The managed Solana and managed EVM trading wallets appear after gateway sign-in.")
+		fmt.Println("  Back up the private key stored in your config before funding it.")
+		fmt.Println()
+	} else if walletErr != nil {
+		fmt.Printf("  Wallet setup warning: %v\n\n", walletErr)
+	}
 	fmt.Println("Next steps:")
 
 	if selected.modelName == "" || (!selected.isLocal && apiKey == "") {
@@ -171,7 +191,10 @@ func onboard() {
 		fmt.Println("       OpenRouter — https://openrouter.ai/keys  (100+ models, free tier)")
 		fmt.Println("       Ollama     — https://ollama.com           (local, fully free)")
 		fmt.Println()
-		fmt.Println("  2. Start chatting:  gclaw agent")
+		fmt.Println("  2. Bring the living agent online:  gclaw gateway")
+		fmt.Println("     Dashboard:  http://127.0.0.1:18790/dashboard")
+		fmt.Println()
+		fmt.Println("  3. Talk to it directly anytime:  gclaw agent")
 	} else if selected.isLocal {
 		fmt.Println("  1. Make sure Ollama is running:")
 		fmt.Println("       ollama serve")
@@ -179,16 +202,22 @@ func onboard() {
 		fmt.Println("  2. Pull the default model (first run only):")
 		fmt.Println("       ollama pull llama3")
 		fmt.Println()
-		fmt.Println("  3. Start chatting:  gclaw agent")
+		fmt.Println("  3. Bring the living agent online:  gclaw gateway")
+		fmt.Println("     Dashboard:  http://127.0.0.1:18790/dashboard")
+		fmt.Println()
+		fmt.Println("  4. Talk to it directly anytime:  gclaw agent")
 	} else {
-		fmt.Println("  1. Start chatting:  gclaw agent")
+		fmt.Println("  1. Bring the living agent online:  gclaw gateway")
+		fmt.Println("     Dashboard:  http://127.0.0.1:18790/dashboard")
 		fmt.Println()
 		fmt.Println("  Living Agent features are active by default:")
 		fmt.Println("    GMAC Metabolism: 1000 GMAC starting balance")
-		fmt.Println("    Dashboard:       http://127.0.0.1:18790")
+		fmt.Println("    Auto-Trade Loop: heartbeat-driven, small and conservative")
 		fmt.Println("    Swarm Mode:      ready when goodwill >= 200")
 		fmt.Println()
-		fmt.Println("  To enable GDEX trading, add your GDEX API key to:")
+		fmt.Println("  2. Talk to it directly anytime:  gclaw agent")
+		fmt.Println()
+		fmt.Println("  To replace the shared GDEX key with your own, edit:")
 		fmt.Println("       " + configPath)
 	}
 	fmt.Println()

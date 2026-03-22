@@ -24,6 +24,14 @@ build/
 
 # Secrets & Config (keep templates, ignore actual secrets)
 .env
+.env.*
+*.pem
+*.key
+*.p12
+*.keystore
+*.secret
+*.seed
+secrets/
 config/config.json
 
 # Test
@@ -45,3 +53,7 @@ tasks/
 # Added by goreleaser init:
 dist/
 node_modules/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

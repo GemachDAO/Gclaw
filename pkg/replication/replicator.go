@@ -25,15 +25,17 @@ type ReplicationConfig struct {
 
 // ChildAgent represents a replicated child agent instance.
 type ChildAgent struct {
-	ID            string   `json:"id"`
-	ParentID      string   `json:"parent_id"`
-	Generation    int      `json:"generation"`
-	WorkspacePath string   `json:"workspace_path"`
-	ConfigPath    string   `json:"config_path"`
-	CreatedAt     int64    `json:"created_at"`
-	GMACBalance   float64  `json:"initial_gmac"`
-	Status        string   `json:"status"`
-	Mutations     []string `json:"mutations"`
+	ID            string               `json:"id"`
+	Label         string               `json:"label,omitempty"`
+	ParentID      string               `json:"parent_id"`
+	Generation    int                  `json:"generation"`
+	WorkspacePath string               `json:"workspace_path"`
+	ConfigPath    string               `json:"config_path"`
+	CreatedAt     int64                `json:"created_at"`
+	GMACBalance   float64              `json:"initial_gmac"`
+	Status        string               `json:"status"`
+	Mutations     []string             `json:"mutations"`
+	Profile       ChildStrategyProfile `json:"strategy_profile"`
 }
 
 // Replicator handles spawning persistent child Gclaw agents
@@ -78,6 +80,7 @@ func (r *Replicator) Replicate(
 	parentConfig *config.Config,
 	parentWorkspace string,
 	parentGMAC *float64,
+	opts *ReplicateOptions,
 ) (*ChildAgent, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -114,14 +117,23 @@ func (r *Replicator) Replicate(
 	childCfg.Gateway.Port = parentConfig.Gateway.Port + len(r.children) + 1
 
 	var mutations []string
+	replicateOpts := ReplicateOptions{}
+	if opts != nil {
+		replicateOpts = *opts
+	}
+	profile := BuildChildStrategyProfile(parentConfig, childID, r.parentID, replicateOpts)
 
 	// Mutate system prompt if enabled — write mutation to child workspace
 	// so the agent loop picks it up via LoadBootstrapFiles.
 	if r.config.MutatePrompt {
-		mutation := mutateSystemPrompt("")
+		mutation := profile.Mutation
+		if mutation == "" {
+			mutation = mutateSystemPrompt("")
+			profile.Mutation = mutation
+		}
 		mutations = append(mutations, mutation)
 		strategyPath := filepath.Join(childWorkspace, "TRADING_STRATEGY.md")
-		_ = os.WriteFile(strategyPath, []byte("## Trading Strategy\n\n"+mutation+"\n"), 0o600)
+		_ = os.WriteFile(strategyPath, []byte(RenderChildStrategyMarkdown(profile)), 0o600)
 	}
 
 	// Copy skills directory
@@ -147,17 +159,22 @@ func (r *Replicator) Replicate(
 	if err := config.SaveConfig(childConfigPath, childCfg); err != nil {
 		return nil, fmt.Errorf("save child config: %w", err)
 	}
+	if err := SaveChildStrategyProfile(childWorkspace, profile); err != nil {
+		return nil, fmt.Errorf("save child strategy profile: %w", err)
+	}
 
 	child := &ChildAgent{
 		ID:            childID,
+		Label:         profile.Label,
 		ParentID:      r.parentID,
 		Generation:    1,
 		WorkspacePath: childWorkspace,
 		ConfigPath:    childConfigPath,
 		CreatedAt:     ts.UnixMilli(),
 		GMACBalance:   share,
-		Status:        "running",
+		Status:        "provisioned",
 		Mutations:     mutations,
+		Profile:       profile,
 	}
 
 	r.children = append(r.children, child)

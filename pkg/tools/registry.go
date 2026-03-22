@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -32,12 +34,30 @@ var DefaultToolCosts = map[string]float64{
 	"x402_fetch":      3.0,
 }
 
+// TradeRecord captures a single successful GDEX trade result for dashboarding.
+type TradeRecord struct {
+	Timestamp    int64
+	ToolName     string
+	Action       string
+	TokenAddress string
+	Amount       string
+	ChainID      int
+	PnL          float64
+	HasPnL       bool
+}
+
+type TradeObserver func(TradeRecord)
+
 type ToolRegistry struct {
-	tools           map[string]Tool
-	metabolism      *metabolism.Metabolism      // optional, nil if metabolism disabled
-	goodwillTracker *metabolism.GoodwillTracker // optional, nil if metabolism disabled
-	toolCosts       map[string]float64          // tool name -> GMAC cost
-	mu              sync.RWMutex
+	tools            map[string]Tool
+	metabolism       *metabolism.Metabolism      // optional, nil if metabolism disabled
+	goodwillTracker  *metabolism.GoodwillTracker // optional, nil if metabolism disabled
+	toolCosts        map[string]float64          // tool name -> GMAC cost
+	recentTrades     []TradeRecord
+	tradeObservers   []TradeObserver
+	maxTradeHistory  int
+	tradeHistoryPath string
+	mu               sync.RWMutex
 }
 
 // SetMetabolism attaches a Metabolism instance to the registry for cost gating.
@@ -61,6 +81,42 @@ func (r *ToolRegistry) SetGoodwillTracker(gt *metabolism.GoodwillTracker) {
 	r.goodwillTracker = gt
 }
 
+// AddTradeObserver registers a callback that runs after a successful GDEX trade
+// has been parsed into a TradeRecord.
+func (r *ToolRegistry) AddTradeObserver(observer TradeObserver) {
+	if observer == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tradeObservers = append(r.tradeObservers, observer)
+}
+
+// SetTradeHistoryPersistence enables on-disk persistence for recent trade history.
+func (r *ToolRegistry) SetTradeHistoryPersistence(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	records, err := loadTradeHistory(path)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tradeHistoryPath = path
+	if len(records) == 0 {
+		return nil
+	}
+	if len(records) > r.maxTradeHistory {
+		records = records[len(records)-r.maxTradeHistory:]
+	}
+	r.recentTrades = records
+	return nil
+}
+
 // gdexTradeTools lists the tool names that execute real trades on GDEX.
 var gdexTradeTools = map[string]bool{
 	"gdex_buy":        true,
@@ -79,15 +135,11 @@ var gdexTradeTools = map[string]bool{
 //
 // For sell trades: if profitPercent is present, it is used directly.
 // For all successful trades: a base reward of 0.5 GMAC is credited.
-func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
+func (r *ToolRegistry) processTradeResult(toolName string, args map[string]any, result *ToolResult) {
 	r.mu.RLock()
 	met := r.metabolism
 	gt := r.goodwillTracker
 	r.mu.RUnlock()
-
-	if met == nil {
-		return
-	}
 
 	// Parse the JSON result from the trade helper
 	var data map[string]any
@@ -101,9 +153,11 @@ func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
 
 	// Base reward for successful trade execution
 	baseReward := 0.5
-	met.Credit(baseReward, "trade_reward", fmt.Sprintf("successful %s execution", toolName))
-	logger.InfoCF("tool", "Metabolism: credited trade reward",
-		map[string]any{"tool": toolName, "amount": baseReward, "balance": met.GetBalance()})
+	if met != nil {
+		met.Credit(baseReward, "trade_reward", fmt.Sprintf("successful %s execution", toolName))
+		logger.InfoCF("tool", "Metabolism: credited trade reward",
+			map[string]any{"tool": toolName, "amount": baseReward, "balance": met.GetBalance()})
+	}
 
 	// Look for profit data in the result
 	var profitPercent float64
@@ -134,7 +188,7 @@ func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
 	}
 
 	// Credit additional GMAC for profitable trades
-	if hasProfitData && profitPercent > 0 {
+	if met != nil && hasProfitData && profitPercent > 0 {
 		// Scale profit credit: 1 GMAC per 5% profit, capped at 20 GMAC
 		profitCredit := profitPercent / 5.0
 		if profitCredit > 20 {
@@ -153,6 +207,21 @@ func (r *ToolRegistry) processTradeResult(toolName string, result *ToolResult) {
 	if gt != nil && hasProfitData {
 		gt.RecordTradeResult(profitPercent)
 	}
+
+	record := TradeRecord{
+		Timestamp:    time.Now().UnixMilli(),
+		ToolName:     toolName,
+		Action:       strings.TrimPrefix(toolName, "gdex_"),
+		TokenAddress: firstNonEmpty(stringField(data, "tokenAddress", "token_address"), stringArg(args, "token_address")),
+		Amount:       firstNonEmpty(stringField(data, "amount", "amountIn", "amount_in"), stringArg(args, "amount")),
+		ChainID:      firstNonZero(intField(data, "chainID", "chain_id"), intArg(args, "chain_id")),
+	}
+	if hasProfitData {
+		record.PnL = profitPercent
+		record.HasPnL = true
+	}
+	r.recordTrade(record)
+	r.notifyTradeObservers(record)
 }
 
 // toFloat64 attempts to convert a JSON value to float64.
@@ -187,8 +256,10 @@ func (r *ToolRegistry) SetToolCost(toolName string, cost float64) {
 
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
-		tools:     make(map[string]Tool),
-		toolCosts: make(map[string]float64),
+		tools:           make(map[string]Tool),
+		toolCosts:       make(map[string]float64),
+		recentTrades:    []TradeRecord{},
+		maxTradeHistory: 100,
 	}
 }
 
@@ -279,7 +350,7 @@ func (r *ToolRegistry) ExecuteWithContext(
 
 	// Post-execution: wire GDEX trade results to metabolism
 	if !result.IsError && gdexTradeTools[name] {
-		r.processTradeResult(name, result)
+		r.processTradeResult(name, args, result)
 	}
 
 	// Log based on result type
@@ -381,4 +452,139 @@ func (r *ToolRegistry) GetSummaries() []string {
 		summaries = append(summaries, fmt.Sprintf("- `%s` - %s", tool.Name(), tool.Description()))
 	}
 	return summaries
+}
+
+// GetTradeHistory returns up to the last `limit` successful GDEX trade records.
+func (r *ToolRegistry) GetTradeHistory(limit int) []TradeRecord {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if limit <= 0 || limit >= len(r.recentTrades) {
+		out := make([]TradeRecord, len(r.recentTrades))
+		copy(out, r.recentTrades)
+		return out
+	}
+
+	start := len(r.recentTrades) - limit
+	out := make([]TradeRecord, limit)
+	copy(out, r.recentTrades[start:])
+	return out
+}
+
+func (r *ToolRegistry) recordTrade(record TradeRecord) {
+	r.mu.Lock()
+	r.recentTrades = append(r.recentTrades, record)
+	if len(r.recentTrades) > r.maxTradeHistory {
+		r.recentTrades = r.recentTrades[len(r.recentTrades)-r.maxTradeHistory:]
+	}
+	path := r.tradeHistoryPath
+	records := append([]TradeRecord(nil), r.recentTrades...)
+	r.mu.Unlock()
+
+	if path == "" {
+		return
+	}
+	if err := persistTradeHistory(path, records); err != nil {
+		logger.WarnCF("tool", "Failed to persist trade history",
+			map[string]any{"path": path, "error": err.Error()})
+	}
+}
+
+func (r *ToolRegistry) notifyTradeObservers(record TradeRecord) {
+	r.mu.RLock()
+	observers := append([]TradeObserver(nil), r.tradeObservers...)
+	r.mu.RUnlock()
+
+	for _, observer := range observers {
+		observer(record)
+	}
+}
+
+func stringField(data map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := data[key].(string); ok && value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func intField(data map[string]any, keys ...string) int {
+	for _, key := range keys {
+		if value, ok := toFloat64(data[key]); ok {
+			return int(value)
+		}
+	}
+	return 0
+}
+
+func stringArg(args map[string]any, key string) string {
+	if args == nil {
+		return ""
+	}
+	if value, ok := args[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func intArg(args map[string]any, key string) int {
+	if args == nil {
+		return 0
+	}
+	if value, ok := toFloat64(args[key]); ok {
+		return int(value)
+	}
+	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func loadTradeHistory(path string) ([]TradeRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var records []TradeRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func persistTradeHistory(path string, records []TradeRecord) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,7 +27,10 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/logger"
 	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
+	"github.com/GemachDAO/Gclaw/pkg/recode"
+	"github.com/GemachDAO/Gclaw/pkg/replication"
 	"github.com/GemachDAO/Gclaw/pkg/routing"
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 	"github.com/GemachDAO/Gclaw/pkg/skills"
 	"github.com/GemachDAO/Gclaw/pkg/state"
 	"github.com/GemachDAO/Gclaw/pkg/swarm"
@@ -98,11 +102,23 @@ func registerSharedTools(
 	provider providers.LLMProvider,
 ) *dashboard.Dashboard {
 	var firstDash *dashboard.Dashboard
+	telepathyBuses := make(map[string]*replication.TelepathyBus)
 	for _, agentID := range registry.ListAgentIDs() {
 		agent, ok := registry.GetAgent(agentID)
 		if !ok {
 			continue
 		}
+		toolRegistry := agent.Tools
+		contextBuilder := agent.ContextBuilder
+		if err := toolRegistry.SetTradeHistoryPersistence(filepath.Join(agent.Workspace, "runtime", "trade_history.json")); err != nil {
+			logger.WarnCF("agent", "Failed to load persisted trade history",
+				map[string]any{"agent": agentID, "error": err.Error()})
+		}
+
+		var rep *replication.Replicator
+		var telepathyBus *replication.TelepathyBus
+		var recoderSvc *recode.Recoder
+		var swarmCoordinator *swarm.SwarmCoordinator
 
 		// Web tools
 		if searchTool := tools.NewWebSearchTool(tools.WebSearchToolOptions{
@@ -164,9 +180,13 @@ func registerSharedTools(
 			agent.Tools.Register(&tools.GDEXHoldingsTool{})
 			agent.Tools.Register(&tools.GDEXScanTool{})
 			agent.Tools.Register(&tools.GDEXCopyTradeTool{})
+			agent.Tools.Register(&tools.GDEXBridgeEstimateTool{})
+			agent.Tools.Register(&tools.GDEXBridgeRequestTool{})
+			agent.Tools.Register(&tools.GDEXBridgeOrdersTool{})
 			agent.Tools.Register(&tools.GDEXHLBalanceTool{})
 			agent.Tools.Register(&tools.GDEXHLPositionsTool{})
 			agent.Tools.Register(&tools.GDEXHLDepositTool{})
+			agent.Tools.Register(&tools.GDEXHLWithdrawTool{})
 			agent.Tools.Register(&tools.GDEXHLCreateOrderTool{})
 			agent.Tools.Register(&tools.GDEXHLCancelOrderTool{})
 		}
@@ -269,6 +289,57 @@ func registerSharedTools(
 					"balance": met.GetBalance(),
 				})
 
+			busKey := filepath.Clean(agent.Workspace)
+			telepathyBus = telepathyBuses[busKey]
+			if telepathyBus == nil {
+				telepathyBus = replication.NewTelepathyBus(msgBus, busKey, agentID)
+				if err := telepathyBus.EnableFilePersistence(replication.TelepathyDir(agent.Workspace, busKey)); err != nil {
+					logger.WarnCF("agent", "Failed to enable telepathy persistence",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+				telepathyBuses[busKey] = telepathyBus
+			}
+			agent.TelepathyBus = telepathyBus
+			agent.TelepathyInbox = telepathyBus.Subscribe(agentID)
+			rep = replication.NewReplicator(agentID, replication.ReplicationConfig{
+				Enabled:           true,
+				MaxChildren:       cfg.Swarm.MaxSwarmSize,
+				GMACSharePercent:  50,
+				MutatePrompt:      true,
+				InheritSkills:     true,
+				InheritMemory:     true,
+				ChildWorkspaceDir: filepath.Join(agent.Workspace, "children"),
+			})
+			if err := rep.LoadChildren(agent.Workspace); err != nil {
+				logger.WarnCF("agent", "Failed to load child agents",
+					map[string]any{"agent": agentID, "error": err.Error()})
+			}
+			agent.Replicator = rep
+
+			replicateTool := tools.NewReplicateTool(
+				rep,
+				cfg,
+				agent.Workspace,
+				nil,
+				met.GetGoodwill,
+				cfg.Metabolism.Thresholds.Replicate,
+			)
+			replicateTool.SetParentBalanceHooks(
+				met.GetBalance,
+				func(amount float64) error {
+					return met.Debit(amount, "replicate", fmt.Sprintf("replicated child agent from %s", agentID))
+				},
+			)
+			agent.Tools.Register(replicateTool)
+			agent.Tools.Register(tools.NewTelepathyTool(telepathyBus, agentID))
+
+			recoderSvc = recode.NewRecoder(resolveAgentConfigPath(agent.Workspace), agent.Workspace)
+			agent.Tools.Register(tools.NewRecodeTool(
+				recoderSvc,
+				met.GetGoodwill,
+				cfg.Metabolism.Thresholds.SelfRecode,
+			))
+
 			// Swarm tool — registered when swarm is enabled and metabolism is active
 			if cfg.Swarm.Enabled {
 				swarmConfig := swarm.SwarmConfig{
@@ -286,26 +357,105 @@ func registerSharedTools(
 						map[string]any{"agent": agentID, "error": err.Error()})
 				}
 				if err != nil || coordinator == nil {
-					coordinator = swarm.NewSwarmCoordinator(agentID, swarmConfig, nil)
+					coordinator = swarm.NewSwarmCoordinator(agentID, swarmConfig, telepathyBus)
+				} else {
+					coordinator.SetTelepathyBus(telepathyBus)
+				}
+				if _, exists := coordinator.GetMember(agentID); !exists {
+					if err := coordinator.AddMember(agentID, swarm.RoleLeader, "profit_to_gmach"); err != nil {
+						logger.WarnCF("agent", "Failed to register leader in swarm",
+							map[string]any{"agent": agentID, "error": err.Error()})
+					}
+				}
+				swarmCoordinator = coordinator
+				agent.Swarm = coordinator
+				persistSwarmState := func() error {
+					return swarm.SaveSwarmState(agent.Workspace, coordinator)
+				}
+				if err := persistSwarmState(); err != nil {
+					logger.WarnCF("agent", "Failed to persist initial swarm state",
+						map[string]any{"agent": agentID, "error": err.Error()})
 				}
 				swarmTool := tools.NewSwarmTool(
 					coordinator,
-					func() int { return met.GetGoodwill() },
+					met.GetGoodwill,
 					cfg.Metabolism.Thresholds.SwarmLeader,
 				)
+				swarmTool.SetRuntimeContext(agentID, persistSwarmState)
 				agent.Tools.Register(swarmTool)
 			}
+
+			toolRegistry.AddTradeObserver(func(record tools.TradeRecord) {
+				if telepathyBus != nil {
+					action := normalizeTradeAction(record.Action)
+					if action != "" && record.TokenAddress != "" {
+						telepathyBus.BroadcastTradeSignalFrom(agentID, replication.TradeSignal{
+							Action:       action,
+							TokenAddress: record.TokenAddress,
+							ChainID:      record.ChainID,
+							Confidence:   tradeSignalConfidence(record),
+							Reasoning:    fmt.Sprintf("executed %s via %s pnl=%.2f%%", record.Action, record.ToolName, record.PnL),
+						})
+					}
+				}
+				if swarmCoordinator == nil {
+					return
+				}
+				swarmCoordinator.UpdateMemberPerformance(agentID, record.PnL)
+				action := normalizeTradeAction(record.Action)
+				if action != "" && record.TokenAddress != "" {
+					if err := swarmCoordinator.SubmitSignal(swarm.SwarmSignal{
+						AgentID:      agentID,
+						Action:       action,
+						TokenAddress: record.TokenAddress,
+						ChainID:      record.ChainID,
+						Confidence:   tradeSignalConfidence(record),
+						Reasoning:    fmt.Sprintf("executed %s via %s", record.Action, record.ToolName),
+						Timestamp:    record.Timestamp,
+					}); err != nil {
+						logger.WarnCF("agent", "Failed to feed trade into swarm signals",
+							map[string]any{"agent": agentID, "error": err.Error(), "tool": record.ToolName})
+					}
+				}
+				if err := swarm.SaveSwarmState(agent.Workspace, swarmCoordinator); err != nil {
+					logger.WarnCF("agent", "Failed to persist swarm after trade",
+						map[string]any{"agent": agentID, "error": err.Error()})
+				}
+			})
 		}
 
 		// Dashboard tool — always registered when dashboard is enabled
 		if cfg.Dashboard.Enabled {
 			startedAt := time.Now().UnixMilli()
 			currentAgentIDForDash := agentID
-			agentMet := agent.Tools.GetMetabolism()
 			dash := dashboard.NewDashboard(dashboard.DashboardOptions{
 				AgentID:   currentAgentIDForDash,
 				StartedAt: startedAt,
+				GetTradingAccess: func() *runtimeinfo.TradingStatus {
+					return runtimeinfo.PopulateManagedWallets(
+						cfg,
+						runtimeinfo.BuildTradingStatus(cfg, toolRegistry.List()),
+						5*time.Second,
+					)
+				},
+				GetAutonomy: func() *runtimeinfo.AutonomyStatus {
+					trading := runtimeinfo.PopulateManagedWallets(
+						cfg,
+						runtimeinfo.BuildTradingStatus(cfg, toolRegistry.List()),
+						5*time.Second,
+					)
+					totalFamily := 1
+					if rep != nil {
+						totalFamily += len(rep.ListChildren())
+					}
+					swarmSize := 0
+					if swarmCoordinator != nil {
+						swarmSize = len(swarmCoordinator.GetMembers())
+					}
+					return runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, currentAgentIDForDash)
+				},
 				GetMetabolism: func() *dashboard.MetabolismSnapshot {
+					agentMet := toolRegistry.GetMetabolism()
 					if agentMet == nil {
 						return nil
 					}
@@ -332,6 +482,175 @@ func registerSharedTools(
 						Abilities:    status.Abilities,
 						RecentLedger: entries,
 					}
+				},
+				GetTrading: func() *dashboard.TradingSnapshot {
+					history := toolRegistry.GetTradeHistory(20)
+					recent := make([]dashboard.TradeEntry, len(history))
+					var profitable int
+					var totalPnL float64
+					var realizedTrades int
+					for i, trade := range history {
+						recent[i] = dashboard.TradeEntry{
+							Timestamp:    trade.Timestamp,
+							Action:       trade.Action,
+							TokenAddress: trade.TokenAddress,
+							Amount:       trade.Amount,
+							PnL:          trade.PnL,
+							HasPnL:       trade.HasPnL,
+							ChainID:      trade.ChainID,
+						}
+						if trade.HasPnL {
+							realizedTrades++
+							totalPnL += trade.PnL
+							if trade.PnL > 0 {
+								profitable++
+							}
+						}
+					}
+					profitablePct := 0.0
+					if realizedTrades > 0 {
+						profitablePct = float64(profitable) / float64(realizedTrades) * 100
+					}
+					return &dashboard.TradingSnapshot{
+						TotalTrades:    len(history),
+						RealizedTrades: realizedTrades,
+						HasRealizedPnL: realizedTrades > 0,
+						ProfitablePct:  profitablePct,
+						TotalPnL:       totalPnL,
+						RecentTrades:   recent,
+					}
+				},
+				GetFamily: func() *dashboard.FamilySnapshot {
+					if rep == nil {
+						return nil
+					}
+					children := rep.ListChildren()
+					family := make([]dashboard.ChildInfo, len(children))
+					for i, child := range children {
+						preferredChains := make([]string, 0, len(child.Profile.PreferredChains))
+						for _, chainID := range child.Profile.PreferredChains {
+							preferredChains = append(preferredChains, autoTradeChainLabel(chainID))
+						}
+						family[i] = dashboard.ChildInfo{
+							ID:              child.ID,
+							Label:           child.Label,
+							Generation:      child.Generation,
+							Status:          child.Status,
+							GMAC:            child.GMACBalance,
+							Mutations:       child.Mutations,
+							Style:           child.Profile.Style,
+							Role:            child.Profile.Role,
+							RiskProfile:     child.Profile.RiskProfile,
+							PreferredChains: preferredChains,
+							PreferredVenues: append([]string(nil), child.Profile.PreferredVenues...),
+							StrategyHint:    child.Profile.StrategyHint,
+							CreatedAt:       child.CreatedAt,
+						}
+					}
+					return &dashboard.FamilySnapshot{
+						Children:    family,
+						TotalFamily: 1 + len(children),
+					}
+				},
+				GetTelepathy: func() *dashboard.TelepathySnapshot {
+					if telepathyBus == nil {
+						return nil
+					}
+					history := telepathyBus.GetHistory(20)
+					recent := make([]dashboard.TelepathyEntry, len(history))
+					for i, msg := range history {
+						recent[i] = dashboard.TelepathyEntry{
+							From:      msg.FromAgentID,
+							To:        msg.ToAgentID,
+							Type:      msg.Type,
+							Content:   msg.Content,
+							Timestamp: msg.Timestamp,
+							Priority:  msg.Priority,
+						}
+					}
+					return &dashboard.TelepathySnapshot{
+						TotalMessages:  len(telepathyBus.GetHistory(0)),
+						RecentMessages: recent,
+						ActiveChannels: telepathyBus.SubscriberCount(),
+						Persistent:     telepathyBus.PersistenceEnabled(),
+					}
+				},
+				GetSwarm: func() *dashboard.SwarmSnapshot {
+					if swarmCoordinator == nil {
+						return nil
+					}
+					members := swarmCoordinator.GetMembers()
+					snapshot := make([]dashboard.SwarmMemberInfo, len(members))
+					for i, member := range members {
+						snapshot[i] = dashboard.SwarmMemberInfo{
+							AgentID:     member.AgentID,
+							Role:        member.Role,
+							Strategy:    member.Strategy,
+							Performance: member.Performance,
+							Status:      member.Status,
+						}
+					}
+					swarmSnap := &dashboard.SwarmSnapshot{
+						IsLeader:      swarmCoordinator.GetLeaderID() == currentAgentIDForDash,
+						MemberCount:   len(members),
+						Members:       snapshot,
+						ActiveSignals: swarmCoordinator.GetSignalCount(),
+						ConsensusMode: swarmCoordinator.GetConfig().SignalAggregation,
+					}
+					if consensus := swarmCoordinator.GetLastConsensus(); consensus != nil {
+						swarmSnap.LastConsensus = &dashboard.SwarmConsensusInfo{
+							Action:       consensus.Action,
+							TokenAddress: consensus.TokenAddress,
+							ChainID:      consensus.ChainID,
+							Confidence:   consensus.Confidence,
+							Approved:     consensus.Approved,
+						}
+					}
+					if decision := swarmCoordinator.GetLastDecision(); decision != nil {
+						swarmSnap.LastDecision = &dashboard.SwarmDecisionInfo{
+							Action:       decision.Action,
+							TokenAddress: decision.TokenAddress,
+							ChainID:      decision.ChainID,
+							ExecutorID:   decision.ExecutorID,
+							Strategy:     decision.Strategy,
+							Status:       decision.Status,
+							Summary:      decision.Summary,
+						}
+					}
+					swarmSnap.LastRebalancedAt = swarmCoordinator.GetLastRebalancedAt()
+					return swarmSnap
+				},
+				GetRecodeHistory: func() []dashboard.RecodeEntry {
+					if recoderSvc == nil {
+						return nil
+					}
+					log := recoderSvc.GetActionLog()
+					entries := make([]dashboard.RecodeEntry, len(log))
+					for i, action := range log {
+						entries[i] = dashboard.RecodeEntry{
+							Timestamp: action.Timestamp,
+							Type:      action.Type,
+							Details:   action.Details,
+							Approved:  action.Approved,
+						}
+					}
+					return entries
+				},
+				GetSystem: func() *dashboard.SystemSnapshot {
+					skillsInfo := contextBuilder.GetSkillsInfo()
+					skillCount, _ := skillsInfo["available"].(int)
+					return &dashboard.SystemSnapshot{
+						HeartbeatActive:   cfg.Heartbeat.Enabled,
+						HeartbeatInterval: cfg.Heartbeat.Interval,
+						ToolCount:         toolRegistry.Count(),
+						SkillCount:        skillCount,
+						ChannelCount:      0,
+						Platform:          runtime.GOOS + "/" + runtime.GOARCH,
+						GoVersion:         runtime.Version(),
+					}
+				},
+				GetRegistration: func() *runtimeinfo.RegistrationStatus {
+					return runtimeinfo.BuildRegistrationStatus(cfg)
 				},
 			})
 			agent.Tools.Register(tools.NewDashboardTool(dash))
@@ -363,6 +682,26 @@ func loadOrCreateMetabolism(cfg *config.Config, workspace string) *metabolism.Me
 		Architect:   cfg.Metabolism.Thresholds.Architect,
 	}
 	return metabolism.NewMetabolism(cfg.Metabolism.InitialGMAC, thresholds)
+}
+
+func resolveAgentConfigPath(workspace string) string {
+	if path := os.Getenv("GCLAW_CONFIG_PATH"); path != "" {
+		return path
+	}
+	if path := os.Getenv("GCLAW_CONFIG"); path != "" {
+		return path
+	}
+
+	candidate := filepath.Join(filepath.Dir(workspace), "config.json")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		return filepath.Join(home, ".gclaw", "config.json")
+	}
+	return candidate
 }
 
 func (al *AgentLoop) Run(ctx context.Context) error {
@@ -550,8 +889,11 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 
 	// Use routed session key, but honor pre-set agent-scoped keys (for ProcessDirect/cron)
 	sessionKey := route.SessionKey
-	if msg.SessionKey != "" && strings.HasPrefix(msg.SessionKey, "agent:") {
+	switch {
+	case msg.SessionKey != "" && strings.HasPrefix(msg.SessionKey, "agent:"):
 		sessionKey = msg.SessionKey
+	case msg.Channel == "cli" && strings.TrimSpace(msg.SessionKey) != "":
+		sessionKey = routing.BuildAgentScopedSessionKey(agent.ID, "cli", msg.SessionKey)
 	}
 
 	logger.InfoCF("agent", "Routed message",
@@ -644,6 +986,35 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	// 1. Update tool contexts
 	al.updateToolContexts(agent, opts.Channel, opts.ChatID)
 
+	// 1.5 Fast-path runtime and system operations that should not depend on
+	// model tool-calling behavior.
+	if finalContent, handled, err := al.tryDirectRuntimeShortcut(ctx, agent, opts); handled {
+		if err != nil {
+			return "", err
+		}
+		if finalContent == "" {
+			finalContent = opts.DefaultResponse
+		}
+		agent.Sessions.AddMessage(opts.SessionKey, "user", opts.UserMessage)
+		agent.Sessions.AddMessage(opts.SessionKey, "assistant", finalContent)
+		agent.Sessions.Save(opts.SessionKey)
+		if opts.SendResponse {
+			al.bus.PublishOutbound(bus.OutboundMessage{
+				Channel: opts.Channel,
+				ChatID:  opts.ChatID,
+				Content: finalContent,
+			})
+		}
+		logger.InfoCF("agent", fmt.Sprintf("Response: %s", utils.Truncate(finalContent, 120)),
+			map[string]any{
+				"agent_id":     agent.ID,
+				"session_key":  opts.SessionKey,
+				"iterations":   0,
+				"final_length": len(finalContent),
+			})
+		return finalContent, nil
+	}
+
 	// 2. Build messages (skip history for heartbeat)
 	var history []providers.Message
 	var summary string
@@ -651,10 +1022,11 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		history = agent.Sessions.GetHistory(opts.SessionKey)
 		summary = agent.Sessions.GetSummary(opts.SessionKey)
 	}
+	promptUserMessage := injectTelepathyContext(agent, opts.UserMessage)
 	messages := agent.ContextBuilder.BuildMessages(
 		history,
 		summary,
-		opts.UserMessage,
+		promptUserMessage,
 		nil,
 		opts.Channel,
 		opts.ChatID,
@@ -706,6 +1078,80 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 		})
 
 	return finalContent, nil
+}
+
+func injectTelepathyContext(agent *AgentInstance, userMessage string) string {
+	messages := drainTelepathyInbox(agent, 8)
+	if len(messages) == 0 {
+		return userMessage
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Telepathy Inbox\n")
+	sb.WriteString("Unread family messages arrived before this turn:\n")
+	for _, msg := range messages {
+		fmt.Fprintf(
+			&sb,
+			"- from=%s to=%s type=%s priority=%d content=%s\n",
+			msg.FromAgentID,
+			msg.ToAgentID,
+			msg.Type,
+			msg.Priority,
+			msg.Content,
+		)
+	}
+	if strings.TrimSpace(userMessage) != "" {
+		sb.WriteString("\n## Current User Request\n")
+		sb.WriteString(userMessage)
+	}
+	return sb.String()
+}
+
+func drainTelepathyInbox(agent *AgentInstance, limit int) []replication.TelepathyMessage {
+	if agent == nil || agent.TelepathyInbox == nil || limit <= 0 {
+		return nil
+	}
+
+	drained := make([]replication.TelepathyMessage, 0, limit)
+	for len(drained) < limit {
+		select {
+		case msg, ok := <-agent.TelepathyInbox:
+			if !ok {
+				return drained
+			}
+			if msg.FromAgentID == agent.ID && (msg.ToAgentID == "*" || msg.ToAgentID == agent.ID) {
+				continue
+			}
+			drained = append(drained, msg)
+		default:
+			return drained
+		}
+	}
+	return drained
+}
+
+func normalizeTradeAction(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "buy", "limit_buy":
+		return "buy"
+	case "sell", "limit_sell":
+		return "sell"
+	default:
+		return ""
+	}
+}
+
+func tradeSignalConfidence(record tools.TradeRecord) float64 {
+	if record.PnL >= 10 {
+		return 0.95
+	}
+	if record.PnL > 0 {
+		return 0.8
+	}
+	if record.PnL < 0 {
+		return 0.55
+	}
+	return 0.7
 }
 
 // runLLMIteration executes the LLM call loop with tool handling.

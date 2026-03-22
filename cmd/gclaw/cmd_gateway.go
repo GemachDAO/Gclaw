@@ -27,6 +27,7 @@ import (
 	"github.com/GemachDAO/Gclaw/pkg/heartbeat"
 	"github.com/GemachDAO/Gclaw/pkg/logger"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 	"github.com/GemachDAO/Gclaw/pkg/state"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 	"github.com/GemachDAO/Gclaw/pkg/voice"
@@ -48,6 +49,15 @@ func gatewayCmd() {
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
+	}
+	if err := repairLegacyWorkspaceFiles(cfg.WorkspacePath()); err != nil {
+		fmt.Printf("Warning: could not repair legacy workspace skills: %v\n", err)
+	}
+
+	if walletAddr, generated, err := ensureGDEXWallet(cfg); err != nil {
+		fmt.Printf("Warning: could not prepare GDEX wallet: %v\n", err)
+	} else if generated {
+		fmt.Printf("✓ GDEX control wallet ready: %s\n", walletAddr)
 	}
 
 	provider, modelID, err := providers.CreateProvider(cfg)
@@ -178,6 +188,11 @@ func gatewayCmd() {
 	if err := cronService.Start(); err != nil {
 		fmt.Printf("Error starting cron service: %v\n", err)
 	}
+	if err := syncAutoTradeCronJob(cronService, cfg); err != nil {
+		fmt.Printf("Warning: could not sync auto-trade scheduler: %v\n", err)
+	} else if cfg.Tools.GDEX.AutoTrade {
+		fmt.Printf("✓ Auto-trade scheduler enabled (%s)\n", runtimeinfo.AutoTradeInterval())
+	}
 	fmt.Println("✓ Cron service started")
 
 	if err := heartbeatService.Start(); err != nil {
@@ -249,15 +264,7 @@ func gatewayCmd() {
 	// resolveWalletCreds returns the effective wallet address and private key,
 	// preferring config values and falling back to environment variables.
 	resolveWalletCreds := func() (addr, key string) {
-		addr = cfg.Tools.GDEX.WalletAddress
-		key = cfg.Tools.GDEX.PrivateKey
-		if addr == "" {
-			addr = os.Getenv("WALLET_ADDRESS")
-		}
-		if key == "" {
-			key = os.Getenv("PRIVATE_KEY")
-		}
-		return addr, key
+		return runtimeinfo.ResolveWalletCredentials(cfg)
 	}
 
 	walletAddr, privKey := resolveWalletCreds()
@@ -337,9 +344,46 @@ func setupCronTool(
 
 	// Set the onJob handler
 	cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
+		if job.Name == runtimeinfo.AutoTradeJobName || job.Payload.Message == runtimeinfo.AutoTradeCycleCommand {
+			return agentLoop.RunAutoTradeCycle(context.Background())
+		}
 		result := cronTool.ExecuteJob(context.Background(), job)
+		if strings.HasPrefix(result, "Error:") {
+			return result, fmt.Errorf("%s", result)
+		}
 		return result, nil
 	})
 
 	return cronService
+}
+
+func syncAutoTradeCronJob(cronService *cron.CronService, cfg *config.Config) error {
+	if cronService == nil || cfg == nil {
+		return nil
+	}
+
+	jobs := cronService.ListJobs(true)
+	for _, job := range jobs {
+		if job.Name == runtimeinfo.AutoTradeJobName || job.Payload.Message == runtimeinfo.AutoTradeCycleCommand {
+			cronService.RemoveJob(job.ID)
+		}
+	}
+
+	if !cfg.Tools.GDEX.AutoTrade {
+		return nil
+	}
+
+	everyMS := int64(runtimeinfo.AutoTradeInterval() / time.Millisecond)
+	_, err := cronService.AddJob(
+		runtimeinfo.AutoTradeJobName,
+		cron.CronSchedule{
+			Kind:    "every",
+			EveryMS: &everyMS,
+		},
+		runtimeinfo.AutoTradeCycleCommand,
+		false,
+		"cli",
+		"direct",
+	)
+	return err
 }

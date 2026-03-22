@@ -313,9 +313,9 @@ func DefaultConfig() *Config {
 					TTLSeconds: 300,
 				},
 			},
-			// ERC-8004 agent identity — auto-enabled when x402 is on.
+			// ERC-8004 agent identity — enabled by default once a wallet exists.
 			ERC8004: ERC8004Config{
-				Enabled:     false,
+				Enabled:     true,
 				Description: "Gclaw autonomous AI agent",
 			},
 			// GDEX Trading — enabled by default with shared community API key.

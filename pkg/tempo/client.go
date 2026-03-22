@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/logger"
+	"github.com/GemachDAO/Gclaw/pkg/utils"
 )
 
 // ClientConfig configures the Tempo MPP client (buyer-side).
@@ -319,14 +320,7 @@ var (
 )
 
 func tempoHelperDir() string {
-	if dir := os.Getenv("TEMPO_HELPERS_DIR"); dir != "" {
-		return dir
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "workspace/skills/tempo-payment/helpers"
-	}
-	return filepath.Join(wd, "workspace", "skills", "tempo-payment", "helpers")
+	return utils.ResolveWorkspaceSkillDir("TEMPO_HELPERS_DIR", "tempo-payment/helpers")
 }
 
 func ensureTempoDeps() error {

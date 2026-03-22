@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
 
 // --- GetData: graceful degradation ---
@@ -29,11 +31,20 @@ func TestGetData_AllNilSources(t *testing.T) {
 	if data.Family != nil {
 		t.Error("expected nil family when no callback")
 	}
+	if data.TradingAccess != nil {
+		t.Error("expected nil trading access when no callback")
+	}
+	if data.Autonomy != nil {
+		t.Error("expected nil autonomy when no callback")
+	}
 	if data.Telepathy != nil {
 		t.Error("expected nil telepathy when no callback")
 	}
 	if data.Swarm != nil {
 		t.Error("expected nil swarm when no callback")
+	}
+	if data.Registration != nil {
+		t.Error("expected nil registration when no callback")
 	}
 }
 
@@ -163,6 +174,23 @@ func TestFormatCLI_WithAllSections(t *testing.T) {
 				TotalFamily: 2,
 			}
 		},
+		GetAutonomy: func() *runtimeinfo.AutonomyStatus {
+			return &runtimeinfo.AutonomyStatus{
+				DNA: runtimeinfo.AgentDNA{
+					Objective:       "profit_to_gmach",
+					PreferredChains: []string{"Ethereum", "Arbitrum"},
+				},
+				KnowledgeGraph: runtimeinfo.KnowledgeGraphStatus{
+					NodeCount: 9,
+					EdgeCount: 12,
+				},
+				Router: runtimeinfo.SelfHealingRouterStatus{
+					State:         "self-healing",
+					SelectedRoute: "spot_gmac_direct",
+					FallbackRoute: "hyperliquid_profit_loop",
+				},
+			}
+		},
 		GetTelepathy: func() *TelepathySnapshot {
 			return &TelepathySnapshot{
 				TotalMessages:  47,
@@ -184,14 +212,32 @@ func TestFormatCLI_WithAllSections(t *testing.T) {
 				Platform:          "linux",
 			}
 		},
+		GetTradingAccess: func() *runtimeinfo.TradingStatus {
+			return &runtimeinfo.TradingStatus{
+				WalletAddress:    "0x1234567890abcdef1234567890abcdef12345678",
+				HasPrivateKey:    true,
+				APIKeyConfigured: true,
+				ToolCount:        15,
+			}
+		},
+		GetRegistration: func() *runtimeinfo.RegistrationStatus {
+			return &runtimeinfo.RegistrationStatus{
+				State:       "active",
+				WalletReady: true,
+				URL:         "http://127.0.0.1:18790/.well-known/agent-registration.json",
+			}
+		},
 	})
 
 	output := FormatCLI(d.GetData())
 	for _, want := range []string{
 		"METABOLISM",
 		"TRADING",
+		"FUNDING",
+		"AUTONOMY",
 		"FAMILY",
 		"TELEPATHY",
+		"REGISTRATION",
 		"SWARM",
 		"SYSTEM",
 	} {

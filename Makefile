@@ -73,7 +73,7 @@ all: build
 generate:
 	@echo "Run generate..."
 	@rm -r ./$(CMD_DIR)/workspace 2>/dev/null || true
-	@$(GO) generate ./...
+	@$(GO) generate ./$(CMD_DIR)
 	@echo "Run generate complete"
 
 ## build: Build the gclaw binary for current platform

@@ -105,10 +105,78 @@ func TestGDEXHLDepositTool(t *testing.T) {
 	if tool.Parameters() == nil {
 		t.Error("expected non-nil parameters")
 	}
+	properties, _ := tool.Parameters()["properties"].(map[string]any)
+	if _, ok := properties["auto_fund_from_native"]; !ok {
+		t.Fatal("expected auto_fund_from_native parameter")
+	}
 	// Missing required amount
 	result := tool.Execute(context.Background(), map[string]any{})
 	if !result.IsError {
 		t.Error("expected error when amount is missing")
+	}
+}
+
+func TestGDEXHLWithdrawTool(t *testing.T) {
+	tool := &GDEXHLWithdrawTool{}
+	if tool.Name() != "gdex_hl_withdraw" {
+		t.Errorf("expected 'gdex_hl_withdraw', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when amount is missing")
+	}
+}
+
+func TestGDEXBridgeEstimateTool(t *testing.T) {
+	tool := &GDEXBridgeEstimateTool{}
+	if tool.Name() != "gdex_bridge_estimate" {
+		t.Errorf("expected 'gdex_bridge_estimate', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when bridge params are missing")
+	}
+}
+
+func TestGDEXBridgeRequestTool(t *testing.T) {
+	tool := &GDEXBridgeRequestTool{}
+	if tool.Name() != "gdex_bridge_request" {
+		t.Errorf("expected 'gdex_bridge_request', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
+	}
+	result := tool.Execute(context.Background(), map[string]any{})
+	if !result.IsError {
+		t.Error("expected error when bridge params are missing")
+	}
+}
+
+func TestGDEXBridgeOrdersTool(t *testing.T) {
+	tool := &GDEXBridgeOrdersTool{}
+	if tool.Name() != "gdex_bridge_orders" {
+		t.Errorf("expected 'gdex_bridge_orders', got %q", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Error("expected non-empty description")
+	}
+	if tool.Parameters() == nil {
+		t.Error("expected non-nil parameters")
 	}
 }
 
@@ -341,6 +409,40 @@ func TestSwarmTool_Execute_InsufficientGoodwill(t *testing.T) {
 	result := tool.Execute(context.Background(), map[string]any{})
 	if !result.IsError {
 		t.Error("expected error for insufficient goodwill")
+	}
+}
+
+func TestSwarmTool_SubmitSignalDefaultsAgentIDAndPersists(t *testing.T) {
+	sc := swarm.NewSwarmCoordinator("leader", swarm.SwarmConfig{}, nil)
+	tool := NewSwarmTool(sc, func() int { return 500 }, 200)
+	dir := t.TempDir()
+	tool.SetRuntimeContext("leader", func() error {
+		return swarm.SaveSwarmState(dir, sc)
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"action":        "submit_signal",
+		"token_address": "0xabc",
+		"action_signal": "buy",
+	})
+	if result.IsError {
+		t.Fatalf("expected signal submission to succeed, got %s", result.ForLLM)
+	}
+
+	signals := sc.GetSignals("0xabc")
+	if len(signals) != 1 {
+		t.Fatalf("expected 1 signal, got %d", len(signals))
+	}
+	if signals[0].AgentID != "leader" {
+		t.Fatalf("expected default agent_id leader, got %q", signals[0].AgentID)
+	}
+
+	loaded, err := swarm.LoadSwarmState(dir)
+	if err != nil {
+		t.Fatalf("LoadSwarmState failed: %v", err)
+	}
+	if got := len(loaded.GetSignals("0xabc")); got != 1 {
+		t.Fatalf("expected persisted signal count 1, got %d", got)
 	}
 }
 

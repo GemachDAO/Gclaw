@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/bus"
 	"github.com/GemachDAO/Gclaw/pkg/config"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
+	"github.com/GemachDAO/Gclaw/pkg/replication"
+	"github.com/GemachDAO/Gclaw/pkg/routing"
+	"github.com/GemachDAO/Gclaw/pkg/swarm"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 )
 
@@ -343,6 +347,100 @@ func TestAgentLoop_Stop(t *testing.T) {
 	}
 }
 
+func TestNewAgentLoop_LivingDashboardAndTools(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = tmpDir
+
+	msgBus := bus.NewMessageBus()
+	provider := &mockProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	for _, toolName := range []string{"replicate", "telepathy", "self_recode", "dashboard", "swarm"} {
+		if _, ok := defaultAgent.Tools.Get(toolName); !ok {
+			t.Fatalf("expected tool %q to be registered", toolName)
+		}
+	}
+
+	dash := al.GetDashboard()
+	if dash == nil {
+		t.Fatal("expected dashboard to be initialized")
+	}
+
+	data := dash.GetData()
+	if data.Metabolism == nil || data.Trading == nil || data.Family == nil || data.Telepathy == nil || data.System == nil {
+		t.Fatal("expected living dashboard sections to be wired")
+	}
+	if data.Family.TotalFamily != 1 {
+		t.Fatalf("expected initial family size 1, got %d", data.Family.TotalFamily)
+	}
+	if data.Telepathy.ActiveChannels != 1 {
+		t.Fatalf("expected 1 live telepathy subscriber, got %d", data.Telepathy.ActiveChannels)
+	}
+	if data.Swarm == nil || data.Swarm.MemberCount != 1 {
+		t.Fatalf("expected swarm leader to be registered, got %+v", data.Swarm)
+	}
+	if data.System.ToolCount == 0 {
+		t.Fatal("expected dashboard system snapshot to include tool count")
+	}
+}
+
+func TestNewAgentLoop_ReplicationConsumesGMACAndUpdatesFamily(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = tmpDir
+
+	msgBus := bus.NewMessageBus()
+	provider := &mockProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	met := defaultAgent.Tools.GetMetabolism()
+	if met == nil {
+		t.Fatal("expected metabolism to be enabled")
+	}
+	initialBalance := met.GetBalance()
+	met.AddGoodwill(cfg.Metabolism.Thresholds.Replicate, "test replication unlock")
+
+	replicateTool, ok := defaultAgent.Tools.Get("replicate")
+	if !ok {
+		t.Fatal("expected replicate tool to be registered")
+	}
+
+	result := replicateTool.Execute(context.Background(), map[string]any{})
+	if result.IsError {
+		t.Fatalf("expected replication to succeed, got: %s", result.ForLLM)
+	}
+
+	if met.GetBalance() >= initialBalance {
+		t.Fatalf("expected replication to debit parent GMAC, balance stayed at %.2f", met.GetBalance())
+	}
+
+	dash := al.GetDashboard()
+	if dash == nil {
+		t.Fatal("expected dashboard")
+	}
+	if family := dash.GetData().Family; family == nil || family.TotalFamily != 2 {
+		t.Fatalf("expected family size 2 after replication, got %+v", family)
+	}
+
+	childrenPath := filepath.Join(tmpDir, "replication", "children.json")
+	if _, err := os.Stat(childrenPath); err != nil {
+		t.Fatalf("expected persisted children file at %s: %v", childrenPath, err)
+	}
+}
+
 // Mock implementations for testing
 
 type simpleMockProvider struct {
@@ -364,6 +462,50 @@ func (m *simpleMockProvider) Chat(
 
 func (m *simpleMockProvider) GetDefaultModel() string {
 	return "mock-model"
+}
+
+type countingProvider struct {
+	calls int
+}
+
+func (m *countingProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.calls++
+	return &providers.LLMResponse{
+		Content:   "should not be called",
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (m *countingProvider) GetDefaultModel() string {
+	return "counting-model"
+}
+
+type capturingProvider struct {
+	lastMessages []providers.Message
+}
+
+func (m *capturingProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	m.lastMessages = append([]providers.Message(nil), messages...)
+	return &providers.LLMResponse{
+		Content:   "captured",
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (m *capturingProvider) GetDefaultModel() string {
+	return "capturing-model"
 }
 
 // mockCustomTool is a simple mock tool for registration testing
@@ -629,5 +771,137 @@ func TestAgentLoop_ContextExhaustionRetry(t *testing.T) {
 	// Without compression: 6 + 1 (new user msg) + 1 (assistant msg) = 8
 	if len(finalHistory) >= 8 {
 		t.Errorf("Expected history to be compressed (len < 8), got %d", len(finalHistory))
+	}
+}
+
+func TestProcessDirectWithChannel_UsesScopedCLISessionKey(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				Model:             "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &simpleMockProvider{response: "ok"}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	response, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"hello",
+		"Fresh Session/01",
+		"cli",
+		"direct",
+	)
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+	if response != "ok" {
+		t.Fatalf("expected response ok, got %q", response)
+	}
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+
+	scopedSession := routing.BuildAgentScopedSessionKey("main", "cli", "Fresh Session/01")
+	if got := defaultAgent.Sessions.GetHistory(scopedSession); len(got) == 0 {
+		t.Fatalf("expected scoped CLI history for %q", scopedSession)
+	}
+	if got := defaultAgent.Sessions.GetHistory(routing.BuildAgentMainSessionKey("main")); len(got) != 0 {
+		t.Fatalf("expected main session history to stay empty, got %d messages", len(got))
+	}
+}
+
+func TestProcessDirectWithChannel_RuntimeShortcutUsesDashboardWithoutLLM(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+
+	msgBus := bus.NewMessageBus()
+	provider := &countingProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	response, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"Show the managed Solana wallet address, auto-trade state, and loaded GDEX tools.",
+		"runtime-shortcut",
+		"cli",
+		"direct",
+	)
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("expected LLM provider to be skipped, got %d calls", provider.calls)
+	}
+	for _, want := range []string{"FUNDING", "Auto Runtime", "Managed"} {
+		if !strings.Contains(response, want) {
+			t.Fatalf("expected shortcut response to contain %q, got %q", want, response)
+		}
+	}
+}
+
+func TestProcessDirectWithChannel_InjectsTelepathyInboxIntoPrompt(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+
+	msgBus := bus.NewMessageBus()
+	provider := &capturingProvider{}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	defaultAgent := al.registry.GetDefaultAgent()
+	if defaultAgent == nil {
+		t.Fatal("expected default agent")
+	}
+	if defaultAgent.TelepathyBus == nil || defaultAgent.TelepathyInbox == nil {
+		t.Fatal("expected telepathy runtime to be wired")
+	}
+	if defaultAgent.Swarm == nil {
+		t.Fatal("expected swarm runtime to be wired")
+	}
+	if member, ok := defaultAgent.Swarm.GetMember("main"); !ok || member.Role != swarm.RoleLeader {
+		t.Fatalf("expected main leader member, got %+v ok=%v", member, ok)
+	}
+
+	defaultAgent.TelepathyBus.SendTo("main", replication.TelepathyMessage{
+		FromAgentID: "child-1",
+		ToAgentID:   "main",
+		Type:        "strategy_update",
+		Content:     "Watch GMAC liquidity on Ethereum",
+		Priority:    2,
+	})
+
+	response, err := al.ProcessDirectWithChannel(
+		context.Background(),
+		"what should we do next?",
+		"telepathy-prompt",
+		"cli",
+		"direct",
+	)
+	if err != nil {
+		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	}
+	if response != "captured" {
+		t.Fatalf("expected captured response, got %q", response)
+	}
+	if len(provider.lastMessages) == 0 {
+		t.Fatal("expected provider to receive messages")
+	}
+	last := provider.lastMessages[len(provider.lastMessages)-1].Content
+	for _, want := range []string{"Telepathy Inbox", "child-1", "Watch GMAC liquidity on Ethereum"} {
+		if !strings.Contains(last, want) {
+			t.Fatalf("expected injected prompt to contain %q, got %q", want, last)
+		}
 	}
 }

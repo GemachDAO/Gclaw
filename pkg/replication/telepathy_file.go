@@ -12,8 +12,13 @@ import (
 // WriteMessage writes a TelepathyMessage as a JSON file into the telepathy
 // directory for the given family. Files are named {timestamp}-{from_agent_id}.json.
 func WriteMessage(dir string, msg TelepathyMessage) error {
+	_, err := writeMessageFile(dir, msg)
+	return err
+}
+
+func writeMessageFile(dir string, msg TelepathyMessage) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create telepathy dir: %w", err)
+		return "", fmt.Errorf("create telepathy dir: %w", err)
 	}
 
 	if msg.Timestamp == 0 {
@@ -22,12 +27,12 @@ func WriteMessage(dir string, msg TelepathyMessage) error {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	name := fmt.Sprintf("%d-%s.json", msg.Timestamp, sanitizeID(msg.FromAgentID))
+	name := fmt.Sprintf("%d-%s-%s.json", time.Now().UnixNano(), sanitizeID(msg.FromAgentID), sanitizeID(msg.ToAgentID))
 	path := filepath.Join(dir, name)
-	return os.WriteFile(path, data, 0o600)
+	return path, os.WriteFile(path, data, 0o600)
 }
 
 // StartFileWatcher polls the given directory for new JSON message files and
@@ -88,7 +93,7 @@ func StartFileWatcher(
 
 // TelepathyDir returns the standard telepathy directory for a family within a workspace.
 func TelepathyDir(workspace, familyID string) string {
-	return filepath.Join(workspace, "replication", "telepathy", familyID)
+	return filepath.Join(workspace, "replication", "telepathy", sanitizeID(familyID))
 }
 
 // cleanOldMessages removes message files older than maxAge from the directory.

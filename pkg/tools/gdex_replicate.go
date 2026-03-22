@@ -18,6 +18,8 @@ type ReplicateTool struct {
 	parentGMAC    *float64
 	goodwillCheck func() int
 	threshold     int
+	balanceSource func() float64
+	debitParent   func(float64) error
 }
 
 // NewReplicateTool creates a ReplicateTool wired to the given Replicator.
@@ -38,6 +40,16 @@ func NewReplicateTool(
 		goodwillCheck: goodwillCheck,
 		threshold:     threshold,
 	}
+}
+
+// SetParentBalanceHooks lets the tool source and debit GMAC from a live parent
+// balance store such as metabolism, instead of a detached float pointer.
+func (t *ReplicateTool) SetParentBalanceHooks(
+	balanceSource func() float64,
+	debitParent func(float64) error,
+) {
+	t.balanceSource = balanceSource
+	t.debitParent = debitParent
 }
 
 func (t *ReplicateTool) Name() string { return "replicate" }
@@ -81,15 +93,33 @@ func (t *ReplicateTool) Execute(ctx context.Context, args map[string]any) *ToolR
 	gmac := float64(0)
 	if t.parentGMAC != nil {
 		gmac = *t.parentGMAC
+	} else if t.balanceSource != nil {
+		gmac = t.balanceSource()
+	}
+	originalGMAC := gmac
+	options := &replication.ReplicateOptions{
+		Name:         stringArg(args, "name"),
+		StrategyHint: stringArg(args, "strategy_hint"),
 	}
 
-	child, err := t.replicator.Replicate(t.parentConfig, t.workspace, &gmac)
+	child, err := t.replicator.Replicate(t.parentConfig, t.workspace, &gmac, options)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("replication failed: %v", err))
 	}
 
 	if t.parentGMAC != nil {
 		*t.parentGMAC = gmac
+	} else if t.debitParent != nil {
+		share := originalGMAC - gmac
+		if share > 0 {
+			if err := t.debitParent(share); err != nil {
+				return ErrorResult(fmt.Sprintf("replication created child but failed to debit parent GMAC: %v", err))
+			}
+		}
+	}
+
+	if err := t.replicator.SaveChildren(t.workspace); err != nil {
+		return ErrorResult(fmt.Sprintf("replication succeeded but failed to persist child state: %v", err))
 	}
 
 	out, _ := json.MarshalIndent(child, "", "  ")

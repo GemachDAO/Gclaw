@@ -30,7 +30,7 @@
 
 ## 📢 News
 
-2026-02-28 🚀 **Living Agent features now enabled by default!** GMAC metabolism, GDEX trading (with shared API key), swarm mode, and the living dashboard all work out of the box. Trade results now feed back to the metabolism engine — profitable trades credit GMAC and earn goodwill.
+2026-02-28 🚀 **Living Agent features now enabled by default!** GMAC metabolism, GDEX trading (with shared API key), the living dashboard, and in-process telepathy/swarm coordination are available after onboarding. Trade results feed back to the metabolism engine — profitable trades credit GMAC and earn goodwill.
 
 2026-02-24 🔗 Gclaw is now maintained by [GemachDAO](https://github.com/GemachDAO) with integration support for [gdex-trading](https://github.com/GemachDAO/gdex-trading-). Community contributions welcome!
 
@@ -38,7 +38,7 @@
 
 Gclaw is a fork of [PicoClaw](https://github.com/sipeed/picoclaw) (originally inspired by [nanobot](https://github.com/HKUDS/nanobot)), rewritten in Go with a unique twist: **it must trade crypto to survive**.
 
-Unlike a conventional AI assistant that runs indefinitely, Gclaw operates on a **GMAC token metabolism** — its life energy. Every heartbeat, every inference costs GMAC. Profitable trades and completed tasks replenish it. Run out of GMAC and the agent hibernates. Trade well and it thrives, earns goodwill, and can eventually replicate itself into child agents with mutated trading strategies.
+Unlike a conventional AI assistant that runs indefinitely, Gclaw operates on a **GMAC token metabolism** — its life energy. Every heartbeat, every inference costs GMAC. Profitable trades and completed tasks replenish it. Run out of GMAC and the agent hibernates. Trade well and it thrives, earns goodwill, and can eventually create child workspaces with mutated trading strategies.
 
 It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading via the GDEX SDK (Solana, EVM chains, HyperLiquid perpetuals).
 
@@ -59,10 +59,10 @@ It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading vi
 | 🧬 **GMAC Metabolism** | Token balance = life energy. Trade profitably or hibernate. |
 | 📈 **GDEX Trading** | Native DeFi: buy/sell/limit orders, copy trading, HyperLiquid perps. |
 | ⭐ **Goodwill System** | Reputation earned from profitable trades, completed tasks, user feedback. |
-| 🔄 **Self-Replication** | Clone into child agents with mutated trading strategies (goodwill ≥ 50). |
+| 🔄 **Self-Replication** | Create child workspaces/configs with mutated trading strategies (goodwill ≥ 50). |
 | 🛠️ **Self-Recoding** | Modify own prompts, cron jobs, and trading params (goodwill ≥ 100). |
-| 📡 **Telepathy** | Parent-child agent communication for collaborative trading. |
-| 🐝 **Swarm Mode** | Coordinate multiple child agents for distributed strategies (goodwill ≥ 200). |
+| 📡 **Telepathy** | In-process parent/child communication for collaborative trading. |
+| 🐝 **Swarm Mode** | Coordinate registered child workspaces inside a live runtime (goodwill ≥ 200). |
 | 📊 **Living Dashboard** | Real-time CLI/web dashboard showing life-state, trades, and family tree. |
 
 ---
@@ -75,7 +75,7 @@ It is an ultra-lightweight, single-binary AI agent with built-in DeFi trading vi
 curl -fsSL https://raw.githubusercontent.com/GemachDAO/Gclaw/main/install.sh | bash
 ```
 
-This downloads the latest release binary, installs it to `~/.local/bin`, sets up GDEX trading dependencies, and launches the interactive setup wizard. All living agent features (metabolism, GDEX trading, swarm, dashboard) are enabled automatically — you'll have a trading agent in under a minute.
+This downloads the latest release binary, verifies its checksum, installs it to `~/.local/bin` (or `GCLAW_INSTALL_DIR`), launches the interactive setup wizard, and prepares GDEX trading dependencies. If Node/npm or helper setup is unavailable, the installer stops with guidance instead of claiming success.
 
 > **Windows users:** Use [WSL2](https://docs.microsoft.com/en-us/windows/wsl/) or [Docker](#option-3-docker), or [download a release binary](https://github.com/GemachDAO/Gclaw/releases) directly and run `gclaw onboard`.
 
@@ -160,14 +160,14 @@ gclaw gateway
 
 ### Living Agent features — enabled by default
 
-All Living Agent features are **enabled out of the box** — no extra configuration needed:
+The core Living Agent features are **enabled out of the box** after onboarding:
 
 - **🧬 GMAC Metabolism** — 1,000 GMAC starting balance, heartbeat and inference costs active
 - **📈 GDEX Trading** — shared API key pre-configured, wallets auto-generate on first run, Node dependencies auto-install
-- **🐝 Swarm Mode** — ready when the agent earns enough goodwill
-- **📊 Living Dashboard** — real-time CLI dashboard enabled
+- **🐝 Swarm Mode** — in-process coordination is ready when the agent earns enough goodwill
+- **📊 Living Dashboard** — web dashboard at `http://127.0.0.1:18790/dashboard`
 
-Just run `gclaw onboard`, pick an LLM provider, and the agent starts trading to survive immediately.
+Use the installer or run `gclaw onboard`, pick an LLM provider, then start `gclaw gateway` to bring the living loop online.
 
 To customize defaults, edit `~/.gclaw/config.json` (see [`config/config.example.json`](config/config.example.json) for all options):
 
@@ -213,7 +213,7 @@ Native DeFi trading via the GDEX SDK. Supported operations:
 - **Copy trading**: mirror signals from top performers
 - **Market data**: price feeds, portfolio snapshot, P&L
 
-GDEX trading is **enabled by default** with a shared community API key. Wallets auto-generate on first run, and Node.js dependencies auto-install when the first trade executes. No manual setup required — just fund your custodial wallet and start trading.
+GDEX trading is **enabled by default** with a shared community API key. Wallets auto-generate on first run, and the installer prepares Node.js dependencies when possible. Fund the managed wallet shown in the dashboard or `gclaw status`, then start trading.
 
 **GMAC Token (Gemach):**
 | Chain | Address |
@@ -237,11 +237,13 @@ Goodwill is the agent's reputation score, earned through profitable trades, comp
 
 ### 🔄 Self-Replication
 
-When goodwill ≥ 50, the agent can call the `replicate` tool to spawn a child agent. The child:
+When goodwill ≥ 50, the agent can call the `replicate` tool to create a child workspace and config. The child:
 - Inherits the parent's config, skills, and memory
 - Receives a configurable share of the parent's GMAC balance
 - Gets a mutated trading strategy (adjusted risk params, different token focus)
 - Is tracked in the Living Dashboard family tree
+
+Launching child workspaces as independent long-running processes still requires explicitly starting them or adding an external supervisor.
 
 ### 🛠️ Self-Recoding
 
@@ -254,11 +256,11 @@ Changes are written back to the agent's workspace config and take effect on the 
 
 ### 📡 Telepathy
 
-Parent and child agents communicate through an in-process message bus. The `send_telepathy` tool lets any agent broadcast messages to siblings or its parent. Used for sharing trade signals, coordinating task handoffs, and propagating memory updates.
+Parent and child agents communicate through an in-process message bus inside a live runtime. The `send_telepathy` tool lets any agent broadcast messages to siblings or its parent. Used for sharing trade signals, coordinating task handoffs, and propagating memory updates.
 
 ### 🐝 Swarm Mode
 
-When goodwill ≥ 200, the parent agent becomes a **swarm leader** and can coordinate all children:
+When goodwill ≥ 200, the parent agent becomes a **swarm leader** and can coordinate all registered children inside the running process:
 
 - **Consensus voting** — agents submit trade signals; a configurable threshold must agree before a trade executes
 - **Strategy rotation** — each child agent is assigned a distinct trading strategy; strategies rotate on a schedule

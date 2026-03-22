@@ -173,17 +173,27 @@ func (t *GDEXHoldingsTool) Description() string {
 
 func (t *GDEXHoldingsTool) Parameters() map[string]any {
 	return map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
+		"type": "object",
+		"properties": map[string]any{
+			"chain_id": map[string]any{
+				"type":        "number",
+				"description": "Optional chain ID for the holdings query. Defaults to Solana if omitted.",
+			},
+		},
 	}
 }
 
-func (t *GDEXHoldingsTool) Execute(ctx context.Context, _ map[string]any) *ToolResult {
-	logger.InfoCF("tool", "gdex_holdings executing", map[string]any{})
+func (t *GDEXHoldingsTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	params := map[string]any{}
+	if chainID, ok := args["chain_id"]; ok {
+		params["chain_id"] = chainID
+	}
+
+	logger.InfoCF("tool", "gdex_holdings executing", map[string]any{"chain_id": params["chain_id"]})
 
 	result, err := runNodeHelper(ctx, "market.js", map[string]any{
 		"action": "holdings",
-		"params": map[string]any{},
+		"params": params,
 	})
 	if err != nil {
 		logger.ErrorCF("tool", "gdex_holdings failed", map[string]any{"error": err.Error()})

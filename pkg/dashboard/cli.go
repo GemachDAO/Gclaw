@@ -65,12 +65,130 @@ func FormatCLI(data *DashboardData) string {
 	line("📊 TRADING")
 	if data.Trading != nil {
 		t := data.Trading
-		pnlSign := "+"
-		if t.TotalPnL < 0 {
-			pnlSign = ""
+		if t.HasRealizedPnL {
+			pnlSign := "+"
+			if t.TotalPnL < 0 {
+				pnlSign = ""
+			}
+			line(fmt.Sprintf("  Execs: %-4d  Realized: %-4d  Win Rate: %.1f%%   P&L: %s%.2f GMAC",
+				t.TotalTrades, t.RealizedTrades, t.ProfitablePct, pnlSign, t.TotalPnL))
+		} else {
+			line(fmt.Sprintf("  Execs: %-4d  Realized: %-4d  Win Rate: n/a   P&L: pending",
+				t.TotalTrades, t.RealizedTrades))
 		}
-		line(fmt.Sprintf("  Trades: %-4d  Win Rate: %.1f%%   P&L: %s%.2f GMAC",
-			t.TotalTrades, t.ProfitablePct, pnlSign, t.TotalPnL))
+	} else {
+		line("  (not configured)")
+	}
+	divider()
+
+	// Trading access
+	line("🏦 FUNDING")
+	if data.TradingAccess != nil {
+		ta := data.TradingAccess
+		addr := ta.WalletAddress
+		if addr == "" {
+			addr = "not configured"
+		} else {
+			addr = truncate(addr, 26)
+		}
+		apiKey := "missing"
+		if ta.APIKeyConfigured {
+			apiKey = "ready"
+		}
+		privKey := "missing"
+		if ta.HasPrivateKey {
+			privKey = "ready"
+		}
+		autoTrade := "off"
+		if ta.AutoTradeEnabled {
+			autoTrade = "on"
+		}
+		autoTradeRuntime := "disabled"
+		autoTradeLast := ""
+		autoTradePlan := ""
+		if ta.AutoTradeRuntime != nil {
+			autoTradeRuntime = ta.AutoTradeRuntime.State
+			if ta.AutoTradeRuntime.Schedule != "" {
+				autoTradeRuntime += " (" + ta.AutoTradeRuntime.Schedule + ")"
+			}
+			if ta.AutoTradeRuntime.LastError != "" {
+				autoTradeLast = truncate(ta.AutoTradeRuntime.LastError, 38)
+			} else if ta.AutoTradeRuntime.LastStatus != "" {
+				autoTradeLast = ta.AutoTradeRuntime.LastStatus
+			}
+		}
+		if ta.AutoTradePlan != nil {
+			autoTradePlan = ta.AutoTradePlan.AssetSymbol + " via " + ta.AutoTradePlan.ChainLabel
+		}
+		line(fmt.Sprintf("  Control: %s", addr))
+		line(fmt.Sprintf("  API Key: %-7s Private Key: %-7s Auto: %s", apiKey, privKey, autoTrade))
+		line(fmt.Sprintf("  Auto Runtime: %s", truncate(autoTradeRuntime, 38)))
+		if autoTradePlan != "" {
+			line(fmt.Sprintf("  Auto Plan: %s", truncate(autoTradePlan, 38)))
+		}
+		if autoTradeLast != "" {
+			line(fmt.Sprintf("  Auto Last: %s", autoTradeLast))
+		}
+		line(fmt.Sprintf("  Tools: %-2d Helpers: %t", ta.ToolCount, ta.HelpersInstalled))
+		if mw := ta.ManagedWallets; mw != nil {
+			solana := "pending"
+			if mw.SolanaAddress != "" {
+				solana = truncate(mw.SolanaAddress, 26)
+			}
+			evm := "pending"
+			if mw.EVMAddress != "" {
+				evm = truncate(mw.EVMAddress, 26)
+			}
+			line(fmt.Sprintf("  Managed: %-8s Solana: %s", mw.State, solana))
+			line(fmt.Sprintf("  Managed EVM: %s", evm))
+		}
+	} else {
+		line("  (not configured)")
+	}
+	divider()
+
+	// Autonomy
+	line("🧬 AUTONOMY")
+	if data.Autonomy != nil {
+		a := data.Autonomy
+		if a.Identity.Signature != "" {
+			line(fmt.Sprintf("  Signature: %s", truncate(a.Identity.Signature, 38)))
+		}
+		if a.Identity.Fingerprint != "" {
+			line(fmt.Sprintf("  Fingerprint: %s", truncate(a.Identity.Fingerprint, 35)))
+		}
+		line(fmt.Sprintf("  Objective: %s", truncate(a.DNA.Objective, 38)))
+		if a.DNA.ProfitSink != "" {
+			line(fmt.Sprintf("  Profit Sink: %s", truncate(a.DNA.ProfitSink, 35)))
+		}
+		line(fmt.Sprintf("  Router: %-11s Selected: %s",
+			a.Router.State,
+			truncate(a.Router.SelectedRoute, 20)))
+		if a.Router.FallbackRoute != "" {
+			line(fmt.Sprintf("  Fallback: %s", truncate(a.Router.FallbackRoute, 38)))
+		}
+		line(fmt.Sprintf("  Graph: %-3d nodes  %-3d edges",
+			a.KnowledgeGraph.NodeCount,
+			a.KnowledgeGraph.EdgeCount))
+		if len(a.DNA.PreferredChains) > 0 {
+			line(fmt.Sprintf("  Chains: %s", truncate(strings.Join(a.DNA.PreferredChains, ", "), 40)))
+		}
+		if len(a.DNA.PreferredVenues) > 0 {
+			line(fmt.Sprintf("  Venues: %s", truncate(strings.Join(a.DNA.PreferredVenues, ", "), 40)))
+		}
+		line(fmt.Sprintf("  Thresholds: rep=%d recode=%d",
+			a.DNA.ReplicationThreshold,
+			a.DNA.RecodeThreshold))
+		if len(a.KnowledgeGraph.KeyNodes) > 0 {
+			line(fmt.Sprintf("  Key Nodes: %s", truncate(strings.Join(a.KnowledgeGraph.KeyNodes, ", "), 38)))
+		}
+		if len(a.Router.Health) > 0 {
+			health := make([]string, 0, len(a.Router.Health))
+			for _, signal := range a.Router.Health {
+				health = append(health, signal.Name+"="+signal.State)
+			}
+			line(fmt.Sprintf("  Health: %s", truncate(strings.Join(health, ", "), 41)))
+		}
 	} else {
 		line("  (not configured)")
 	}
@@ -110,6 +228,17 @@ func FormatCLI(data *DashboardData) string {
 				truncate(last.From, 12),
 				ago))
 		}
+	} else {
+		line("  (not configured)")
+	}
+	divider()
+
+	// Registration
+	line("🪪 REGISTRATION")
+	if data.Registration != nil {
+		reg := data.Registration
+		line(fmt.Sprintf("  ERC-8004: %-8s Wallet Ready: %t", reg.State, reg.WalletReady))
+		line(fmt.Sprintf("  x402: %-5t URL: %s", reg.X402Enabled, truncate(reg.URL, 28)))
 	} else {
 		line("  (not configured)")
 	}

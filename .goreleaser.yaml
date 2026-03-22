@@ -9,6 +9,7 @@ before:
 
 builds:
   - id: gclaw
+    binary: gclaw
     env:
       - CGO_ENABLED=0
     ldflags:

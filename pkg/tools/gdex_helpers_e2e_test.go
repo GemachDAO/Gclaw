@@ -158,6 +158,28 @@ func TestGDEXTradeHelper_BuyMissingTokenAddress(t *testing.T) {
 	}
 }
 
+func TestGDEXTradeHelper_SolanaChainIDUsesSolanaValidation(t *testing.T) {
+	if !nodeAvailable() {
+		t.Skip("node not available")
+	}
+	skipIfSDKNotBuilt(t)
+	result := runHelper(t, "trade.js", map[string]any{
+		"action": "buy",
+		"params": map[string]any{
+			"chain_id":      622112261,
+			"token_address": "not-a-solana-address",
+			"amount":        "0.01",
+		},
+	}, "GDEX_API_KEY=00000000-0000-0000-0000-000000000000")
+	if result["success"] != false {
+		t.Error("expected success=false for invalid Solana token address")
+	}
+	errMsg, _ := result["error"].(string)
+	if !strings.Contains(errMsg, "Invalid Solana address format") {
+		t.Fatalf("expected Solana validation error, got %q", errMsg)
+	}
+}
+
 func TestGDEXTradeHelper_LimitBuyRequiresWallet(t *testing.T) {
 	if !nodeAvailable() {
 		t.Skip("node not available")
@@ -330,6 +352,87 @@ func TestGDEXMarketHelper_HLDepositRequiresWallet(t *testing.T) {
 	dir := gdexHelpersDir(t)
 	cmd := exec.Command("node", filepath.Join(dir, "market.js"))
 	cmd.Stdin = bytes.NewReader([]byte(`{"action":"hl_deposit","params":{"amount":"10"}}`))
+	cmd.Env = env
+	out, _ := cmd.Output()
+
+	var result map[string]any
+	if err := json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("parse output: %v (raw: %s)", err, string(out))
+	}
+	if result["success"] != false {
+		t.Error("expected success=false when WALLET_ADDRESS/PRIVATE_KEY missing")
+	}
+}
+
+func TestGDEXMarketHelper_HLDepositSourceSupportsArbitrumETHAutoFunding(t *testing.T) {
+	dir := gdexHelpersDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
+	if err != nil {
+		t.Fatalf("read market helper: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"prepareHyperLiquidDeposit", "auto_fund_from_native", "sourceAsset: 'ETH'", "api.coinbase.com"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in market helper", want)
+		}
+	}
+}
+
+func TestGDEXMarketHelper_HLDepositRecognizesNestedTokenInfoBalances(t *testing.T) {
+	dir := gdexHelpersDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
+	if err != nil {
+		t.Fatalf("read market helper: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"entry.tokenInfo?.address", "entry.tokenInfo?.symbol"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in market helper", want)
+		}
+	}
+}
+
+func TestGDEXMarketHelper_HLDepositTraversesHoldingArrays(t *testing.T) {
+	dir := gdexHelpersDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
+	if err != nil {
+		t.Fatalf("read market helper: %v", err)
+	}
+	if !strings.Contains(string(content), "'holding'") {
+		t.Fatal("expected market helper to traverse holding arrays")
+	}
+}
+
+func TestGDEXMarketHelper_HLWithdrawConvertsHumanAmountToSmallestUnit(t *testing.T) {
+	dir := gdexHelpersDir(t)
+	content, err := os.ReadFile(filepath.Join(dir, "market.js"))
+	if err != nil {
+		t.Fatalf("read market helper: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{"case 'hl_withdraw'", "ethers.parseUnits(formatAmount(params.amount, 6), 6).toString()"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in market helper", want)
+		}
+	}
+}
+
+func TestGDEXMarketHelper_BridgeRequestRequiresWallet(t *testing.T) {
+	if !nodeAvailable() {
+		t.Skip("node not available")
+	}
+	skipIfSDKNotBuilt(t)
+	env := []string{}
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "WALLET_ADDRESS=") || strings.HasPrefix(e, "PRIVATE_KEY=") {
+			continue
+		}
+		env = append(env, e)
+	}
+
+	dir := gdexHelpersDir(t)
+	cmd := exec.Command("node", filepath.Join(dir, "market.js"))
+	cmd.Stdin = bytes.NewReader([]byte(`{"action":"bridge_request","params":{"from_chain_id":1,"to_chain_id":42161,"amount":"1000000000000000"}}`))
 	cmd.Env = env
 	out, _ := cmd.Output()
 

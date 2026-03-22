@@ -46,7 +46,7 @@ func TestDashboardTool_Execute_Sections(t *testing.T) {
 	dash := dashboard.NewDashboard(dashboard.DashboardOptions{AgentID: "test-agent"})
 
 	tool := NewDashboardTool(dash)
-	sections := []string{"all", "metabolism", "trading", "family", "telepathy", "swarm", "system", ""}
+	sections := []string{"all", "metabolism", "trading", "funding", "autonomy", "family", "telepathy", "swarm", "registration", "system", ""}
 	for _, section := range sections {
 		args := map[string]any{"section": section}
 		result := tool.Execute(context.Background(), args)

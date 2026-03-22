@@ -33,6 +33,30 @@ func CreateProvider(cfg *config.Config) (LLMProvider, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("model %q not found in model_list: %w", model, err)
 	}
+	if sel, selErr := resolveProviderSelection(cfg); selErr == nil {
+		if modelCfg.APIKey == "" {
+			modelCfg.APIKey = sel.apiKey
+		}
+		if modelCfg.APIBase == "" {
+			modelCfg.APIBase = sel.apiBase
+		}
+		if modelCfg.Proxy == "" {
+			modelCfg.Proxy = sel.proxy
+		}
+		if modelCfg.ConnectMode == "" {
+			modelCfg.ConnectMode = sel.connectMode
+		}
+		switch sel.providerType {
+		case providerTypeCodexCLIToken:
+			if modelCfg.AuthMethod == "" {
+				modelCfg.AuthMethod = "codex-cli"
+			}
+		case providerTypeCodexAuth, providerTypeClaudeAuth:
+			if modelCfg.AuthMethod == "" {
+				modelCfg.AuthMethod = "oauth"
+			}
+		}
+	}
 
 	// Inject global workspace if not set in model config
 	if modelCfg.Workspace == "" {

@@ -144,7 +144,7 @@ type GDEXHLDepositTool struct{}
 func (t *GDEXHLDepositTool) Name() string { return "gdex_hl_deposit" }
 
 func (t *GDEXHLDepositTool) Description() string {
-	return "Deposit USDC to HyperLiquid perpetuals via the GDEX /v1/hl/deposit endpoint. Requires Arbitrum (chain_id 42161). Minimum 5 USDC. Amount is in USDC base units (6 decimals): 10 USDC = 10000000."
+	return "Deposit USDC to HyperLiquid perpetuals via the GDEX /v1/hl/deposit endpoint. Requires Arbitrum (chain_id 42161) and the control wallet credentials. Minimum 10 USDC. Amount is human-readable USDC, for example '10' to deposit 10 USDC. If Arbitrum USDC is short but the managed wallet has ETH on Arbitrum, the helper can auto-swap ETH into USDC before depositing."
 }
 
 func (t *GDEXHLDepositTool) Parameters() map[string]any {
@@ -153,7 +153,7 @@ func (t *GDEXHLDepositTool) Parameters() map[string]any {
 		"properties": map[string]any{
 			"amount": map[string]any{
 				"type":        "string",
-				"description": "Amount in USDC base units (6 decimals). 10 USDC = '10000000'",
+				"description": "Human-readable USDC amount, for example '10' to deposit 10 USDC",
 			},
 			"chain_id": map[string]any{
 				"type":        "number",
@@ -162,6 +162,22 @@ func (t *GDEXHLDepositTool) Parameters() map[string]any {
 			"token_address": map[string]any{
 				"type":        "string",
 				"description": "USDC token address (default: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831 on Arbitrum)",
+			},
+			"auto_fund_from_native": map[string]any{
+				"type":        "boolean",
+				"description": "When true (default), auto-swap Arbitrum ETH into USDC before the deposit if the wallet is short on USDC",
+			},
+			"prefund_slippage": map[string]any{
+				"type":        "number",
+				"description": "Slippage percent for the ETH->USDC top-up swap when auto-funding is used (default: 1)",
+			},
+			"prefund_buffer_percent": map[string]any{
+				"type":        "number",
+				"description": "Extra ETH buffer percent to buy slightly more USDC than the requested deposit (default: 3)",
+			},
+			"prefund_wait_seconds": map[string]any{
+				"type":        "number",
+				"description": "How long to wait for the ETH->USDC auto-funding swap to settle before giving up (default: 90 seconds)",
 			},
 		},
 		"required": []string{"amount"},
@@ -181,6 +197,18 @@ func (t *GDEXHLDepositTool) Execute(ctx context.Context, args map[string]any) *T
 	if v, ok := args["token_address"]; ok {
 		params["token_address"] = v
 	}
+	if v, ok := args["auto_fund_from_native"]; ok {
+		params["auto_fund_from_native"] = v
+	}
+	if v, ok := args["prefund_slippage"]; ok {
+		params["prefund_slippage"] = v
+	}
+	if v, ok := args["prefund_buffer_percent"]; ok {
+		params["prefund_buffer_percent"] = v
+	}
+	if v, ok := args["prefund_wait_seconds"]; ok {
+		params["prefund_wait_seconds"] = v
+	}
 
 	logger.InfoCF("tool", "gdex_hl_deposit executing", map[string]any{"amount": amount})
 
@@ -191,6 +219,209 @@ func (t *GDEXHLDepositTool) Execute(ctx context.Context, args map[string]any) *T
 	if err != nil {
 		logger.ErrorCF("tool", "gdex_hl_deposit failed", map[string]any{"error": err.Error()})
 		return ErrorResult(fmt.Sprintf("gdex_hl_deposit failed: %v", err))
+	}
+	return gdexResultToToolResult(result)
+}
+
+// ─── gdex_hl_withdraw ───────────────────────────────────────────────────────
+
+type GDEXHLWithdrawTool struct{}
+
+func (t *GDEXHLWithdrawTool) Name() string { return "gdex_hl_withdraw" }
+
+func (t *GDEXHLWithdrawTool) Description() string {
+	return "Withdraw USDC from HyperLiquid back to the managed Arbitrum wallet via the GDEX /v1/hl/withdraw endpoint. Amount is human-readable USDC, for example '1' to withdraw 1 USDC."
+}
+
+func (t *GDEXHLWithdrawTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"amount": map[string]any{
+				"type":        "string",
+				"description": "Human-readable USDC amount to withdraw from HyperLiquid (e.g. '1').",
+			},
+		},
+		"required": []string{"amount"},
+	}
+}
+
+func (t *GDEXHLWithdrawTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	amount, _ := args["amount"].(string)
+	if amount == "" {
+		return ErrorResult("amount is required")
+	}
+
+	logger.InfoCF("tool", "gdex_hl_withdraw executing", map[string]any{"amount": amount})
+
+	result, err := runNodeHelper(ctx, "market.js", map[string]any{
+		"action": "hl_withdraw",
+		"params": map[string]any{
+			"amount": amount,
+		},
+	})
+	if err != nil {
+		logger.ErrorCF("tool", "gdex_hl_withdraw failed", map[string]any{"error": err.Error()})
+		return ErrorResult(fmt.Sprintf("gdex_hl_withdraw failed: %v", err))
+	}
+	return gdexResultToToolResult(result)
+}
+
+// ─── gdex_bridge_estimate ───────────────────────────────────────────────────
+
+type GDEXBridgeEstimateTool struct{}
+
+func (t *GDEXBridgeEstimateTool) Name() string { return "gdex_bridge_estimate" }
+
+func (t *GDEXBridgeEstimateTool) Description() string {
+	return "Get a GDEX native-token bridge quote between supported chains. Amount must be in raw native units such as wei or lamports."
+}
+
+func (t *GDEXBridgeEstimateTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"from_chain_id": map[string]any{
+				"type":        "number",
+				"description": "Source chain ID, for example 1 for Ethereum or 42161 for Arbitrum",
+			},
+			"to_chain_id": map[string]any{
+				"type":        "number",
+				"description": "Destination chain ID, for example 8453 for Base or 622112261 for Solana",
+			},
+			"amount": map[string]any{
+				"type":        "string",
+				"description": "Amount in raw native units, for example wei on EVM chains or lamports on Solana",
+			},
+		},
+		"required": []string{"from_chain_id", "to_chain_id", "amount"},
+	}
+}
+
+func (t *GDEXBridgeEstimateTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	if _, ok := args["from_chain_id"]; !ok {
+		return ErrorResult("from_chain_id is required")
+	}
+	if _, ok := args["to_chain_id"]; !ok {
+		return ErrorResult("to_chain_id is required")
+	}
+	amount, _ := args["amount"].(string)
+	if amount == "" {
+		return ErrorResult("amount is required")
+	}
+
+	logger.InfoCF("tool", "gdex_bridge_estimate executing", map[string]any{
+		"from_chain_id": args["from_chain_id"],
+		"to_chain_id":   args["to_chain_id"],
+		"amount":        amount,
+	})
+
+	result, err := runNodeHelper(ctx, "market.js", map[string]any{
+		"action": "bridge_estimate",
+		"params": map[string]any{
+			"from_chain_id": args["from_chain_id"],
+			"to_chain_id":   args["to_chain_id"],
+			"amount":        amount,
+		},
+	})
+	if err != nil {
+		logger.ErrorCF("tool", "gdex_bridge_estimate failed", map[string]any{"error": err.Error()})
+		return ErrorResult(fmt.Sprintf("gdex_bridge_estimate failed: %v", err))
+	}
+	return gdexResultToToolResult(result)
+}
+
+// ─── gdex_bridge_request ────────────────────────────────────────────────────
+
+type GDEXBridgeRequestTool struct{}
+
+func (t *GDEXBridgeRequestTool) Name() string { return "gdex_bridge_request" }
+
+func (t *GDEXBridgeRequestTool) Description() string {
+	return "Execute a GDEX native-token bridge between supported chains. Requires control wallet credentials and uses managed-custody auth."
+}
+
+func (t *GDEXBridgeRequestTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"from_chain_id": map[string]any{
+				"type":        "number",
+				"description": "Source chain ID",
+			},
+			"to_chain_id": map[string]any{
+				"type":        "number",
+				"description": "Destination chain ID",
+			},
+			"amount": map[string]any{
+				"type":        "string",
+				"description": "Amount in raw native units, for example wei or lamports",
+			},
+		},
+		"required": []string{"from_chain_id", "to_chain_id", "amount"},
+	}
+}
+
+func (t *GDEXBridgeRequestTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	if _, ok := args["from_chain_id"]; !ok {
+		return ErrorResult("from_chain_id is required")
+	}
+	if _, ok := args["to_chain_id"]; !ok {
+		return ErrorResult("to_chain_id is required")
+	}
+	amount, _ := args["amount"].(string)
+	if amount == "" {
+		return ErrorResult("amount is required")
+	}
+
+	logger.InfoCF("tool", "gdex_bridge_request executing", map[string]any{
+		"from_chain_id": args["from_chain_id"],
+		"to_chain_id":   args["to_chain_id"],
+		"amount":        amount,
+	})
+
+	result, err := runNodeHelper(ctx, "market.js", map[string]any{
+		"action": "bridge_request",
+		"params": map[string]any{
+			"from_chain_id": args["from_chain_id"],
+			"to_chain_id":   args["to_chain_id"],
+			"amount":        amount,
+		},
+	})
+	if err != nil {
+		logger.ErrorCF("tool", "gdex_bridge_request failed", map[string]any{"error": err.Error()})
+		return ErrorResult(fmt.Sprintf("gdex_bridge_request failed: %v", err))
+	}
+	return gdexResultToToolResult(result)
+}
+
+// ─── gdex_bridge_orders ─────────────────────────────────────────────────────
+
+type GDEXBridgeOrdersTool struct{}
+
+func (t *GDEXBridgeOrdersTool) Name() string { return "gdex_bridge_orders" }
+
+func (t *GDEXBridgeOrdersTool) Description() string {
+	return "List recent GDEX bridge orders for the authenticated control wallet."
+}
+
+func (t *GDEXBridgeOrdersTool) Parameters() map[string]any {
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}
+}
+
+func (t *GDEXBridgeOrdersTool) Execute(ctx context.Context, _ map[string]any) *ToolResult {
+	logger.InfoCF("tool", "gdex_bridge_orders executing", map[string]any{})
+
+	result, err := runNodeHelper(ctx, "market.js", map[string]any{
+		"action": "bridge_orders",
+		"params": map[string]any{},
+	})
+	if err != nil {
+		logger.ErrorCF("tool", "gdex_bridge_orders failed", map[string]any{"error": err.Error()})
+		return ErrorResult(fmt.Sprintf("gdex_bridge_orders failed: %v", err))
 	}
 	return gdexResultToToolResult(result)
 }

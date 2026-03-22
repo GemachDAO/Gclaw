@@ -7,8 +7,10 @@ import (
 
 	"github.com/GemachDAO/Gclaw/pkg/config"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
+	"github.com/GemachDAO/Gclaw/pkg/replication"
 	"github.com/GemachDAO/Gclaw/pkg/routing"
 	"github.com/GemachDAO/Gclaw/pkg/session"
+	"github.com/GemachDAO/Gclaw/pkg/swarm"
 	"github.com/GemachDAO/Gclaw/pkg/tools"
 )
 
@@ -31,6 +33,10 @@ type AgentInstance struct {
 	Subagents      *config.SubagentsConfig
 	SkillsFilter   []string
 	Candidates     []providers.FallbackCandidate
+	Replicator     *replication.Replicator
+	TelepathyBus   *replication.TelepathyBus
+	TelepathyInbox <-chan replication.TelepathyMessage
+	Swarm          *swarm.SwarmCoordinator
 }
 
 // NewAgentInstance creates an agent instance from config.

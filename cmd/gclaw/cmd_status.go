@@ -6,8 +6,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/auth"
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
 
 func statusCmd() {
@@ -63,6 +66,12 @@ func statusCmd() {
 			}
 			return "not set"
 		}
+		runtimeState := func(ok bool) string {
+			if ok {
+				return "✓"
+			}
+			return "offline"
+		}
 		fmt.Println("OpenRouter API:", status(hasOpenRouter))
 		fmt.Println("Anthropic API:", status(hasAnthropic))
 		fmt.Println("OpenAI API:", status(hasOpenAI))
@@ -98,5 +107,82 @@ func statusCmd() {
 				fmt.Printf("  %s (%s): %s\n", provider, cred.AuthMethod, status)
 			}
 		}
+
+		probe := runtimeinfo.ProbeGateway(cfg, 1500*time.Millisecond)
+		trading, err := runtimeinfo.FetchTradingStatus(cfg, 2*time.Second)
+		if err != nil || trading == nil {
+			trading = runtimeinfo.PopulateManagedWallets(
+				cfg,
+				runtimeinfo.BuildTradingStatus(cfg, nil),
+				8*time.Second,
+			)
+		}
+		registration := runtimeinfo.BuildRegistrationStatus(cfg)
+
+		fmt.Println("\nGDEX Trading:")
+		fmt.Println("Enabled:", status(trading.Enabled))
+		fmt.Println("API Key:", status(trading.APIKeyConfigured))
+		if trading.WalletAddress != "" {
+			fmt.Println("Control Wallet:", trading.WalletAddress)
+		} else {
+			fmt.Println("Control Wallet: not configured")
+		}
+		fmt.Println("Private Key:", status(trading.HasPrivateKey))
+		fmt.Printf("Auto-Trade: %t\n", trading.AutoTradeEnabled)
+		if plan := trading.AutoTradePlan; plan != nil {
+			fmt.Printf("Auto-Trade Plan: %s via %s on %s\n", plan.AssetSymbol, plan.Venue, plan.ChainLabel)
+			if plan.AssetAddress != "" {
+				fmt.Printf("Auto-Trade Asset: %s\n", plan.AssetAddress)
+			}
+			if plan.Goal != "" {
+				fmt.Printf("Auto-Trade Goal: %s\n", plan.Goal)
+			}
+		}
+		if runtime := trading.AutoTradeRuntime; runtime != nil {
+			fmt.Printf("Auto-Trade Runtime: %s\n", runtime.State)
+			if runtime.Schedule != "" {
+				fmt.Printf("Auto-Trade Schedule: %s\n", runtime.Schedule)
+			}
+			if runtime.LastStatus != "" {
+				fmt.Printf("Auto-Trade Last Status: %s\n", runtime.LastStatus)
+			}
+			if runtime.LastError != "" {
+				fmt.Printf("Auto-Trade Last Error: %s\n", runtime.LastError)
+			}
+		}
+		fmt.Printf("Helpers: %s (%t)\n", trading.HelpersDir, trading.HelpersInstalled)
+		fmt.Printf("Trading Tools: %d\n", trading.ToolCount)
+		if len(trading.Tools) > 0 {
+			fmt.Println("Tool Names:", runtimeinfo.FormatToolList(trading.Tools))
+		}
+		if trading.ManagedWallets != nil {
+			fmt.Println("Managed Wallet Lookup:", trading.ManagedWallets.State)
+			if trading.ManagedWallets.EVMAddress != "" {
+				fmt.Println("Managed EVM Wallet:", trading.ManagedWallets.EVMAddress)
+			}
+			if trading.ManagedWallets.SolanaAddress != "" {
+				fmt.Println("Managed Solana Wallet:", trading.ManagedWallets.SolanaAddress)
+			}
+			if trading.ManagedWallets.Error != "" {
+				fmt.Println("Managed Wallet Note:", trading.ManagedWallets.Error)
+			} else if len(trading.ManagedWallets.Warnings) > 0 {
+				fmt.Println("Managed Wallet Note:", strings.Join(trading.ManagedWallets.Warnings, "; "))
+			}
+		}
+
+		fmt.Println("\nGateway:")
+		fmt.Println("Base URL:", probe.BaseURL)
+		fmt.Println("Dashboard URL:", registration.DashboardURL)
+		fmt.Println("Health:", runtimeState(probe.HealthOK))
+		fmt.Println("Ready:", runtimeState(probe.ReadyOK))
+		fmt.Println("Dashboard:", runtimeState(probe.DashboardOK))
+
+		fmt.Println("\nERC-8004:")
+		fmt.Println("Enabled:", status(registration.Enabled))
+		fmt.Println("State:", registration.State)
+		fmt.Println("Wallet Ready:", status(registration.WalletReady))
+		fmt.Printf("x402: %t\n", registration.X402Enabled)
+		fmt.Println("Registration URL:", registration.URL)
+		fmt.Println("Registration Live:", runtimeState(probe.RegistrationLive))
 	}
 }

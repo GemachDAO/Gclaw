@@ -190,6 +190,12 @@ func printHelp() {
 }
 
 func getConfigPath() string {
+	if path := os.Getenv("GCLAW_CONFIG_PATH"); path != "" {
+		return path
+	}
+	if path := os.Getenv("GCLAW_CONFIG"); path != "" {
+		return path
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".gclaw", "config.json")
 }

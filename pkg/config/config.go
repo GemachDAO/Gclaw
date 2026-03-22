@@ -552,9 +552,9 @@ type GmacTokenConfig struct {
 }
 
 // GDEXConfig holds configuration for GDEX DeFi trading tools.
-// DefaultChainID, MaxTradeSizeSOL, and AutoTrade are provided for future
-// enforcement by the agent; current tool implementations delegate to the
-// Node.js helpers which use their own defaults.
+// DefaultChainID, MaxTradeSizeSOL, and AutoTrade are consumed by the runtime
+// planner, dashboard/status surfaces, and autonomous trade loop before helper
+// execution is delegated to the Node.js SDK wrappers.
 type GDEXConfig struct {
 	Enabled         bool            `json:"enabled"            env:"GDEX_ENABLED"`
 	APIKey          string          `json:"api_key"            env:"GDEX_API_KEY"`

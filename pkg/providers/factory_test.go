@@ -216,6 +216,30 @@ func TestCreateProviderReturnsHTTPProviderForOpenRouter(t *testing.T) {
 	}
 }
 
+func TestCreateProviderInheritsOpenRouterProviderKeyForNamedModel(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.ModelName = "openrouter-gpt-5.2"
+	cfg.Providers.OpenRouter.APIKey = "sk-or-test"
+	cfg.ModelList = []config.ModelConfig{
+		{
+			ModelName: "openrouter-gpt-5.2",
+			Model:     "openrouter/openai/gpt-5.2",
+			APIBase:   "https://openrouter.ai/api/v1",
+		},
+	}
+
+	provider, modelID, err := CreateProvider(cfg)
+	if err != nil {
+		t.Fatalf("CreateProvider() error = %v", err)
+	}
+	if modelID != "openai/gpt-5.2" {
+		t.Fatalf("modelID = %q, want %q", modelID, "openai/gpt-5.2")
+	}
+	if _, ok := provider.(*HTTPProvider); !ok {
+		t.Fatalf("provider type = %T, want *HTTPProvider", provider)
+	}
+}
+
 func TestCreateProviderReturnsCodexCliProviderForCodexCode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Agents.Defaults.Model = "test-codex"

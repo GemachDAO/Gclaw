@@ -99,6 +99,12 @@ func (cb *ContextBuilder) buildToolsSection() string {
 	sb.WriteString(
 		"**CRITICAL**: You MUST use tools to perform actions. Do NOT pretend to execute commands or schedule tasks.\n\n",
 	)
+	sb.WriteString("Tool-use rules:\n")
+	sb.WriteString("- Never invent tool names, skill names, or capability categories. Only reference exact tool names from the list below.\n")
+	sb.WriteString("- For wallet addresses, funding status, helper readiness, auto-trade state, or loaded trading tools, call `dashboard` with section `funding` before answering.\n")
+	sb.WriteString("- For ERC-8004 or x402 status, call `dashboard` with section `registration` before answering.\n")
+	sb.WriteString("- If asked which tools are loaded, list the exact tool names below instead of summarizing them into made-up groups.\n")
+	sb.WriteString("- If a tool fails, name the exact tool that failed and report the failure instead of substituting invented capabilities.\n\n")
 	sb.WriteString("You have access to the following tools:\n\n")
 	for _, s := range summaries {
 		sb.WriteString(s)
@@ -146,6 +152,7 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 		"SOUL.md",
 		"USER.md",
 		"IDENTITY.md",
+		"TRADING_STRATEGY.md",
 	}
 
 	var sb strings.Builder

@@ -2,6 +2,7 @@ package swarm
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,14 +55,34 @@ type ConsensusResult struct {
 	Reasoning    string         `json:"reasoning"` // summary of agent reasoning
 }
 
+// ExecutionDecision is the pending executable outcome derived from consensus.
+type ExecutionDecision struct {
+	Action       string  `json:"action"`
+	TokenAddress string  `json:"token_address"`
+	ChainID      int     `json:"chain_id"`
+	Confidence   float64 `json:"confidence"`
+	ExecutorID   string  `json:"executor_id,omitempty"`
+	Strategy     string  `json:"strategy,omitempty"`
+	SpendAmount  string  `json:"spend_amount,omitempty"`
+	SellAmount   string  `json:"sell_amount,omitempty"`
+	Summary      string  `json:"summary,omitempty"`
+	Status       string  `json:"status"`
+	Notes        string  `json:"notes,omitempty"`
+	CreatedAt    int64   `json:"created_at"`
+	UpdatedAt    int64   `json:"updated_at"`
+}
+
 // SwarmCoordinator manages a swarm of child agents for distributed trading.
 type SwarmCoordinator struct {
-	config       SwarmConfig
-	leaderID     string
-	members      []*SwarmMember
-	signals      map[string][]SwarmSignal // token_address -> signals
-	telepathyBus *replication.TelepathyBus
-	mu           sync.RWMutex
+	config           SwarmConfig
+	leaderID         string
+	members          []*SwarmMember
+	signals          map[string][]SwarmSignal // token_address -> signals
+	lastConsensus    *ConsensusResult
+	lastDecision     *ExecutionDecision
+	lastRebalancedAt int64
+	telepathyBus     *replication.TelepathyBus
+	mu               sync.RWMutex
 }
 
 // NewSwarmCoordinator creates a new SwarmCoordinator.
@@ -99,6 +120,9 @@ func (sc *SwarmCoordinator) AddMember(agentID, role, strategy string) error {
 		if m.AgentID == agentID {
 			return fmt.Errorf("agent %s is already in the swarm", agentID)
 		}
+	}
+	if strategy == "" {
+		strategy = defaultStrategyForRole(role)
 	}
 	sc.members = append(sc.members, &SwarmMember{
 		AgentID:    agentID,
@@ -264,6 +288,27 @@ func (sc *SwarmCoordinator) RunConsensus(tokenAddress string, chainID int) (*Con
 		result.Reasoning = strings.Join(reasonings, "; ")
 	}
 
+	sc.mu.Lock()
+	sc.lastConsensus = copyConsensusResult(result)
+	if result.Approved {
+		sc.maybeRebalanceLocked(time.Now())
+		sc.lastDecision = sc.buildExecutionDecisionLocked(result)
+	} else {
+		sc.lastDecision = nil
+	}
+	sc.mu.Unlock()
+
+	if result.Approved && sc.telepathyBus != nil {
+		sc.telepathyBus.Broadcast(replication.TelepathyMessage{
+			FromAgentID: sc.leaderID,
+			ToAgentID:   "*",
+			Type:        "swarm_execution_plan",
+			Content:     result.Action + " " + result.TokenAddress,
+			Timestamp:   time.Now().UnixMilli(),
+			Priority:    2,
+		})
+	}
+
 	return result, nil
 }
 
@@ -298,6 +343,7 @@ func (sc *SwarmCoordinator) UpdateMemberPerformance(agentID string, pnl float64)
 		if m.AgentID == agentID {
 			m.Performance += pnl
 			m.LastActive = time.Now().UnixMilli()
+			sc.maybeRebalanceLocked(time.Now())
 			return
 		}
 	}
@@ -313,6 +359,71 @@ func (sc *SwarmCoordinator) GetLeaderID() string {
 	return sc.leaderID
 }
 
+// SetTelepathyBus injects the family telepathy bus into a loaded coordinator.
+func (sc *SwarmCoordinator) SetTelepathyBus(bus *replication.TelepathyBus) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.telepathyBus = bus
+}
+
+// GetSignalCount returns the total number of active signals tracked by the swarm.
+func (sc *SwarmCoordinator) GetSignalCount() int {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	total := 0
+	for _, signals := range sc.signals {
+		total += len(signals)
+	}
+	return total
+}
+
+// GetLastConsensus returns the most recent consensus outcome.
+func (sc *SwarmCoordinator) GetLastConsensus() *ConsensusResult {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return copyConsensusResult(sc.lastConsensus)
+}
+
+// GetLastDecision returns the most recent executable decision.
+func (sc *SwarmCoordinator) GetLastDecision() *ExecutionDecision {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return copyExecutionDecision(sc.lastDecision)
+}
+
+// GetLastRebalancedAt returns the last strategy rebalance timestamp.
+func (sc *SwarmCoordinator) GetLastRebalancedAt() int64 {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	return sc.lastRebalancedAt
+}
+
+// PendingDecisionFor returns the pending decision assigned to agentID.
+func (sc *SwarmCoordinator) PendingDecisionFor(agentID string) *ExecutionDecision {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	if sc.lastDecision == nil || sc.lastDecision.Status != "pending" {
+		return nil
+	}
+	if sc.lastDecision.ExecutorID != "" && sc.lastDecision.ExecutorID != agentID {
+		return nil
+	}
+	return copyExecutionDecision(sc.lastDecision)
+}
+
+// MarkDecisionStatus updates the current decision status after execution.
+func (sc *SwarmCoordinator) MarkDecisionStatus(status, notes string) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if sc.lastDecision == nil {
+		return
+	}
+	sc.lastDecision.Status = status
+	sc.lastDecision.Notes = strings.TrimSpace(notes)
+	sc.lastDecision.UpdatedAt = time.Now().UnixMilli()
+}
+
 // majorityAction returns the action with the highest vote count.
 func majorityAction(counts map[string]int) string {
 	best := ""
@@ -324,4 +435,139 @@ func majorityAction(counts map[string]int) string {
 		}
 	}
 	return best
+}
+
+func (sc *SwarmCoordinator) buildExecutionDecisionLocked(result *ConsensusResult) *ExecutionDecision {
+	now := time.Now().UnixMilli()
+	decision := &ExecutionDecision{
+		Action:       result.Action,
+		TokenAddress: result.TokenAddress,
+		ChainID:      result.ChainID,
+		Confidence:   result.Confidence,
+		Status:       "pending",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	executor := sc.pickExecutorLocked()
+	if executor != nil {
+		decision.ExecutorID = executor.AgentID
+		decision.Strategy = executor.Strategy
+	}
+	switch result.Action {
+	case "sell":
+		decision.SellAmount = "25%"
+		decision.Summary = "Consensus approved a defensive trim of the signaled asset."
+	default:
+		decision.SpendAmount = "0.01"
+		decision.Summary = "Consensus approved a small liquid entry for the assigned executor."
+	}
+	return decision
+}
+
+func (sc *SwarmCoordinator) pickExecutorLocked() *SwarmMember {
+	var best *SwarmMember
+	for _, member := range sc.members {
+		if member.Status == "stopped" {
+			continue
+		}
+		if member.Role != RoleExecutor && member.AgentID != sc.leaderID {
+			continue
+		}
+		if best == nil || member.Performance > best.Performance {
+			best = member
+		}
+	}
+	if best != nil {
+		return best
+	}
+	for _, member := range sc.members {
+		if member.Status == "stopped" {
+			continue
+		}
+		if best == nil || member.Performance > best.Performance {
+			best = member
+		}
+	}
+	return best
+}
+
+func (sc *SwarmCoordinator) maybeRebalanceLocked(now time.Time) {
+	if !sc.config.StrategyRotation || len(sc.members) < 2 {
+		return
+	}
+	if sc.lastRebalancedAt != 0 {
+		next := time.UnixMilli(sc.lastRebalancedAt).Add(time.Duration(sc.config.RebalanceInterval) * time.Minute)
+		if now.Before(next) {
+			return
+		}
+	}
+
+	nonLeaders := make([]*SwarmMember, 0, len(sc.members))
+	for _, member := range sc.members {
+		if member.AgentID == sc.leaderID {
+			continue
+		}
+		nonLeaders = append(nonLeaders, member)
+	}
+	if len(nonLeaders) == 0 {
+		return
+	}
+
+	sort.SliceStable(nonLeaders, func(i, j int) bool {
+		return nonLeaders[i].Performance > nonLeaders[j].Performance
+	})
+	strategies := make([]string, 0, len(nonLeaders))
+	for _, member := range nonLeaders {
+		strategies = append(strategies, member.Strategy)
+	}
+	for idx, member := range nonLeaders {
+		if len(strategies) > 0 {
+			member.Strategy = strategies[(idx+1)%len(strategies)]
+		}
+		switch idx {
+		case 0:
+			member.Role = RoleExecutor
+		case len(nonLeaders) - 1:
+			member.Role = RoleAnalyst
+		default:
+			member.Role = RoleScout
+		}
+		member.LastActive = now.UnixMilli()
+	}
+	sc.lastRebalancedAt = now.UnixMilli()
+}
+
+func copyConsensusResult(result *ConsensusResult) *ConsensusResult {
+	if result == nil {
+		return nil
+	}
+	out := *result
+	if result.Votes != nil {
+		out.Votes = make(map[string]int, len(result.Votes))
+		for key, value := range result.Votes {
+			out.Votes[key] = value
+		}
+	}
+	return &out
+}
+
+func copyExecutionDecision(decision *ExecutionDecision) *ExecutionDecision {
+	if decision == nil {
+		return nil
+	}
+	out := *decision
+	return &out
+}
+
+func defaultStrategyForRole(role string) string {
+	switch role {
+	case RoleLeader:
+		return "profit_to_gmach"
+	case RoleExecutor:
+		return "liquid_executor"
+	case RoleAnalyst:
+		return "market_structure"
+	default:
+		return "signal_scout"
+	}
 }

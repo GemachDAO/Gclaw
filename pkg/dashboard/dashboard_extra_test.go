@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
 
 // --- formatAgo ---
@@ -99,6 +101,7 @@ func TestServeSection_ValidSection(t *testing.T) {
 			return &MetabolismSnapshot{Balance: 100}
 		},
 		GetFamily:    func() *FamilySnapshot { return &FamilySnapshot{} },
+		GetAutonomy:  func() *runtimeinfo.AutonomyStatus { return &runtimeinfo.AutonomyStatus{} },
 		GetTelepathy: func() *TelepathySnapshot { return &TelepathySnapshot{} },
 		GetSwarm:     func() *SwarmSnapshot { return &SwarmSnapshot{} },
 	})
@@ -108,9 +111,14 @@ func TestServeSection_ValidSection(t *testing.T) {
 	for _, path := range []string{
 		"/dashboard/api",
 		"/dashboard/api/metabolism",
+		"/dashboard/api/trading",
+		"/dashboard/api/funding",
+		"/dashboard/api/autonomy",
 		"/dashboard/api/family",
 		"/dashboard/api/telepathy",
 		"/dashboard/api/swarm",
+		"/dashboard/api/registration",
+		"/dashboard/api/system",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
@@ -131,5 +139,153 @@ func TestServeSection_MethodNotAllowed(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestRenderHTML_FundingDepositQRCodes(t *testing.T) {
+	html := renderHTML(&DashboardData{
+		AgentID: "main",
+		Uptime:  "1m",
+		TradingAccess: &runtimeinfo.TradingStatus{
+			WalletAddress:    "0xcontrol",
+			APIKeyConfigured: true,
+			HasPrivateKey:    true,
+			AutoTradeEnabled: true,
+			AutoTradePlan: &runtimeinfo.AutoTradeStrategy{
+				Mode:         "profit_rotation",
+				Venue:        "route_aware",
+				ChainLabel:   "Ethereum",
+				AssetSymbol:  "GMAC",
+				Goal:         "Seek liquid opportunities, realize partial gains, and rotate the proceeds back into Gemach inventory.",
+				SignalSource: "gdex_holdings + gdex_scan + gdex_trending",
+			},
+			AutoTradeRuntime: &runtimeinfo.AutoTradeRuntimeStatus{
+				State:    "scheduled",
+				Schedule: "every 5m",
+			},
+			ManagedWallets: &runtimeinfo.ManagedWalletStatus{
+				State:         "ready",
+				EVMAddress:    "0x635dfc3c6241b9f3260e41f8a59855a1d06f33a3",
+				SolanaAddress: "3yCvkHHnTENFk1AEg1RUwdABvK3Jh81zaeeLrXtE2GkC",
+			},
+		},
+		Autonomy: &runtimeinfo.AutonomyStatus{
+			Identity: runtimeinfo.AgentIdentityStatus{
+				Fingerprint: "A1B2-C3D4-E5F6-7788",
+				Signature:   "HELIX-A1B2-C3D4",
+				Palette:     []string{"#38bdf8", "#f97316", "#14b8a6"},
+				Traits:      []string{"adaptive stance", "22-rung spine", "wide helix"},
+			},
+			DNA: runtimeinfo.AgentDNA{
+				Objective:            "profit_to_gmach",
+				ProfitSink:           "GMAC inventory, replication capital, and self-recode budget",
+				PreferredChains:      []string{"Ethereum", "Arbitrum"},
+				PreferredVenues:      []string{"hyperliquid_perps", "gdex_bridge", "gdex_spot"},
+				SpotSpend:            "0.01",
+				PerpExecutionModel:   "position-sized HyperLiquid execution",
+				ReplicationThreshold: 50,
+				RecodeThreshold:      100,
+				SwarmTarget:          5,
+				StrategyRotation:     true,
+			},
+			KnowledgeGraph: runtimeinfo.KnowledgeGraphStatus{
+				NodeCount: 11,
+				EdgeCount: 15,
+				Domains:   []string{"wallets", "routes", "venues"},
+				KeyNodes: []string{
+					"objective:profit_to_gmach",
+					"wallet:managed_evm:0x635dfc…33a3",
+					"venue:gdex_spot",
+				},
+			},
+			Router: runtimeinfo.SelfHealingRouterStatus{
+				State:         "self-healing",
+				SelectedRoute: "spot_gmac_direct",
+				FallbackRoute: "hyperliquid_profit_loop",
+				Health: []runtimeinfo.RouteHealthSignal{
+					{Name: "helpers", State: "ready", Detail: "GDEX helper runtime availability"},
+					{Name: "hl_execution", State: "provisional", Detail: "HyperLiquid order leg is wired. Unfunded HL accounts still need a settled USDC deposit before orders can execute; gdex_hl_deposit can auto-fund from Arbitrum ETH first."},
+				},
+				Routes: []runtimeinfo.RouteCandidate{
+					{
+						Name:     "spot_gmac_direct",
+						State:    "ready",
+						Selected: true,
+						Summary:  "Use direct GDEX spot buys to compound into GMAC inventory.",
+						Steps:    []string{"capital", "gdex_buy", "GMAC inventory"},
+					},
+					{
+						Name:     "hyperliquid_profit_loop",
+						State:    "degraded",
+						Summary:  "Bridge capital, auto-fund HyperLiquid from Arbitrum ETH or USDC, trade perps, then recycle profits into GMAC.",
+						Steps:    []string{"capital", "gdex_bridge_estimate", "gdex_bridge_request", "gdex_hl_deposit", "gdex_hl_create_order", "gdex_buy", "GMAC inventory"},
+						Blockers: []string{"HyperLiquid order flow needs a settled USDC deposit before the account can place orders"},
+					},
+				},
+			},
+		},
+	})
+
+	for _, want := range []string{
+		"Managed EVM",
+		"Managed Solana",
+		"Deposit",
+		"data:image/png;base64,",
+		"Auto-Trade Runtime",
+		"Auto-Trade Plan",
+		"GMAC via route_aware on Ethereum",
+		"Auto-Trade Goal",
+		"every 5m",
+		"Autonomy",
+		"Agent DNA Signature",
+		"HELIX-A1B2-C3D4",
+		"A1B2-C3D4-E5F6-7788",
+		"adaptive stance",
+		"spot_gmac_direct",
+		"Profit Sink",
+		"Knowledge Graph",
+		"Key Nodes",
+		"objective:profit_to_gmach",
+		"Route Health",
+		"helpers",
+		"hl_execution",
+		"selected",
+		"HyperLiquid order flow needs a settled USDC deposit before the account can place orders",
+		"auto-fund HyperLiquid from Arbitrum ETH or USDC",
+		"11 nodes / 15 edges",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected %q in funding HTML", want)
+		}
+	}
+}
+
+func TestRenderHTML_TradingStatsAreHonestWithoutRealizedPnL(t *testing.T) {
+	html := renderHTML(&DashboardData{
+		AgentID: "main",
+		Uptime:  "1m",
+		Trading: &TradingSnapshot{
+			TotalTrades:    17,
+			RealizedTrades: 0,
+			HasRealizedPnL: false,
+			ProfitablePct:  0,
+			TotalPnL:       0,
+		},
+	})
+
+	for _, want := range []string{
+		"Trade Executions",
+		"17",
+		"Realized Trades",
+		"Realized Win Rate",
+		"n/a",
+		"pending realization",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("expected %q in trading HTML", want)
+		}
+	}
+	if strings.Contains(html, "Total Trades") {
+		t.Fatal("expected old misleading trade label to be absent")
 	}
 }

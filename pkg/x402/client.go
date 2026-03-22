@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/GemachDAO/Gclaw/pkg/logger"
+	"github.com/GemachDAO/Gclaw/pkg/utils"
 )
 
 // ClientConfig configures the x402 HTTP client (buyer-side).
@@ -324,14 +325,7 @@ var (
 )
 
 func x402HelperDir() string {
-	if dir := os.Getenv("X402_HELPERS_DIR"); dir != "" {
-		return dir
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "workspace/skills/x402-payment/helpers"
-	}
-	return filepath.Join(wd, "workspace", "skills", "x402-payment", "helpers")
+	return utils.ResolveWorkspaceSkillDir("X402_HELPERS_DIR", "x402-payment/helpers")
 }
 
 func ensureX402Deps() error {

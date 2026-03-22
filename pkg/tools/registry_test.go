@@ -2,10 +2,13 @@ package tools
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/GemachDAO/Gclaw/pkg/metabolism"
 	"github.com/GemachDAO/Gclaw/pkg/providers"
 )
 
@@ -192,6 +195,75 @@ func TestToolRegistry_ExecuteWithContext_AsyncCallback(t *testing.T) {
 	}
 }
 
+func TestToolRegistry_TradeObserverRunsWithoutMetabolism(t *testing.T) {
+	r := NewToolRegistry()
+	r.Register(&mockRegistryTool{
+		name:   "gdex_buy",
+		desc:   "buy token",
+		params: map[string]any{"type": "object"},
+		result: SilentResult(`{"tokenAddress":"0xabc","amount":"1.5","chainID":1}`),
+	})
+
+	var observed TradeRecord
+	called := 0
+	r.AddTradeObserver(func(record TradeRecord) {
+		called++
+		observed = record
+	})
+
+	result := r.Execute(context.Background(), "gdex_buy", nil)
+	if result.IsError {
+		t.Fatalf("expected success, got %s", result.ForLLM)
+	}
+	if called != 1 {
+		t.Fatalf("expected 1 observer call, got %d", called)
+	}
+	if observed.Action != "buy" {
+		t.Fatalf("expected action buy, got %q", observed.Action)
+	}
+	if observed.TokenAddress != "0xabc" {
+		t.Fatalf("expected token address 0xabc, got %q", observed.TokenAddress)
+	}
+	history := r.GetTradeHistory(10)
+	if len(history) != 1 {
+		t.Fatalf("expected trade history to record 1 trade, got %d", len(history))
+	}
+}
+
+func TestToolRegistry_PersistsTradeHistory(t *testing.T) {
+	r := NewToolRegistry()
+	path := filepath.Join(t.TempDir(), "runtime", "trade_history.json")
+	if err := r.SetTradeHistoryPersistence(path); err != nil {
+		t.Fatalf("SetTradeHistoryPersistence failed: %v", err)
+	}
+	r.Register(&mockRegistryTool{
+		name:   "gdex_buy",
+		desc:   "buy token",
+		params: map[string]any{"type": "object"},
+		result: SilentResult(`{"tokenAddress":"0xabc","amount":"1.5","chainID":1}`),
+	})
+
+	result := r.Execute(context.Background(), "gdex_buy", nil)
+	if result.IsError {
+		t.Fatalf("expected successful trade execution, got %s", result.ForLLM)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected persisted trade history file, got %v", err)
+	}
+
+	reloaded := NewToolRegistry()
+	if err := reloaded.SetTradeHistoryPersistence(path); err != nil {
+		t.Fatalf("reloading trade history failed: %v", err)
+	}
+	history := reloaded.GetTradeHistory(0)
+	if len(history) != 1 {
+		t.Fatalf("expected 1 persisted trade, got %d", len(history))
+	}
+	if history[0].TokenAddress != "0xabc" {
+		t.Fatalf("unexpected persisted trade history: %+v", history[0])
+	}
+}
+
 func TestToolRegistry_GetDefinitions(t *testing.T) {
 	r := NewToolRegistry()
 	r.Register(newMockTool("alpha", "tool A"))
@@ -346,5 +418,69 @@ func TestToolRegistry_ConcurrentAccess(t *testing.T) {
 
 	if r.Count() == 0 {
 		t.Error("expected tools to be registered after concurrent access")
+	}
+}
+
+func TestToolRegistry_RecordsTradeHistory(t *testing.T) {
+	r := NewToolRegistry()
+	r.SetMetabolism(metabolism.NewMetabolism(1000, metabolism.Thresholds{}))
+	r.Register(&mockRegistryTool{
+		name:   "gdex_buy",
+		desc:   "buy token",
+		params: map[string]any{"type": "object"},
+		result: SilentResult(`{"token_address":"0xgmac","amount":"1000","chain_id":8453}`),
+	})
+
+	result := r.Execute(context.Background(), "gdex_buy", nil)
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.ForLLM)
+	}
+
+	history := r.GetTradeHistory(10)
+	if len(history) != 1 {
+		t.Fatalf("expected 1 trade history record, got %d", len(history))
+	}
+	if history[0].TokenAddress != "0xgmac" {
+		t.Fatalf("expected token address to be recorded, got %q", history[0].TokenAddress)
+	}
+	if history[0].ChainID != 8453 {
+		t.Fatalf("expected chain id 8453, got %d", history[0].ChainID)
+	}
+}
+
+func TestToolRegistry_TradeHistoryFallsBackToArgsWhenHelperOmitsFields(t *testing.T) {
+	r := NewToolRegistry()
+	r.SetMetabolism(metabolism.NewMetabolism(1000, metabolism.Thresholds{}))
+	r.Register(&mockRegistryTool{
+		name:   "gdex_buy",
+		desc:   "buy token",
+		params: map[string]any{"type": "object"},
+		result: SilentResult(`{"requestId":"abc123","status":"processing"}`),
+	})
+
+	result := r.Execute(context.Background(), "gdex_buy", map[string]any{
+		"token_address": "0xgmac",
+		"amount":        "0.01",
+		"chain_id":      8453,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected tool error: %s", result.ForLLM)
+	}
+
+	history := r.GetTradeHistory(10)
+	if len(history) != 1 {
+		t.Fatalf("expected 1 trade history record, got %d", len(history))
+	}
+	if history[0].TokenAddress != "0xgmac" {
+		t.Fatalf("expected token address fallback to args, got %q", history[0].TokenAddress)
+	}
+	if history[0].Amount != "0.01" {
+		t.Fatalf("expected amount fallback to args, got %q", history[0].Amount)
+	}
+	if history[0].ChainID != 8453 {
+		t.Fatalf("expected chain id fallback to args, got %d", history[0].ChainID)
+	}
+	if history[0].HasPnL {
+		t.Fatal("expected no realized PnL for request/status-only result")
 	}
 }

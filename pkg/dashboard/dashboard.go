@@ -10,21 +10,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
 
 // DashboardData is the complete snapshot of the agent's life-state.
 type DashboardData struct {
-	AgentID       string              `json:"agent_id"`
-	Generation    int                 `json:"generation"`
-	Uptime        string              `json:"uptime"`
-	StartedAt     int64               `json:"started_at"`
-	Metabolism    *MetabolismSnapshot `json:"metabolism,omitempty"`
-	Trading       *TradingSnapshot    `json:"trading,omitempty"`
-	Family        *FamilySnapshot     `json:"family,omitempty"`
-	Telepathy     *TelepathySnapshot  `json:"telepathy,omitempty"`
-	Swarm         *SwarmSnapshot      `json:"swarm,omitempty"`
-	RecodeHistory []RecodeEntry       `json:"recode_history,omitempty"`
-	System        *SystemSnapshot     `json:"system,omitempty"`
+	AgentID       string                          `json:"agent_id"`
+	Generation    int                             `json:"generation"`
+	Uptime        string                          `json:"uptime"`
+	StartedAt     int64                           `json:"started_at"`
+	Metabolism    *MetabolismSnapshot             `json:"metabolism,omitempty"`
+	Trading       *TradingSnapshot                `json:"trading,omitempty"`
+	TradingAccess *runtimeinfo.TradingStatus      `json:"trading_access,omitempty"`
+	Autonomy      *runtimeinfo.AutonomyStatus     `json:"autonomy,omitempty"`
+	Family        *FamilySnapshot                 `json:"family,omitempty"`
+	Telepathy     *TelepathySnapshot              `json:"telepathy,omitempty"`
+	Swarm         *SwarmSnapshot                  `json:"swarm,omitempty"`
+	RecodeHistory []RecodeEntry                   `json:"recode_history,omitempty"`
+	Registration  *runtimeinfo.RegistrationStatus `json:"registration,omitempty"`
+	System        *SystemSnapshot                 `json:"system,omitempty"`
 }
 
 // MetabolismSnapshot captures the current metabolism state.
@@ -48,6 +53,8 @@ type LedgerEntry struct {
 // TradingSnapshot captures recent trading activity.
 type TradingSnapshot struct {
 	TotalTrades     int          `json:"total_trades"`
+	RealizedTrades  int          `json:"realized_trades"`
+	HasRealizedPnL  bool         `json:"has_realized_pnl"`
 	ProfitablePct   float64      `json:"profitable_pct"`
 	TotalPnL        float64      `json:"total_pnl"`
 	ActivePositions int          `json:"active_positions"`
@@ -61,6 +68,7 @@ type TradeEntry struct {
 	TokenAddress string  `json:"token_address"`
 	Amount       string  `json:"amount"`
 	PnL          float64 `json:"pnl,omitempty"`
+	HasPnL       bool    `json:"has_pnl,omitempty"`
 	ChainID      int     `json:"chain_id"`
 }
 
@@ -73,13 +81,20 @@ type FamilySnapshot struct {
 
 // ChildInfo describes a single child agent.
 type ChildInfo struct {
-	ID         string   `json:"id"`
-	Generation int      `json:"generation"`
-	Status     string   `json:"status"`
-	GMAC       float64  `json:"gmac"`
-	Goodwill   int      `json:"goodwill"`
-	Mutations  []string `json:"mutations"`
-	CreatedAt  int64    `json:"created_at"`
+	ID              string   `json:"id"`
+	Label           string   `json:"label,omitempty"`
+	Generation      int      `json:"generation"`
+	Status          string   `json:"status"`
+	GMAC            float64  `json:"gmac"`
+	Goodwill        int      `json:"goodwill"`
+	Mutations       []string `json:"mutations"`
+	Style           string   `json:"style,omitempty"`
+	Role            string   `json:"role,omitempty"`
+	RiskProfile     string   `json:"risk_profile,omitempty"`
+	PreferredChains []string `json:"preferred_chains,omitempty"`
+	PreferredVenues []string `json:"preferred_venues,omitempty"`
+	StrategyHint    string   `json:"strategy_hint,omitempty"`
+	CreatedAt       int64    `json:"created_at"`
 }
 
 // TelepathySnapshot captures inter-agent message activity.
@@ -87,6 +102,7 @@ type TelepathySnapshot struct {
 	TotalMessages  int              `json:"total_messages"`
 	RecentMessages []TelepathyEntry `json:"recent_messages"`
 	ActiveChannels int              `json:"active_channels"`
+	Persistent     bool             `json:"persistent"`
 }
 
 // TelepathyEntry is a single inter-agent message.
@@ -101,11 +117,14 @@ type TelepathyEntry struct {
 
 // SwarmSnapshot captures the current swarm state.
 type SwarmSnapshot struct {
-	IsLeader      bool              `json:"is_leader"`
-	MemberCount   int               `json:"member_count"`
-	Members       []SwarmMemberInfo `json:"members"`
-	ActiveSignals int               `json:"active_signals"`
-	ConsensusMode string            `json:"consensus_mode"`
+	IsLeader         bool                `json:"is_leader"`
+	MemberCount      int                 `json:"member_count"`
+	Members          []SwarmMemberInfo   `json:"members"`
+	ActiveSignals    int                 `json:"active_signals"`
+	ConsensusMode    string              `json:"consensus_mode"`
+	LastConsensus    *SwarmConsensusInfo `json:"last_consensus,omitempty"`
+	LastDecision     *SwarmDecisionInfo  `json:"last_decision,omitempty"`
+	LastRebalancedAt int64               `json:"last_rebalanced_at,omitempty"`
 }
 
 // SwarmMemberInfo describes a single swarm member.
@@ -115,6 +134,26 @@ type SwarmMemberInfo struct {
 	Strategy    string  `json:"strategy"`
 	Performance float64 `json:"performance"`
 	Status      string  `json:"status"`
+}
+
+// SwarmConsensusInfo is the last vote outcome observed by the runtime.
+type SwarmConsensusInfo struct {
+	Action       string  `json:"action"`
+	TokenAddress string  `json:"token_address"`
+	ChainID      int     `json:"chain_id"`
+	Confidence   float64 `json:"confidence"`
+	Approved     bool    `json:"approved"`
+}
+
+// SwarmDecisionInfo is the last pending/executed decision assigned by the swarm.
+type SwarmDecisionInfo struct {
+	Action       string `json:"action"`
+	TokenAddress string `json:"token_address"`
+	ChainID      int    `json:"chain_id"`
+	ExecutorID   string `json:"executor_id,omitempty"`
+	Strategy     string `json:"strategy,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Summary      string `json:"summary,omitempty"`
 }
 
 // RecodeEntry records a single self-modification action.
@@ -142,10 +181,13 @@ type DashboardOptions struct {
 	AgentID          string
 	StartedAt        int64
 	GetMetabolism    func() *MetabolismSnapshot
+	GetTradingAccess func() *runtimeinfo.TradingStatus
+	GetAutonomy      func() *runtimeinfo.AutonomyStatus
 	GetFamily        func() *FamilySnapshot
 	GetTelepathy     func() *TelepathySnapshot
 	GetSwarm         func() *SwarmSnapshot
 	GetRecodeHistory func() []RecodeEntry
+	GetRegistration  func() *runtimeinfo.RegistrationStatus
 	GetSystem        func() *SystemSnapshot
 	GetTrading       func() *TradingSnapshot
 }
@@ -186,6 +228,18 @@ func (d *Dashboard) GetData() *DashboardData {
 		}
 	}
 
+	if d.opts.GetTradingAccess != nil {
+		if snap := d.opts.GetTradingAccess(); snap != nil {
+			data.TradingAccess = snap
+		}
+	}
+
+	if d.opts.GetAutonomy != nil {
+		if snap := d.opts.GetAutonomy(); snap != nil {
+			data.Autonomy = snap
+		}
+	}
+
 	if d.opts.GetTelepathy != nil {
 		if snap := d.opts.GetTelepathy(); snap != nil {
 			data.Telepathy = snap
@@ -205,6 +259,12 @@ func (d *Dashboard) GetData() *DashboardData {
 	if d.opts.GetSystem != nil {
 		if snap := d.opts.GetSystem(); snap != nil {
 			data.System = snap
+		}
+	}
+
+	if d.opts.GetRegistration != nil {
+		if snap := d.opts.GetRegistration(); snap != nil {
+			data.Registration = snap
 		}
 	}
 
