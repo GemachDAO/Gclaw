@@ -305,7 +305,8 @@ func registerSharedTools(
 			telepathyBus = telepathyBuses[busKey]
 			if telepathyBus == nil {
 				telepathyBus = replication.NewTelepathyBus(msgBus, busKey, agentID)
-				if err := telepathyBus.EnableFilePersistence(replication.TelepathyDir(agent.Workspace, busKey)); err != nil {
+				persistDir := replication.TelepathyDir(agent.Workspace, busKey)
+				if err := telepathyBus.EnableFilePersistence(persistDir); err != nil {
 					logger.WarnCF("agent", "Failed to enable telepathy persistence",
 						map[string]any{"agent": agentID, "error": err.Error()})
 				}

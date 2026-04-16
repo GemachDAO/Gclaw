@@ -301,7 +301,11 @@ func renderHTML(data *DashboardData) string {
 			if ta.ManagedWallets.Error != "" {
 				managedNote = fmt.Sprintf(`<div class="tool-list">%s</div>`, htmlEscape(ta.ManagedWallets.Error))
 			} else if len(ta.ManagedWallets.Warnings) > 0 {
-				managedNote = fmt.Sprintf(`<div class="tool-list">%s</div>`, htmlEscape(strings.Join(ta.ManagedWallets.Warnings, "; ")))
+				joined := strings.Join(ta.ManagedWallets.Warnings, "; ")
+				managedNote = fmt.Sprintf(
+					`<div class="tool-list">%s</div>`,
+					htmlEscape(joined),
+				)
 			}
 		}
 		fundingGuidance = buildFundingInstructionHTML(ta.FundingInstructions)
