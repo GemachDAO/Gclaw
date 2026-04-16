@@ -50,12 +50,12 @@ func gatewayCmd() {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
-	if err := repairLegacyWorkspaceFiles(cfg.WorkspacePath()); err != nil {
-		fmt.Printf("Warning: could not repair legacy workspace skills: %v\n", err)
+	if repairErr := repairLegacyWorkspaceFiles(cfg.WorkspacePath()); repairErr != nil {
+		fmt.Printf("Warning: could not repair legacy workspace skills: %v\n", repairErr)
 	}
 
-	if walletAddr, generated, err := ensureGDEXWallet(cfg); err != nil {
-		fmt.Printf("Warning: could not prepare GDEX wallet: %v\n", err)
+	if walletAddr, generated, walletErr := ensureGDEXWallet(cfg); walletErr != nil {
+		fmt.Printf("Warning: could not prepare GDEX wallet: %v\n", walletErr)
 	} else if generated {
 		fmt.Printf("✓ GDEX control wallet ready: %s\n", walletAddr)
 	}

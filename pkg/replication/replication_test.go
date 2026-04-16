@@ -130,7 +130,7 @@ func TestReplicate_Success(t *testing.T) {
 	}
 
 	// Verify config file was created
-	if _, err := os.Stat(child.ConfigPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(child.ConfigPath); os.IsNotExist(statErr) {
 		t.Error("expected child config file to exist")
 	}
 	profile, err := LoadChildStrategyProfile(child.WorkspacePath)

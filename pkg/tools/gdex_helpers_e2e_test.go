@@ -446,7 +446,11 @@ func TestGDEXMarketHelper_BridgeRequestRequiresWallet(t *testing.T) {
 
 	dir := gdexHelpersDir(t)
 	cmd := exec.Command("node", filepath.Join(dir, "market.js"))
-	cmd.Stdin = bytes.NewReader([]byte(`{"action":"bridge_request","params":{"from_chain_id":1,"to_chain_id":42161,"amount":"1000000000000000"}}`))
+	cmd.Stdin = bytes.NewReader(
+		[]byte(
+			`{"action":"bridge_request","params":{"from_chain_id":1,"to_chain_id":42161,"amount":"1000000000000000"}}`,
+		),
+	)
 	cmd.Env = env
 	out, _ := cmd.Output()
 

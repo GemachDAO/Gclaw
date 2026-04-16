@@ -276,8 +276,10 @@ func buildRouteHealth(trading *TradingStatus) []RouteHealthSignal {
 			Detail: "GDEX helper runtime availability",
 		},
 		{
-			Name:   "credentials",
-			State:  boolState(trading != nil && trading.APIKeyConfigured && trading.WalletAddress != "" && trading.HasPrivateKey),
+			Name: "credentials",
+			State: boolState(
+				trading != nil && trading.APIKeyConfigured && trading.WalletAddress != "" && trading.HasPrivateKey,
+			),
 			Detail: "control wallet + API key readiness",
 		},
 		{
@@ -286,8 +288,10 @@ func buildRouteHealth(trading *TradingStatus) []RouteHealthSignal {
 			Detail: "direct GMAC accumulation path",
 		},
 		{
-			Name:   "bridge_flow",
-			State:  boolState(hasTradingTool(trading, "gdex_bridge_estimate") && hasTradingTool(trading, "gdex_bridge_request")),
+			Name: "bridge_flow",
+			State: boolState(
+				hasTradingTool(trading, "gdex_bridge_estimate") && hasTradingTool(trading, "gdex_bridge_request"),
+			),
 			Detail: "native cross-chain bridge legs",
 		},
 		{
@@ -337,7 +341,12 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			Tool:      "gdex_buy",
 			BaseCost:  4.0,
 			Available: helpersReady && credsReady && gmacReady && hasTradingTool(trading, "gdex_buy"),
-			Blocker:   firstMissingAutonomyBlocker(helpersReady, credsReady, gmacReady, hasTradingTool(trading, "gdex_buy")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				gmacReady,
+				hasTradingTool(trading, "gdex_buy"),
+			),
 		},
 		{
 			ID:        "settle_gmac",
@@ -354,7 +363,11 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			Tool:      "gdex_bridge_estimate",
 			BaseCost:  0.8,
 			Available: helpersReady && credsReady && hasTradingTool(trading, "gdex_bridge_estimate"),
-			Blocker:   firstMissingAutonomyBlocker(helpersReady, credsReady, hasTradingTool(trading, "gdex_bridge_estimate")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				hasTradingTool(trading, "gdex_bridge_estimate"),
+			),
 		},
 		{
 			ID:        "bridge_request",
@@ -363,7 +376,11 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			Tool:      "gdex_bridge_request",
 			BaseCost:  1.2,
 			Available: helpersReady && credsReady && hasTradingTool(trading, "gdex_bridge_request"),
-			Blocker:   firstMissingAutonomyBlocker(helpersReady, credsReady, hasTradingTool(trading, "gdex_bridge_request")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				hasTradingTool(trading, "gdex_bridge_request"),
+			),
 		},
 		{
 			ID:          "hl_deposit",
@@ -373,7 +390,11 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			BaseCost:    1.1,
 			Available:   helpersReady && credsReady && hasTradingTool(trading, "gdex_hl_deposit"),
 			Provisional: !managedReady,
-			Blocker:     firstMissingAutonomyBlocker(helpersReady, credsReady, hasTradingTool(trading, "gdex_hl_deposit")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				hasTradingTool(trading, "gdex_hl_deposit"),
+			),
 		},
 		{
 			ID:          "hl_trade",
@@ -383,7 +404,11 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			BaseCost:    1.0,
 			Available:   helpersReady && credsReady && hasTradingTool(trading, "gdex_hl_create_order"),
 			Provisional: true,
-			Blocker:     firstMissingAutonomyBlocker(helpersReady, credsReady, hasTradingTool(trading, "gdex_hl_create_order")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				hasTradingTool(trading, "gdex_hl_create_order"),
+			),
 		},
 		{
 			ID:        "profit_to_spot",
@@ -392,7 +417,12 @@ func buildAutonomyGraphEdges(cfg *config.Config, trading *TradingStatus) []auton
 			Tool:      "gdex_buy",
 			BaseCost:  0.9,
 			Available: helpersReady && credsReady && gmacReady && hasTradingTool(trading, "gdex_buy"),
-			Blocker:   firstMissingAutonomyBlocker(helpersReady, credsReady, gmacReady, hasTradingTool(trading, "gdex_buy")),
+			Blocker: firstMissingAutonomyBlocker(
+				helpersReady,
+				credsReady,
+				gmacReady,
+				hasTradingTool(trading, "gdex_buy"),
+			),
 		},
 	}
 }
@@ -418,7 +448,15 @@ func buildRouteCandidates(edges []autonomyGraphEdge) []RouteCandidate {
 		evaluateRouteCandidate(
 			"hyperliquid_profit_loop",
 			"Bridge capital, auto-fund HyperLiquid from Arbitrum ETH or USDC, trade perps, then recycle profits into GMAC.",
-			[]string{"capital", "gdex_bridge_estimate", "gdex_bridge_request", "gdex_hl_deposit", "gdex_hl_create_order", "gdex_buy", "GMAC inventory"},
+			[]string{
+				"capital",
+				"gdex_bridge_estimate",
+				"gdex_bridge_request",
+				"gdex_hl_deposit",
+				"gdex_hl_create_order",
+				"gdex_buy",
+				"GMAC inventory",
+			},
 			[]string{"bridge_estimate", "bridge_request", "hl_deposit", "hl_trade", "profit_to_spot", "settle_gmac"},
 			edgeByID,
 		),
@@ -498,10 +536,8 @@ func selectRoutes(routes []RouteCandidate) (*RouteCandidate, *RouteCandidate) {
 			selected = route
 			continue
 		}
-		if fallback == nil {
-			fallback = route
-			break
-		}
+		fallback = route
+		break
 	}
 	return selected, fallback
 }
@@ -562,11 +598,17 @@ func buildKnowledgeGraph(
 		if mw := trading.ManagedWallets; mw != nil {
 			if mw.EVMAddress != "" {
 				addNode("wallet:managed_evm:"+ShortAddress(mw.EVMAddress), true)
-				addEdge("wallet:control:"+ShortAddress(trading.WalletAddress), "wallet:managed_evm:"+ShortAddress(mw.EVMAddress))
+				addEdge(
+					"wallet:control:"+ShortAddress(trading.WalletAddress),
+					"wallet:managed_evm:"+ShortAddress(mw.EVMAddress),
+				)
 			}
 			if mw.SolanaAddress != "" {
 				addNode("wallet:managed_solana:"+ShortAddress(mw.SolanaAddress), true)
-				addEdge("wallet:control:"+ShortAddress(trading.WalletAddress), "wallet:managed_solana:"+ShortAddress(mw.SolanaAddress))
+				addEdge(
+					"wallet:control:"+ShortAddress(trading.WalletAddress),
+					"wallet:managed_solana:"+ShortAddress(mw.SolanaAddress),
+				)
 			}
 		}
 	}

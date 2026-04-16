@@ -351,7 +351,8 @@ func registerSharedTools(
 				cfg.Metabolism.Thresholds.SelfRecode,
 			))
 			ventureManager = venture.NewManager(agent.Workspace, recoderSvc)
-			if ownerAddr, deployerKey := runtimeinfo.ResolveWalletCredentials(cfg); ownerAddr != "" && deployerKey != "" {
+			if ownerAddr, deployerKey := runtimeinfo.ResolveWalletCredentials(cfg); ownerAddr != "" &&
+				deployerKey != "" {
 				ventureManager.SetDeployer(venture.NewForgeDeployer(ownerAddr, deployerKey))
 			}
 			agent.VentureManager = ventureManager
@@ -441,7 +442,12 @@ func registerSharedTools(
 							TokenAddress: record.TokenAddress,
 							ChainID:      record.ChainID,
 							Confidence:   tradeSignalConfidence(record),
-							Reasoning:    fmt.Sprintf("executed %s via %s pnl=%.2f%%", record.Action, record.ToolName, record.PnL),
+							Reasoning: fmt.Sprintf(
+								"executed %s via %s pnl=%.2f%%",
+								record.Action,
+								record.ToolName,
+								record.PnL,
+							),
 						})
 					}
 				}
@@ -522,7 +528,13 @@ func registerSharedTools(
 					if agentMet == nil {
 						return nil
 					}
-					autonomy := runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, currentAgentIDForDash)
+					autonomy := runtimeinfo.BuildAutonomyStatus(
+						cfg,
+						trading,
+						totalFamily,
+						swarmSize,
+						currentAgentIDForDash,
+					)
 					snap, err := ventureManager.Snapshot(venture.LaunchContext{
 						AgentID:      currentAgentIDForDash,
 						Goodwill:     agentMet.GetGoodwill(),

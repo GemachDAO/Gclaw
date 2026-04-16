@@ -87,7 +87,8 @@ func TestBuildAutonomyStatus_IdentityIsDeterministic(t *testing.T) {
 	if first == nil || second == nil {
 		t.Fatal("expected autonomy status")
 	}
-	if first.Identity.Fingerprint != second.Identity.Fingerprint || first.Identity.Signature != second.Identity.Signature {
+	if first.Identity.Fingerprint != second.Identity.Fingerprint ||
+		first.Identity.Signature != second.Identity.Signature {
 		t.Fatalf("expected deterministic identity, got %+v and %+v", first.Identity, second.Identity)
 	}
 }

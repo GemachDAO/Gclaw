@@ -167,16 +167,19 @@ func (m *Manager) EnsureAutonomousLaunch(ctx LaunchContext) (*Venture, bool, err
 	foundryPath := filepath.Join(dir, "foundry.toml")
 
 	venture := Venture{
-		ID:                    id,
-		Title:                 candidate.Title,
-		Archetype:             candidate.Archetype,
-		Status:                "live_strategy",
-		Chain:                 candidate.Chain,
-		Venue:                 candidate.Venue,
-		DeploymentMode:        candidate.DeploymentMode,
-		ContractSystem:        candidate.ContractSystem,
-		ProfitModel:           candidate.ProfitModel,
-		BurnPolicy:            fmt.Sprintf("Route %.0f%% of realized venture profit into GMAC buy-and-burn on Ethereum.", DefaultBurnAllocationPct),
+		ID:             id,
+		Title:          candidate.Title,
+		Archetype:      candidate.Archetype,
+		Status:         "live_strategy",
+		Chain:          candidate.Chain,
+		Venue:          candidate.Venue,
+		DeploymentMode: candidate.DeploymentMode,
+		ContractSystem: candidate.ContractSystem,
+		ProfitModel:    candidate.ProfitModel,
+		BurnPolicy: fmt.Sprintf(
+			"Route %.0f%% of realized venture profit into GMAC buy-and-burn on Ethereum.",
+			DefaultBurnAllocationPct,
+		),
 		LaunchReason:          candidate.LaunchReason,
 		NextAction:            candidate.NextAction,
 		ReviewCron:            defaultReviewCron,
@@ -225,8 +228,13 @@ func (m *Manager) EnsureAutonomousLaunch(ctx LaunchContext) (*Venture, bool, err
 		if strings.TrimSpace(venture.PromptDirective) != "" {
 			_ = m.recoder.ModifySystemPrompt(venture.PromptDirective)
 		}
-		_ = m.recoder.AddCronJob(defaultReviewCron,
-			fmt.Sprintf("Review venture %s metrics, protect treasury, and route 10%% of realized venture profits into GMAC buy-and-burn on Ethereum.", venture.ID))
+		_ = m.recoder.AddCronJob(
+			defaultReviewCron,
+			fmt.Sprintf(
+				"Review venture %s metrics, protect treasury, and route 10%% of realized venture profits into GMAC buy-and-burn on Ethereum.",
+				venture.ID,
+			),
+		)
 	}
 
 	state.ActiveID = venture.ID
@@ -322,7 +330,10 @@ func (m *Manager) Snapshot(ctx LaunchContext) (*Snapshot, error) {
 		CurrentGoodwill: ctx.Goodwill,
 		LaunchReady:     ctx.Threshold > 0 && ctx.Goodwill >= ctx.Threshold && activeVenture(state) == nil,
 		TotalVentures:   len(state.Ventures),
-		BurnPolicy:      fmt.Sprintf("Route %.0f%% of realized venture profit into GMAC buy-and-burn on Ethereum.", DefaultBurnAllocationPct),
+		BurnPolicy: fmt.Sprintf(
+			"Route %.0f%% of realized venture profit into GMAC buy-and-burn on Ethereum.",
+			DefaultBurnAllocationPct,
+		),
 	}
 
 	if active := activeVenture(state); active != nil {

@@ -235,7 +235,11 @@ func TestRenderHTML_FundingDepositQRCodes(t *testing.T) {
 				FallbackRoute: "hyperliquid_profit_loop",
 				Health: []runtimeinfo.RouteHealthSignal{
 					{Name: "helpers", State: "ready", Detail: "GDEX helper runtime availability"},
-					{Name: "hl_execution", State: "provisional", Detail: "HyperLiquid order leg is wired. Unfunded HL accounts still need a settled USDC deposit before orders can execute; gdex_hl_deposit can auto-fund from Arbitrum ETH first."},
+					{
+						Name:   "hl_execution",
+						State:  "provisional",
+						Detail: "HyperLiquid order leg is wired. Unfunded HL accounts still need a settled USDC deposit before orders can execute; gdex_hl_deposit can auto-fund from Arbitrum ETH first.",
+					},
 				},
 				Routes: []runtimeinfo.RouteCandidate{
 					{
@@ -246,11 +250,21 @@ func TestRenderHTML_FundingDepositQRCodes(t *testing.T) {
 						Steps:    []string{"capital", "gdex_buy", "GMAC inventory"},
 					},
 					{
-						Name:     "hyperliquid_profit_loop",
-						State:    "degraded",
-						Summary:  "Bridge capital, auto-fund HyperLiquid from Arbitrum ETH or USDC, trade perps, then recycle profits into GMAC.",
-						Steps:    []string{"capital", "gdex_bridge_estimate", "gdex_bridge_request", "gdex_hl_deposit", "gdex_hl_create_order", "gdex_buy", "GMAC inventory"},
-						Blockers: []string{"HyperLiquid order flow needs a settled USDC deposit before the account can place orders"},
+						Name:    "hyperliquid_profit_loop",
+						State:   "degraded",
+						Summary: "Bridge capital, auto-fund HyperLiquid from Arbitrum ETH or USDC, trade perps, then recycle profits into GMAC.",
+						Steps: []string{
+							"capital",
+							"gdex_bridge_estimate",
+							"gdex_bridge_request",
+							"gdex_hl_deposit",
+							"gdex_hl_create_order",
+							"gdex_buy",
+							"GMAC inventory",
+						},
+						Blockers: []string{
+							"HyperLiquid order flow needs a settled USDC deposit before the account can place orders",
+						},
 					},
 				},
 			},

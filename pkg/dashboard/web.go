@@ -16,8 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 	"github.com/skip2/go-qrcode"
+
+	"github.com/GemachDAO/Gclaw/pkg/runtimeinfo"
 )
 
 type dashboardDNANode struct {
@@ -254,13 +255,23 @@ func renderHTML(data *DashboardData) string {
 			autoTradeRuntime = htmlEscape(ta.AutoTradeRuntime.State)
 			autoTradeSchedule = htmlEscape(ta.AutoTradeRuntime.Schedule)
 			if ta.AutoTradeRuntime.LastError != "" {
-				autoTradeNote = fmt.Sprintf(`<div class="tool-list">%s</div>`, htmlEscape(ta.AutoTradeRuntime.LastError))
+				autoTradeNote = fmt.Sprintf(
+					`<div class="tool-list">%s</div>`,
+					htmlEscape(ta.AutoTradeRuntime.LastError),
+				)
 			} else if ta.AutoTradeRuntime.LastStatus != "" {
 				autoTradeNote = fmt.Sprintf(`<div class="tool-list">Last auto-trade status: %s</div>`, htmlEscape(ta.AutoTradeRuntime.LastStatus))
 			}
 		}
 		if ta.AutoTradePlan != nil {
-			autoTradePlan = htmlEscape(fmt.Sprintf("%s via %s on %s", ta.AutoTradePlan.AssetSymbol, ta.AutoTradePlan.Venue, ta.AutoTradePlan.ChainLabel))
+			autoTradePlan = htmlEscape(
+				fmt.Sprintf(
+					"%s via %s on %s",
+					ta.AutoTradePlan.AssetSymbol,
+					ta.AutoTradePlan.Venue,
+					ta.AutoTradePlan.ChainLabel,
+				),
+			)
 			autoTradeGoal = htmlEscape(ta.AutoTradePlan.Goal)
 		}
 		toolList := "none"
@@ -366,7 +377,8 @@ func renderHTML(data *DashboardData) string {
 			if venues == "" {
 				venues = "gdex_spot"
 			}
-			fmt.Fprintf(&flines,
+			fmt.Fprintf(
+				&flines,
 				`<li><code>%s</code> [<em>%s</em>] gen:%d style:%s role:%s risk:%s chains:%s venues:%s mutations:%s</li>`,
 				htmlEscape(c.ID),
 				htmlEscape(c.Status),
@@ -1015,7 +1027,13 @@ func buildDNAAvatarSVG(identity runtimeinfo.AgentIdentityStatus) string {
 		rungWidth := 1.2 + (math.Abs(zLeft) * 1.8)
 		rungsHTML = append(rungsHTML, fmt.Sprintf(
 			`<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" stroke="%s" stroke-opacity="%.3f" stroke-width="%.2f" stroke-linecap="round"/>`,
-			leftX, y, rightX, y, palette[2], rungOpacity, rungWidth,
+			leftX,
+			y,
+			rightX,
+			y,
+			palette[2],
+			rungOpacity,
+			rungWidth,
 		))
 
 		leftNode := dashboardDNANode{
@@ -1046,7 +1064,9 @@ func buildDNAAvatarSVG(identity runtimeinfo.AgentIdentityStatus) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="Agent DNA fingerprint">`, width, height))
+	sb.WriteString(
+		fmt.Sprintf(`<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="Agent DNA fingerprint">`, width, height),
+	)
 	sb.WriteString(`<defs>
   <linearGradient id="dna-bg" x1="0%" y1="0%" x2="100%" y2="100%">
     <stop offset="0%" stop-color="#020617"/>
@@ -1065,13 +1085,25 @@ func buildDNAAvatarSVG(identity runtimeinfo.AgentIdentityStatus) string {
     </feMerge>
   </filter>
 </defs>`)
-	sb.WriteString(fmt.Sprintf(`<rect x="0" y="0" width="%.0f" height="%.0f" rx="22" fill="url(#dna-bg)"/>`, width, height))
-	sb.WriteString(fmt.Sprintf(`<rect x="0" y="0" width="%.0f" height="%.0f" rx="22" fill="url(#dna-glow)"/>`, width, height))
+	sb.WriteString(
+		fmt.Sprintf(`<rect x="0" y="0" width="%.0f" height="%.0f" rx="22" fill="url(#dna-bg)"/>`, width, height),
+	)
+	sb.WriteString(
+		fmt.Sprintf(`<rect x="0" y="0" width="%.0f" height="%.0f" rx="22" fill="url(#dna-glow)"/>`, width, height),
+	)
 
 	for i := 0; i < 6; i++ {
 		x := 28.0 + float64(i)*60.0
-		sb.WriteString(fmt.Sprintf(`<path d="M %.2f 20 C %.2f 90 %.2f 160 %.2f 230" fill="none" stroke="%s" stroke-opacity=".08" stroke-width="1"/>`,
-			x, x+16, x-12, x+8, palette[2]))
+		sb.WriteString(
+			fmt.Sprintf(
+				`<path d="M %.2f 20 C %.2f 90 %.2f 160 %.2f 230" fill="none" stroke="%s" stroke-opacity=".08" stroke-width="1"/>`,
+				x,
+				x+16,
+				x-12,
+				x+8,
+				palette[2],
+			),
+		)
 	}
 
 	for _, rung := range rungsHTML {
@@ -1080,10 +1112,18 @@ func buildDNAAvatarSVG(identity runtimeinfo.AgentIdentityStatus) string {
 	writeDNANodes(&sb, backNodes)
 	writeDNANodes(&sb, frontNodes)
 
-	sb.WriteString(fmt.Sprintf(`<text x="22" y="224" fill="#e2e8f0" font-size="14" font-family="'IBM Plex Mono','SFMono-Regular',ui-monospace,monospace">%s</text>`,
-		htmlEscape(identity.Signature)))
-	sb.WriteString(fmt.Sprintf(`<text x="22" y="240" fill="#7dd3fc" font-size="11" letter-spacing="1.6" font-family="'IBM Plex Mono','SFMono-Regular',ui-monospace,monospace">%s</text>`,
-		htmlEscape(identity.Fingerprint)))
+	sb.WriteString(
+		fmt.Sprintf(
+			`<text x="22" y="224" fill="#e2e8f0" font-size="14" font-family="'IBM Plex Mono','SFMono-Regular',ui-monospace,monospace">%s</text>`,
+			htmlEscape(identity.Signature),
+		),
+	)
+	sb.WriteString(
+		fmt.Sprintf(
+			`<text x="22" y="240" fill="#7dd3fc" font-size="11" letter-spacing="1.6" font-family="'IBM Plex Mono','SFMono-Regular',ui-monospace,monospace">%s</text>`,
+			htmlEscape(identity.Fingerprint),
+		),
+	)
 	sb.WriteString(`</svg>`)
 	return sb.String()
 }
@@ -1096,7 +1136,11 @@ func writeDNANodes(sb *strings.Builder, nodes []dashboardDNANode) {
 		))
 		sb.WriteString(fmt.Sprintf(
 			`<circle cx="%.2f" cy="%.2f" r="%.2f" fill="%s" fill-opacity="%.3f" stroke="#f8fafc" stroke-opacity=".22" stroke-width=".35"/>`,
-			node.x, node.y, node.radius, node.fill, node.alpha,
+			node.x,
+			node.y,
+			node.radius,
+			node.fill,
+			node.alpha,
 		))
 	}
 }
@@ -1191,7 +1235,8 @@ func buildTradingCycleHTML(entries []TradeCycleEntry) string {
 		if strings.TrimSpace(entry.Summary) != "" {
 			body += `<div class="route-summary">` + htmlEscape(entry.Summary) + `</div>`
 		}
-		if strings.TrimSpace(entry.Outcome) != "" && strings.TrimSpace(entry.Outcome) != strings.TrimSpace(entry.Summary) {
+		if strings.TrimSpace(entry.Outcome) != "" &&
+			strings.TrimSpace(entry.Outcome) != strings.TrimSpace(entry.Summary) {
 			body += `<div class="route-steps">Outcome: ` + htmlEscape(entry.Outcome) + `</div>`
 		}
 		if len(entry.Reasons) > 0 {
@@ -1410,7 +1455,12 @@ func buildTelepathyMessagesHTML(entries []TelepathyEntry, total int) string {
 		caption += fmt.Sprintf(" of %d total", total)
 	}
 
-	return `<div class="tool-list">` + htmlEscape(caption) + `</div><div class="telepathy-stream">` + strings.Join(items, "") + `</div>`
+	return `<div class="tool-list">` + htmlEscape(
+		caption,
+	) + `</div><div class="telepathy-stream">` + strings.Join(
+		items,
+		"",
+	) + `</div>`
 }
 
 func telepathyPriorityLabel(priority int) string {

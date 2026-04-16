@@ -295,8 +295,24 @@ func TestRunConsensus_WithBusBroadcastsNarrativeMessages(t *testing.T) {
 	_ = sc.AddMember("leader", RoleLeader, "profit_to_gmach")
 	_ = sc.AddMember("executor-1", RoleExecutor, "liquid_executor")
 
-	_ = sc.SubmitSignal(SwarmSignal{AgentID: "leader", Action: "buy", TokenAddress: "0xabc", Confidence: 0.9, Reasoning: "momentum held"})
-	_ = sc.SubmitSignal(SwarmSignal{AgentID: "executor-1", Action: "buy", TokenAddress: "0xabc", Confidence: 0.8, Reasoning: "liquidity confirmed"})
+	_ = sc.SubmitSignal(
+		SwarmSignal{
+			AgentID:      "leader",
+			Action:       "buy",
+			TokenAddress: "0xabc",
+			Confidence:   0.9,
+			Reasoning:    "momentum held",
+		},
+	)
+	_ = sc.SubmitSignal(
+		SwarmSignal{
+			AgentID:      "executor-1",
+			Action:       "buy",
+			TokenAddress: "0xabc",
+			Confidence:   0.8,
+			Reasoning:    "liquidity confirmed",
+		},
+	)
 
 	result, err := sc.RunConsensus("0xabc", 1)
 	if err != nil {
@@ -327,8 +343,12 @@ func TestRunConsensus_RejectedBroadcastsWarning(t *testing.T) {
 	sc := NewSwarmCoordinator("leader", SwarmConfig{ConsensusThreshold: 0.75}, tb)
 	ch := tb.Subscribe("observer")
 
-	_ = sc.SubmitSignal(SwarmSignal{AgentID: "a1", Action: "buy", TokenAddress: "0xdef", Confidence: 0.9, Reasoning: "breakout"})
-	_ = sc.SubmitSignal(SwarmSignal{AgentID: "a2", Action: "sell", TokenAddress: "0xdef", Confidence: 0.8, Reasoning: "mean reversion"})
+	_ = sc.SubmitSignal(
+		SwarmSignal{AgentID: "a1", Action: "buy", TokenAddress: "0xdef", Confidence: 0.9, Reasoning: "breakout"},
+	)
+	_ = sc.SubmitSignal(
+		SwarmSignal{AgentID: "a2", Action: "sell", TokenAddress: "0xdef", Confidence: 0.8, Reasoning: "mean reversion"},
+	)
 
 	result, err := sc.RunConsensus("0xdef", 1)
 	if err != nil {
@@ -418,8 +438,8 @@ func TestSaveAndLoadSwarmState_PersistsDecision(t *testing.T) {
 	if !result.Approved {
 		t.Fatalf("expected approved consensus, got %+v", result)
 	}
-	if err := SaveSwarmState(dir, sc); err != nil {
-		t.Fatalf("SaveSwarmState failed: %v", err)
+	if saveErr := SaveSwarmState(dir, sc); saveErr != nil {
+		t.Fatalf("SaveSwarmState failed: %v", saveErr)
 	}
 
 	loaded, err := LoadSwarmState(dir)

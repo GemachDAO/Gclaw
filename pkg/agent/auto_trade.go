@@ -248,7 +248,17 @@ func (al *AgentLoop) runAutoTradeCycle(ctx context.Context, agent *AgentInstance
 	directive := buildSwarmDirective(agent)
 	holdings := al.fetchAutoTradeHoldings(ctx, agent, strategy, childProfile)
 	signals := al.fetchAutoTradeSignals(ctx, agent, strategy, childProfile, budget)
-	plan := buildAutoTradeExecutionPlan(al.cfg, strategy, autonomy, holdings, signals, childProfile, memory, directive, budget)
+	plan := buildAutoTradeExecutionPlan(
+		al.cfg,
+		strategy,
+		autonomy,
+		holdings,
+		signals,
+		childProfile,
+		memory,
+		directive,
+		budget,
+	)
 	if plan == nil {
 		entry := autoTradeJournalEntry{
 			Timestamp: time.Now().UnixMilli(),

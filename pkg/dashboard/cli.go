@@ -156,7 +156,14 @@ func FormatCLI(data *DashboardData) string {
 			line(fmt.Sprintf("  Managed EVM: %s", evm))
 		}
 		for _, instruction := range ta.FundingInstructions {
-			line(fmt.Sprintf("  %s: %s on %s", truncate(instruction.Label, 12), truncate(instruction.Asset, 6), truncate(instruction.Network, 24)))
+			line(
+				fmt.Sprintf(
+					"  %s: %s on %s",
+					truncate(instruction.Label, 12),
+					truncate(instruction.Asset, 6),
+					truncate(instruction.Network, 24),
+				),
+			)
 		}
 		if mobility := ta.CapitalMobility; mobility != nil {
 			line(fmt.Sprintf("  Capital Router: %s", truncate(mobility.State, 16)))
@@ -231,8 +238,21 @@ func FormatCLI(data *DashboardData) string {
 			line(fmt.Sprintf("  Active: %s", truncate(v.Active.Title, 38)))
 			line(fmt.Sprintf("  Mode: %-12s Chain: %s", truncate(v.Active.Status, 12), truncate(v.Active.Chain, 18)))
 			line(fmt.Sprintf("  Contract: %s", truncate(v.Active.ContractSystem, 35)))
-			line(fmt.Sprintf("  Deploy: %-13s Addr: %s", truncate(v.Active.DeploymentState, 13), truncate(firstNonEmptyCLI(v.Active.DeployedAddress, "not deployed"), 23)))
-			line(fmt.Sprintf("  Ready: forge=%t rpc=%t wallet=%t", v.Active.FoundryAvailable, v.Active.RPCConfigured, v.Active.WalletReady))
+			line(
+				fmt.Sprintf(
+					"  Deploy: %-13s Addr: %s",
+					truncate(v.Active.DeploymentState, 13),
+					truncate(firstNonEmptyCLI(v.Active.DeployedAddress, "not deployed"), 23),
+				),
+			)
+			line(
+				fmt.Sprintf(
+					"  Ready: forge=%t rpc=%t wallet=%t",
+					v.Active.FoundryAvailable,
+					v.Active.RPCConfigured,
+					v.Active.WalletReady,
+				),
+			)
 			line(fmt.Sprintf("  RPC Source: %s", truncate(formatRPCSourceCLI(v.Active.RPCEnvVar), 28)))
 		}
 	} else {

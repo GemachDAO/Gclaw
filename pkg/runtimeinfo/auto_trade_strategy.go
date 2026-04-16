@@ -66,7 +66,8 @@ func BuildAutoTradeStrategy(cfg *config.Config) *AutoTradeStrategy {
 	}
 
 	fallbackNotes := append([]string{}, notes...)
-	fallbackNotes = append(fallbackNotes,
+	fallbackNotes = append(
+		fallbackNotes,
 		"No GMAC token route is configured for the preferred EVM/Solana chains, so the runtime falls back to liquid Solana discovery.",
 	)
 	return &AutoTradeStrategy{
