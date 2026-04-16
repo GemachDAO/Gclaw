@@ -354,7 +354,7 @@ export function Navigation() {
 | Trading | `SpotTradeForm`, `PerpOrderForm`, `PositionTable`, `TokenSearch`, `ChainSelector` | `buyToken`, `sellToken`, `openPerpPosition`, `hlGetPositions`, `getTokenDetails` |
 | Portfolio | `PortfolioOverview`, `TokenBalanceGrid`, `TradeHistoryTable`, `ChainSelector` | `getPortfolio`, `getTradeHistory` |
 | Copy Trading | `CopyTradePanel` | `getCopyTrades`, `getTopTraders` |
-| Bridge | `ChainSwitcher` | `getBridgeEstimate`, `executeBridge` |
+| Bridge | `ChainSwitcher` | `getBridgeEstimate`, `requestBridge` |
 
 ## Related Skills
 
