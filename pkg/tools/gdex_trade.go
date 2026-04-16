@@ -69,8 +69,11 @@ func ensureNodeDeps() error {
 				logger.InfoCF("tool", "GDEX helpers: dependencies installed via setup.sh", nil)
 				return
 			} else {
-				logger.WarnCF("tool", "setup.sh completed but required GDEX helper packages are still missing; trying npm install",
-					map[string]any{"dir": dir})
+				logger.WarnCF(
+					"tool",
+					"setup.sh completed but required GDEX helper packages are still missing; trying npm install",
+					map[string]any{"dir": dir},
+				)
 			}
 		}
 

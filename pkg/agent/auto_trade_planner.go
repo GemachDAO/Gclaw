@@ -606,10 +606,13 @@ func flattenMaps(v any) []map[string]any {
 		}
 		return out
 	case map[string]any:
-		if mapString(node, "tokenAddress", "token_address", "address", "mint", "contractAddress", "contract_address") != "" {
+		if mapString(
+			node, "tokenAddress", "token_address", "address", "mint", "contractAddress", "contract_address",
+		) != "" {
 			return []map[string]any{node}
 		}
-		if mapString(node, "symbol", "name") != "" && (mapFloat(node, "usdValue", "priceUsd", "liquidityUsd") > 0 || node["priceChanges"] != nil) {
+		if mapString(node, "symbol", "name") != "" &&
+			(mapFloat(node, "usdValue", "priceUsd", "liquidityUsd") > 0 || node["priceChanges"] != nil) {
 			return []map[string]any{node}
 		}
 		out := make([]map[string]any, 0)

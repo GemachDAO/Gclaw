@@ -111,7 +111,8 @@ func registerSharedTools(
 		}
 		toolRegistry := agent.Tools
 		contextBuilder := agent.ContextBuilder
-		if err := toolRegistry.SetTradeHistoryPersistence(filepath.Join(agent.Workspace, "runtime", "trade_history.json")); err != nil {
+		histPath := filepath.Join(agent.Workspace, "runtime", "trade_history.json")
+		if err := toolRegistry.SetTradeHistoryPersistence(histPath); err != nil {
 			logger.WarnCF("agent", "Failed to load persisted trade history",
 				map[string]any{"agent": agentID, "error": err.Error()})
 		}

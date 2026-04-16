@@ -260,7 +260,10 @@ func renderHTML(data *DashboardData) string {
 					htmlEscape(ta.AutoTradeRuntime.LastError),
 				)
 			} else if ta.AutoTradeRuntime.LastStatus != "" {
-				autoTradeNote = fmt.Sprintf(`<div class="tool-list">Last auto-trade status: %s</div>`, htmlEscape(ta.AutoTradeRuntime.LastStatus))
+				autoTradeNote = fmt.Sprintf(
+					`<div class="tool-list">Last auto-trade status: %s</div>`,
+					htmlEscape(ta.AutoTradeRuntime.LastStatus),
+				)
 			}
 		}
 		if ta.AutoTradePlan != nil {
