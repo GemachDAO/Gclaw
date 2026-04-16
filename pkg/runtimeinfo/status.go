@@ -317,13 +317,22 @@ func buildCapitalMobilityStatus(status *TradingStatus) *CapitalMobilityStatus {
 
 	guidance := []string{}
 	if canBridge {
-		guidance = append(guidance, "Bridge flow is native-asset only today, for example ETH to SOL, SOL to ETH, or Base ETH to ETH.")
+		guidance = append(
+			guidance,
+			"Bridge flow is native-asset only today, for example ETH to SOL, SOL to ETH, or Base ETH to ETH.",
+		)
 	}
 	if canHLFund {
-		guidance = append(guidance, "For HyperLiquid leverage, the fastest funding path is Arbitrum ETH on the managed EVM wallet; the agent can auto-swap ETH into USDC before depositing.")
+		guidance = append(
+			guidance,
+			"For HyperLiquid leverage, the fastest funding path is Arbitrum ETH on the managed EVM wallet; the agent can auto-swap ETH into USDC before depositing.",
+		)
 	}
 	if canSpot {
-		guidance = append(guidance, "Once capital is on the target chain, the bot can rotate into spot opportunities and later recycle profits back toward GMAC.")
+		guidance = append(
+			guidance,
+			"Once capital is on the target chain, the bot can rotate into spot opportunities and later recycle profits back toward GMAC.",
+		)
 	}
 
 	summary := "Capital mobility is limited until the bridge, spot, and HyperLiquid tools are all online."
@@ -411,11 +420,6 @@ func httpHost(host string) string {
 	default:
 		return host
 	}
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }
 
 func helperPackagesInstalled(helperDir string) bool {

@@ -73,7 +73,8 @@ func buildAutoTradeExecutionPlan(
 		}
 	}
 
-	if autonomy != nil && (routeHealthState(autonomy, "helpers") == "blocked" || routeHealthState(autonomy, "credentials") == "blocked") {
+	if autonomy != nil &&
+		(routeHealthState(autonomy, "helpers") == "blocked" || routeHealthState(autonomy, "credentials") == "blocked") {
 		return &autoTradeExecutionPlan{
 			Mode:    "research_only",
 			Summary: "Trading runtime is not ready, so the agent stays in research mode instead of forcing a trade.",
@@ -94,9 +95,19 @@ func buildAutoTradeExecutionPlan(
 
 	if rotation, sinkAddress, ok := pickRotationCandidate(cfg, holdings, profile, memory); ok {
 		return &autoTradeExecutionPlan{
-			Mode:           "rotate_profits_to_gmac",
-			Summary:        fmt.Sprintf("Trim a strong non-GMAC position and route the realized proceeds back into GMAC on %s.", autoTradeChainLabel(rotation.ChainID)),
-			Reasons:        append(append([]string{"existing holding shows enough strength to bank gains", "GMAC sink is available on the same chain"}, budgetReason(budget)...), profileReason(profile)...),
+			Mode: "rotate_profits_to_gmac",
+			Summary: fmt.Sprintf(
+				"Trim a strong non-GMAC position and route the realized proceeds back into GMAC on %s.",
+				autoTradeChainLabel(rotation.ChainID),
+			),
+			Reasons: append(
+				append(
+					[]string{
+						"existing holding shows enough strength to bank gains",
+						"GMAC sink is available on the same chain",
+					},
+					budgetReason(budget)...),
+				profileReason(profile)...),
 			ExitChainID:    rotation.ChainID,
 			ExitChainLabel: autoTradeChainLabel(rotation.ChainID),
 			ExitToken:      rotation.TokenAddress,
@@ -112,9 +123,14 @@ func buildAutoTradeExecutionPlan(
 
 	if budget != nil && budget.PreferDirectGMAC && strings.TrimSpace(strategy.AssetAddress) != "" {
 		return &autoTradeExecutionPlan{
-			Mode:            "accumulate_gmac",
-			Summary:         fmt.Sprintf("GMAC runway pressure is high, so accumulate GMAC directly on %s instead of paying for a wider hunt.", strategy.ChainLabel),
-			Reasons:         append([]string{"survival game theory favors preserving optionality and rebuilding the GMAC reserve"}, budgetReason(budget)...),
+			Mode: "accumulate_gmac",
+			Summary: fmt.Sprintf(
+				"GMAC runway pressure is high, so accumulate GMAC directly on %s instead of paying for a wider hunt.",
+				strategy.ChainLabel,
+			),
+			Reasons: append(
+				[]string{"survival game theory favors preserving optionality and rebuilding the GMAC reserve"},
+				budgetReason(budget)...),
 			EntryChainID:    strategy.ChainID,
 			EntryChainLabel: strategy.ChainLabel,
 			EntryToken:      strategy.AssetAddress,
@@ -125,9 +141,17 @@ func buildAutoTradeExecutionPlan(
 
 	if profile != nil && profile.Style == "gmac_accumulator" {
 		return &autoTradeExecutionPlan{
-			Mode:            "accumulate_gmac",
-			Summary:         fmt.Sprintf("%s profile is biasing this cycle toward direct GMAC accumulation on %s.", profile.Label, strategy.ChainLabel),
-			Reasons:         append(append([]string{"child DNA prefers compounding GMAC inventory over speculative entries"}, budgetReason(budget)...), profileReason(profile)...),
+			Mode: "accumulate_gmac",
+			Summary: fmt.Sprintf(
+				"%s profile is biasing this cycle toward direct GMAC accumulation on %s.",
+				profile.Label,
+				strategy.ChainLabel,
+			),
+			Reasons: append(
+				append(
+					[]string{"child DNA prefers compounding GMAC inventory over speculative entries"},
+					budgetReason(budget)...),
+				profileReason(profile)...),
 			EntryChainID:    strategy.ChainID,
 			EntryChainLabel: strategy.ChainLabel,
 			EntryToken:      strategy.AssetAddress,
@@ -138,9 +162,17 @@ func buildAutoTradeExecutionPlan(
 
 	if signal, ok := pickSignalCandidate(cfg, signals, profile, memory); ok {
 		return &autoTradeExecutionPlan{
-			Mode:            "pursue_signal",
-			Summary:         fmt.Sprintf("Take a small liquid signal entry in %s on %s and monitor it for later GMAC rotation.", signal.Symbol, autoTradeChainLabel(signal.ChainID)),
-			Reasons:         append(append([]string{"no winner was ready to rotate", "liquidity and volume filters passed"}, budgetReason(budget)...), profileReason(profile)...),
+			Mode: "pursue_signal",
+			Summary: fmt.Sprintf(
+				"Take a small liquid signal entry in %s on %s and monitor it for later GMAC rotation.",
+				signal.Symbol,
+				autoTradeChainLabel(signal.ChainID),
+			),
+			Reasons: append(
+				append(
+					[]string{"no winner was ready to rotate", "liquidity and volume filters passed"},
+					budgetReason(budget)...),
+				profileReason(profile)...),
 			EntryChainID:    signal.ChainID,
 			EntryChainLabel: autoTradeChainLabel(signal.ChainID),
 			EntryToken:      signal.TokenAddress,
@@ -151,9 +183,14 @@ func buildAutoTradeExecutionPlan(
 
 	if strings.TrimSpace(strategy.AssetAddress) != "" {
 		return &autoTradeExecutionPlan{
-			Mode:            "accumulate_gmac",
-			Summary:         fmt.Sprintf("No strong profit setup was found, so accumulate GMAC directly on %s.", strategy.ChainLabel),
-			Reasons:         append([]string{"profit-hunt filters rejected current signals", "GMAC sink remains funded and available"}, budgetReason(budget)...),
+			Mode: "accumulate_gmac",
+			Summary: fmt.Sprintf(
+				"No strong profit setup was found, so accumulate GMAC directly on %s.",
+				strategy.ChainLabel,
+			),
+			Reasons: append(
+				[]string{"profit-hunt filters rejected current signals", "GMAC sink remains funded and available"},
+				budgetReason(budget)...),
 			EntryChainID:    strategy.ChainID,
 			EntryChainLabel: strategy.ChainLabel,
 			EntryToken:      strategy.AssetAddress,
@@ -365,8 +402,11 @@ func buildPlanFromSwarmDirective(
 	switch strings.ToLower(strings.TrimSpace(directive.Action)) {
 	case "sell":
 		return &autoTradeExecutionPlan{
-			Mode:           "swarm_consensus_sell",
-			Summary:        firstNonEmptyString(strings.TrimSpace(directive.Summary), "Execute the swarm-approved trim and report the result back to the swarm."),
+			Mode: "swarm_consensus_sell",
+			Summary: firstNonEmptyString(
+				strings.TrimSpace(directive.Summary),
+				"Execute the swarm-approved trim and report the result back to the swarm.",
+			),
 			Reasons:        append([]string{"swarm consensus approved a sell"}, profileReason(profile)...),
 			ExitChainID:    directive.ChainID,
 			ExitChainLabel: autoTradeChainLabel(directive.ChainID),
@@ -376,8 +416,11 @@ func buildPlanFromSwarmDirective(
 		}
 	default:
 		return &autoTradeExecutionPlan{
-			Mode:            "swarm_consensus_buy",
-			Summary:         firstNonEmptyString(strings.TrimSpace(directive.Summary), "Execute the swarm-approved entry and report the result back to the swarm."),
+			Mode: "swarm_consensus_buy",
+			Summary: firstNonEmptyString(
+				strings.TrimSpace(directive.Summary),
+				"Execute the swarm-approved entry and report the result back to the swarm.",
+			),
 			Reasons:         append([]string{"swarm consensus approved a buy"}, profileReason(profile)...),
 			EntryChainID:    directive.ChainID,
 			EntryChainLabel: autoTradeChainLabel(directive.ChainID),
@@ -513,7 +556,15 @@ func parseAutoTradeSignals(raw string, defaultChainID int64) []autoTradeSignalCa
 	entries := flattenMaps(decoded)
 	signals := make([]autoTradeSignalCandidate, 0, len(entries))
 	for _, entry := range entries {
-		address := mapString(entry, "tokenAddress", "token_address", "address", "mint", "contractAddress", "contract_address")
+		address := mapString(
+			entry,
+			"tokenAddress",
+			"token_address",
+			"address",
+			"mint",
+			"contractAddress",
+			"contract_address",
+		)
 		if address == "" {
 			continue
 		}
@@ -555,10 +606,13 @@ func flattenMaps(v any) []map[string]any {
 		}
 		return out
 	case map[string]any:
-		if mapString(node, "tokenAddress", "token_address", "address", "mint", "contractAddress", "contract_address") != "" {
+		if mapString(
+			node, "tokenAddress", "token_address", "address", "mint", "contractAddress", "contract_address",
+		) != "" {
 			return []map[string]any{node}
 		}
-		if mapString(node, "symbol", "name") != "" && (mapFloat(node, "usdValue", "priceUsd", "liquidityUsd") > 0 || node["priceChanges"] != nil) {
+		if mapString(node, "symbol", "name") != "" &&
+			(mapFloat(node, "usdValue", "priceUsd", "liquidityUsd") > 0 || node["priceChanges"] != nil) {
 			return []map[string]any{node}
 		}
 		out := make([]map[string]any, 0)

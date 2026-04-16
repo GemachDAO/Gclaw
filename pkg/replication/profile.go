@@ -252,7 +252,9 @@ func childPreferredVenues(style string, hint string) []string {
 	if strings.Contains(strings.ToLower(hint), "bridge") || style == "bridge_rotator" || style == "gmac_accumulator" {
 		venues = append(venues, "gdex_bridge")
 	}
-	if strings.Contains(strings.ToLower(hint), "hyperliquid") || strings.Contains(strings.ToLower(hint), "perp") || style == "momentum_hunter" || style == "mean_reversion" {
+	if strings.Contains(strings.ToLower(hint), "hyperliquid") || strings.Contains(strings.ToLower(hint), "perp") ||
+		style == "momentum_hunter" ||
+		style == "mean_reversion" {
 		venues = append(venues, "hyperliquid_perps")
 	}
 	return venues

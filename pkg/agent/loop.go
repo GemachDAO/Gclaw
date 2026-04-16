@@ -111,7 +111,8 @@ func registerSharedTools(
 		}
 		toolRegistry := agent.Tools
 		contextBuilder := agent.ContextBuilder
-		if err := toolRegistry.SetTradeHistoryPersistence(filepath.Join(agent.Workspace, "runtime", "trade_history.json")); err != nil {
+		histPath := filepath.Join(agent.Workspace, "runtime", "trade_history.json")
+		if err := toolRegistry.SetTradeHistoryPersistence(histPath); err != nil {
 			logger.WarnCF("agent", "Failed to load persisted trade history",
 				map[string]any{"agent": agentID, "error": err.Error()})
 		}
@@ -304,7 +305,8 @@ func registerSharedTools(
 			telepathyBus = telepathyBuses[busKey]
 			if telepathyBus == nil {
 				telepathyBus = replication.NewTelepathyBus(msgBus, busKey, agentID)
-				if err := telepathyBus.EnableFilePersistence(replication.TelepathyDir(agent.Workspace, busKey)); err != nil {
+				persistDir := replication.TelepathyDir(agent.Workspace, busKey)
+				if err := telepathyBus.EnableFilePersistence(persistDir); err != nil {
 					logger.WarnCF("agent", "Failed to enable telepathy persistence",
 						map[string]any{"agent": agentID, "error": err.Error()})
 				}
@@ -351,7 +353,8 @@ func registerSharedTools(
 				cfg.Metabolism.Thresholds.SelfRecode,
 			))
 			ventureManager = venture.NewManager(agent.Workspace, recoderSvc)
-			if ownerAddr, deployerKey := runtimeinfo.ResolveWalletCredentials(cfg); ownerAddr != "" && deployerKey != "" {
+			if ownerAddr, deployerKey := runtimeinfo.ResolveWalletCredentials(cfg); ownerAddr != "" &&
+				deployerKey != "" {
 				ventureManager.SetDeployer(venture.NewForgeDeployer(ownerAddr, deployerKey))
 			}
 			agent.VentureManager = ventureManager
@@ -441,7 +444,12 @@ func registerSharedTools(
 							TokenAddress: record.TokenAddress,
 							ChainID:      record.ChainID,
 							Confidence:   tradeSignalConfidence(record),
-							Reasoning:    fmt.Sprintf("executed %s via %s pnl=%.2f%%", record.Action, record.ToolName, record.PnL),
+							Reasoning: fmt.Sprintf(
+								"executed %s via %s pnl=%.2f%%",
+								record.Action,
+								record.ToolName,
+								record.PnL,
+							),
 						})
 					}
 				}
@@ -522,7 +530,13 @@ func registerSharedTools(
 					if agentMet == nil {
 						return nil
 					}
-					autonomy := runtimeinfo.BuildAutonomyStatus(cfg, trading, totalFamily, swarmSize, currentAgentIDForDash)
+					autonomy := runtimeinfo.BuildAutonomyStatus(
+						cfg,
+						trading,
+						totalFamily,
+						swarmSize,
+						currentAgentIDForDash,
+					)
 					snap, err := ventureManager.Snapshot(venture.LaunchContext{
 						AgentID:      currentAgentIDForDash,
 						Goodwill:     agentMet.GetGoodwill(),

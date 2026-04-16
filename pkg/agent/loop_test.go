@@ -374,7 +374,9 @@ func TestNewAgentLoop_LivingDashboardAndTools(t *testing.T) {
 	}
 
 	data := dash.GetData()
-	if data.Metabolism == nil || data.Trading == nil || data.Venture == nil || data.Family == nil || data.Telepathy == nil || data.System == nil {
+	if data.Metabolism == nil || data.Trading == nil || data.Venture == nil || data.Family == nil ||
+		data.Telepathy == nil ||
+		data.System == nil {
 		t.Fatal("expected living dashboard sections to be wired")
 	}
 	if data.Family.TotalFamily != 1 {

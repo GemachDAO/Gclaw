@@ -36,14 +36,14 @@ var DefaultToolCosts = map[string]float64{
 
 // TradeRecord captures a single successful GDEX trade result for dashboarding.
 type TradeRecord struct {
-	Timestamp    int64
-	ToolName     string
-	Action       string
-	TokenAddress string
-	Amount       string
-	ChainID      int
-	PnL          float64
-	HasPnL       bool
+	Timestamp    int64   `json:"timestamp"`
+	ToolName     string  `json:"tool_name"`
+	Action       string  `json:"action"`
+	TokenAddress string  `json:"token_address"`
+	Amount       string  `json:"amount"`
+	ChainID      int     `json:"chain_id"`
+	PnL          float64 `json:"pnl"`
+	HasPnL       bool    `json:"has_pnl"`
 }
 
 type TradeObserver func(TradeRecord)
@@ -212,12 +212,15 @@ func (r *ToolRegistry) processTradeResult(toolName string, args map[string]any, 
 	}
 
 	record := TradeRecord{
-		Timestamp:    time.Now().UnixMilli(),
-		ToolName:     toolName,
-		Action:       strings.TrimPrefix(toolName, "gdex_"),
-		TokenAddress: firstNonEmpty(stringField(data, "tokenAddress", "token_address"), stringArg(args, "token_address")),
-		Amount:       firstNonEmpty(stringField(data, "amount", "amountIn", "amount_in"), stringArg(args, "amount")),
-		ChainID:      firstNonZero(intField(data, "chainID", "chain_id"), intArg(args, "chain_id")),
+		Timestamp: time.Now().UnixMilli(),
+		ToolName:  toolName,
+		Action:    strings.TrimPrefix(toolName, "gdex_"),
+		TokenAddress: firstNonEmpty(
+			stringField(data, "tokenAddress", "token_address"),
+			stringArg(args, "token_address"),
+		),
+		Amount:  firstNonEmpty(stringField(data, "amount", "amountIn", "amount_in"), stringArg(args, "amount")),
+		ChainID: firstNonZero(intField(data, "chainID", "chain_id"), intArg(args, "chain_id")),
 	}
 	if hasProfitData {
 		record.PnL = profitPercent

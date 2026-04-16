@@ -93,7 +93,11 @@ func (d *ForgeDeployer) Deploy(v *Venture) error {
 	}
 
 	rpcURL, _ := d.rpcURLForChain(v.Chain)
-	contractRef := filepath.ToSlash(filepath.Join("contracts", filepath.Base(v.ContractPath))) + ":" + sanitizeIdentifier(v.ContractSystem)
+	contractRef := filepath.ToSlash(
+		filepath.Join("contracts", filepath.Base(v.ContractPath)),
+	) + ":" + sanitizeIdentifier(
+		v.ContractSystem,
+	)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

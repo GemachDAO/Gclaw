@@ -240,8 +240,28 @@ func TestBuildAutoTradeExecutionPlan_ChildProfilesChooseDifferentSignals(t *test
 		SpendMultiplier: 0.8,
 	}
 
-	momentumPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, momentum, buildAutoTradeLearningMemory(nil), nil, nil)
-	reversionPlan := buildAutoTradeExecutionPlan(cfg, strategy, autonomy, nil, signals, meanReversion, buildAutoTradeLearningMemory(nil), nil, nil)
+	momentumPlan := buildAutoTradeExecutionPlan(
+		cfg,
+		strategy,
+		autonomy,
+		nil,
+		signals,
+		momentum,
+		buildAutoTradeLearningMemory(nil),
+		nil,
+		nil,
+	)
+	reversionPlan := buildAutoTradeExecutionPlan(
+		cfg,
+		strategy,
+		autonomy,
+		nil,
+		signals,
+		meanReversion,
+		buildAutoTradeLearningMemory(nil),
+		nil,
+		nil,
+	)
 
 	if momentumPlan == nil || reversionPlan == nil {
 		t.Fatal("expected both plans")

@@ -60,7 +60,8 @@ func resolveManagedWalletsCached(cfg *config.Config, timeout time.Duration) *Man
 	managedWalletCache.mu.Lock()
 	defer managedWalletCache.mu.Unlock()
 
-	if managedWalletCache.key == key && managedWalletCache.value != nil && time.Now().Before(managedWalletCache.expires) {
+	if managedWalletCache.key == key && managedWalletCache.value != nil &&
+		time.Now().Before(managedWalletCache.expires) {
 		cached := *managedWalletCache.value
 		return &cached
 	}
@@ -272,7 +273,10 @@ func mergeManagedWalletStatus(previous, current *ManagedWalletStatus) *ManagedWa
 	warnings := make([]string, 0, len(current.Warnings)+1)
 	warnings = append(warnings, current.Warnings...)
 	if current.Error != "" {
-		warnings = append(warnings, "using cached managed wallet addresses after transient lookup failure: "+current.Error)
+		warnings = append(
+			warnings,
+			"using cached managed wallet addresses after transient lookup failure: "+current.Error,
+		)
 		current.Error = ""
 	} else {
 		warnings = append(warnings, "using cached managed wallet addresses after transient lookup gap")
