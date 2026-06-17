@@ -101,6 +101,63 @@ def edge_score(oos: dict[str, Any]) -> float:
     return round(float(oos.get("expectancy", 0.0)) * math.sqrt(n), 6)
 
 
+# ── Royalties + reputation (shared, onchain-anchored) ────────────────────────
+
+ROYALTY_PCT = 10  # share of an adopter's positive PnL credited to the author
+
+
+def royalty_ledger() -> Path:
+    return genepool_dir() / "royalties.jsonl"
+
+
+def pending_path() -> Path:
+    return forge_dir() / "pending.json"
+
+
+def load_pending() -> dict[str, Any]:
+    p = pending_path()
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def save_pending(d: dict[str, Any]) -> None:
+    pending_path().write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+
+def royalty_ref(tech: dict[str, Any]) -> tuple[str, str]:
+    """Resolve the technique's origin ref and author to credit (pool parent wins)."""
+    parent = tech.get("parent") or ""
+    if "/" in parent:
+        return parent, parent.split("/", 1)[0]
+    author = tech.get("author", agent_id())
+    return f"{author}/{tech['id']}", author
+
+
+def _read_ledger() -> list[dict[str, Any]]:
+    p = royalty_ledger()
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def reputation_table() -> dict[str, Any]:
+    """Aggregate the royalty ledger into per-author reputation."""
+    rep: dict[str, Any] = {}
+    for e in _read_ledger():
+        a = e["author"]
+        r = rep.setdefault(a, {"author": a, "earned_usd": 0.0, "trades": 0,
+                               "wins": 0, "adopters": set()})
+        r["earned_usd"] += e.get("royalty_usd", 0.0)
+        r["trades"] += 1
+        if e.get("pnl_usd", 0) > 0:
+            r["wins"] += 1
+        r["adopters"].add(e.get("adopter"))
+    for r in rep.values():
+        r["adopters"] = len(r["adopters"])
+        r["earned_usd"] = round(r["earned_usd"], 6)
+        r["score"] = round(r["earned_usd"] + 0.05 * r["wins"], 4)
+    return rep
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -469,14 +526,21 @@ def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
         items = [m for m in items if m.get("kind") == args.kind]
     if args.coin:
         items = [m for m in items if (m.get("card") or {}).get("coin") == args.coin]
-    items.sort(key=lambda m: m.get("score", 0), reverse=True)
+    rep = reputation_table()
     mine = agent_id()
+
+    def combined(m: dict[str, Any]) -> float:
+        author_rep = rep.get(m["author"], {}).get("score", 0.0)
+        return m.get("score", 0.0) + 0.5 * author_rep
+
+    items.sort(key=combined, reverse=True)
     rows = []
     for m in items[:args.limit]:
         card = m.get("card") or {}
         rows.append({
             "ref": f"{m['author']}/{m['id']}", "score": m.get("score", 0),
-            "kind": m.get("kind"),
+            "author_reputation": rep.get(m["author"], {}).get("score", 0.0),
+            "rank": round(combined(m), 6), "kind": m.get("kind"),
             "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
             "oos": card.get("oos", {}),
             "author": m["author"] + (" (you)" if m["author"] == mine else ""),
@@ -517,6 +581,57 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
     integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
     return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
             "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+
+
+def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
+    """Attribute a realized PnL to the technique that opened it and credit its author.
+
+    Called on close: looks up the pending forge trade for the coin (set by
+    ``run --execute``), credits ROYALTY_PCT of any positive PnL to the origin
+    author (never to yourself), and appends to the shared royalty ledger.
+    """
+    pending = load_pending()
+    rec = pending.get(args.coin)
+    if not rec and not args.ref:
+        die(f"no pending forge trade on {args.coin} — pass --ref <author>/<id> to attribute manually")
+    ref = (rec or {}).get("ref") or args.ref
+    author = ref.split("/", 1)[0] if "/" in ref else ref
+    adopter = agent_id()
+    pnl = float(args.pnl)
+    royalty = round(max(0.0, pnl) * ROYALTY_PCT / 100, 6) if author != adopter else 0.0
+    entry = {"ts": now_iso(), "technique": ref, "author": author, "adopter": adopter,
+             "coin": args.coin, "pnl_usd": round(pnl, 6), "royalty_usd": royalty}
+    with royalty_ledger().open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    if rec:
+        pending.pop(args.coin, None)
+        save_pending(pending)
+    return {"ok": True, "attributed": entry}
+
+
+def _sync_reputation(broadcast: bool) -> dict[str, Any]:
+    mode = "broadcast" if broadcast else "dry-run"
+    try:
+        proc = subprocess.run(["node", str(SCRIPT_DIR / "erc8004_reputation.js"), mode],
+                              capture_output=True, text=True, timeout=120)
+        tail = (proc.stdout or proc.stderr).strip().splitlines()[-1:] or [""]
+        return {"ok": proc.returncode == 0, "mode": mode, "detail": tail[0][:200]}
+    except Exception as exc:  # noqa: BLE001 — sync is best-effort
+        return {"ok": False, "mode": mode, "note": "reputation sync unavailable",
+                "error": str(exc)[:120]}
+
+
+def cmd_reputation(args: argparse.Namespace) -> dict[str, Any]:
+    """Show author reputation aggregated from the royalty ledger (optionally sync onchain)."""
+    rep = reputation_table()
+    if args.author:
+        rows = [rep.get(args.author, {"author": args.author, "score": 0, "earned_usd": 0})]
+    else:
+        rows = sorted(rep.values(), key=lambda x: x.get("score", 0), reverse=True)
+    out: dict[str, Any] = {"ok": True, "reputation": rows}
+    if args.sync:
+        out["onchain"] = _sync_reputation(args.broadcast)
+    return out
 
 
 def _resolve_source(ref: str) -> tuple[Path, dict[str, Any], list[str]]:
@@ -677,7 +792,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     result = {"ok": True, "mode": mode, "equity": equity, "intents": intents}
     if args.execute and intents and mode != "hibernate" and intents[0]["notional"] >= MIN_NOTIONAL:
-        result["executed"] = _execute(intents[0])
+        top = intents[0]
+        result["executed"] = _execute(top)
+        if result["executed"].get("ok"):
+            ref, _ = royalty_ref(load_technique(top["technique"]))
+            pending = load_pending()
+            pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso()}
+            save_pending(pending)
+            result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute:
         result["executed"] = {"skipped": "hibernate, no intent, or below min notional"}
     return result
@@ -785,6 +907,18 @@ def build_parser() -> argparse.ArgumentParser:
     ln = sub.add_parser("lineage", help="show a technique's ancestry chain")
     ln.add_argument("id")
     ln.set_defaults(fn=cmd_lineage)
+
+    ro = sub.add_parser("royalty", help="attribute a realized PnL and credit the author")
+    ro.add_argument("--coin", required=True)
+    ro.add_argument("--pnl", required=True, help="realized PnL in USD (signed)")
+    ro.add_argument("--ref", default=None, help="<author>/<id> if no pending trade")
+    ro.set_defaults(fn=cmd_royalty)
+
+    rep = sub.add_parser("reputation", help="author reputation from the royalty ledger")
+    rep.add_argument("--author", default=None)
+    rep.add_argument("--sync", action="store_true", help="anchor reputation onchain (dry-run)")
+    rep.add_argument("--broadcast", action="store_true", help="with --sync, actually broadcast")
+    rep.set_defaults(fn=cmd_reputation)
 
     cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
     cr.add_argument("id")
