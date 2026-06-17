@@ -182,6 +182,63 @@ def cmd_show(args: argparse.Namespace) -> None:
     print(json.dumps(persona(args.name, born), indent=2))
 
 
+def _rgb(h: float, s: float, light: float) -> tuple[int, int, int]:
+    import colorsys
+
+    r, g, b = colorsys.hls_to_rgb(h / 360, light, s)
+    return round(r * 255), round(g * 255), round(b * 255)
+
+
+def _helix_rows(fp: str, rows: int) -> list[str]:
+    import math
+
+    by = lambda i: int(fp[i * 2 : i * 2 + 2], 16)  # noqa: E731
+    c1 = "\033[38;2;{};{};{}m".format(*_rgb(by(0) / 255 * 360, 0.7, 0.62))
+    c2 = "\033[38;2;{};{};{}m".format(*_rgb((by(0) / 255 * 360 + 100) % 360, 0.7, 0.62))
+    out = []
+    for i in range(rows):
+        ph = i / (rows - 1) * math.pi * 4
+        x1, x2 = round(5 + math.sin(ph) * 4), round(5 + math.sin(ph + math.pi) * 4)
+        cells = [" "] * 11
+        lo, hi = sorted((x1, x2))
+        for x in range(lo + 1, hi):
+            cells[x] = "\033[2m" + (c1 if math.sin(ph) >= 0 else c2) + "·\033[0m"
+        cells[x1], cells[x2] = c1 + "●\033[0m", c2 + "●\033[0m"
+        out.append("".join(cells))
+    return out
+
+
+def _bar(val: int, rgb: tuple[int, int, int], width: int = 9) -> str:
+    fill = round(val / 100 * width)
+    col = "\033[38;2;{};{};{}m".format(*rgb)
+    return col + "█" * fill + "\033[2m" + "░" * (width - fill) + "\033[0m"
+
+
+def cmd_card(args: argparse.Namespace) -> None:
+    name = args.name
+    p = persona(name, creature_born_at(name, is_child=name != "Gclaw"))
+    fp = p["fingerprint"]
+    hue = int(fp[0:2], 16) / 255 * 360
+    accent = "\033[38;2;{};{};{}m".format(*_rgb(hue, 0.7, 0.68))
+    muted, bold, rst = "\033[38;2;138;150;179m", "\033[1m", "\033[0m"
+    rows = _helix_rows(fp, 9)
+    traits = list(p["traits"].items())
+    text = [
+        f"{muted}{p['species'].upper()} · {p['archetype'].upper()}{rst}",
+        f"{bold}\033[97m{name}{rst}",
+        f'{accent}"{p["catchphrase"]}"{rst}',
+        "",
+    ]
+    for tname, tval in traits:
+        text.append(f"{muted}{tname:<11}{rst}{_bar(tval, _rgb(hue, 0.7, 0.55))} {bold}{tval}{rst}")
+    print()
+    for i in range(9):
+        left = rows[i] if i < len(rows) else " " * 11
+        right = text[i] if i < len(text) else ""
+        print(f"  {left}   {right}")
+    print(f"\n  {muted}genome {fp} · soul on ERC-8004 (Base){rst}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Gclaw persona generator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -190,12 +247,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_child.add_argument("--name", required=True)
     p_show = sub.add_parser("show")
     p_show.add_argument("--name", required=True)
+    p_card = sub.add_parser("card")
+    p_card.add_argument("--name", default="Gclaw")
     return parser
 
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
-    {"for-genesis": cmd_for_genesis, "for-child": cmd_for_child, "show": cmd_show}[args.command](args)
+    handlers = {"for-genesis": cmd_for_genesis, "for-child": cmd_for_child, "show": cmd_show, "card": cmd_card}
+    handlers[args.command](args)
     return 0
 
 

@@ -91,6 +91,8 @@ cmd_dashboard() {
   (command -v xdg-open >/dev/null && xdg-open "$f") || (command -v open >/dev/null && open "$f") || arrow "open $f in a browser"
 }
 
+cmd_card() { "$PY" "$SKILL_DIR/scripts/persona.py" card --name "${1:-Gclaw}"; }
+
 cmd_talk() {
   local name="${1:-Gclaw}"
   "$PY" "$SKILL_DIR/scripts/chat.py" sheet --name "$name"
@@ -110,6 +112,7 @@ case "${1:-help}" in
   start) cmd_start ;;
   status) cmd_status ;;
   dashboard|dash) cmd_dashboard ;;
+  card) shift; cmd_card "$@" ;;
   talk) shift; cmd_talk "$@" ;;
   beat|heartbeat) cmd_beat ;;
   *) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
