@@ -8,13 +8,36 @@ names below are `mcp__gdex__*`; load their schemas with ToolSearch before use.
 HyperLiquid perps settle in USDC on the HL L1. Before any order can fill the
 managed account needs a settled USDC deposit.
 
-- `get_hl_clearinghouse_state` — margin summary, withdrawable, open positions. Empty/zero → unfunded.
+### Resolving the funded address (critical — easy to get wrong)
+
+Managed custody uses a **control wallet** (signs in) and **per-chain managed
+wallets** (hold funds and trade). HyperLiquid funds live under the **managed
+Arbitrum/HL wallet address, NOT the control address.** Querying the control
+wallet shows `$0` even when the account is funded — that is the single most
+common false "it's broken" signal.
+
+Read the managed addresses from the wallet JSON (`~/gdex-test-wallet.json`):
+`managed["Arbitrum (HyperLiquid)"].address` is the HL trading address;
+`managed.Solana.address` is the Solana spot address.
+
+### Balance reads that actually work (no auth, address-keyed)
+
+- `get_hl_clearinghouse_state` with `userAddress = <managed HL address>` and `dex: "default"` —
+  authoritative perp account: `accountValue`, `withdrawable`, positions. **Use this one.**
+- `get_usdc_balance` / `get_hl_spot_state` with the managed HL address — HL USDC and spot balances.
+- `get_account_state` can return `$0` for a funded account if it hits a different/empty builder DEX —
+  trust `get_hl_clearinghouse_state` with `dex: "default"` over it.
+- `get_portfolio` / `get_balances` are known-buggy (wrong params); for spot use the raw
+  `client.get('/v1/portfolio', {userId, chainId, data})` flow. Note **native SOL/ETH are NOT in
+  `portfolio.holding[]`** — check native balance separately.
+
+### Funding controls
+
 - `perp_deposit` / `perp_withdraw` — move USDC in/out (can auto-fund from Arbitrum ETH first).
-- `get_balances` — control-wallet token balances per chain.
 - `hl_enable_trading` — enable trading on the managed HL account if not yet enabled.
 
-If the account is unfunded, that is the blocker behind "trading doesn't work" — report it,
-don't fake fills.
+Only report "unfunded" after checking the **managed** HL address with
+`get_hl_clearinghouse_state`. Never fake fills.
 
 ## A. Perpetuals (the core engine)
 
