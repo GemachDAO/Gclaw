@@ -53,13 +53,21 @@ tightest spreads, and the most reliable funding — the opposite of memecoin ris
   Use as a *sentiment* read, not a copy signal, unless explicitly running copy-trading.
 - `get_hl_user_stats` — a specific trader's stats by address (`ethAddress`).
 
-**Act:**
-- `set_leverage` — set leverage per asset BEFORE opening. Start low (2–3x), never above the
-  strategy cap. Lower leverage = farther liquidation = survives noise.
-- `open_perp_position` — open with size, direction, and **always** TP/SL.
-- `place_perp_order` — limit/market order with optional TP/SL legs.
-- `close_perp_position` / `close_all_positions` — realize PnL.
-- `cancel_perp_order` / `cancel_all_perp_orders` — pull resting orders.
+**Act — use the bundled execution helper, not the MCP write tools.** The MCP
+`open_perp_position`/`set_leverage` tools require a freshly-signed managed session
+that cannot be threaded cleanly through tool calls. `scripts/hl_perp.js` performs
+the proven sign-in (chainId 42161, fresh session, 0x-stripped signature) and
+trades on the managed account. It emits JSON.
+
+- `node scripts/hl_perp.js status` — spot USDC, account value, positions, open orders.
+- `node scripts/hl_perp.js open --coin ETH --side long --notional 12 --sl-pct 2 --tp-pct 3`
+  — market entry with reduce-only TP/SL legs. A stop is mandatory; the $11 HL minimum is enforced.
+- `node scripts/hl_perp.js close --coin ETH` — reduce-only market close, realizing PnL.
+
+HyperLiquid applies its default cross leverage (e.g. 20x) unless changed; risk is
+bounded by the **stop**, not the leverage, so keep size small and the stop tight.
+The MCP read tools (`get_mark_price`, `get_hl_meta_and_asset_ctxs`,
+`get_hl_clearinghouse_state`) remain the way to gather intel.
 
 **Discipline:**
 - One thesis per trade, stated before you open it.
