@@ -443,8 +443,8 @@ def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
     shutil.copy2(tech_dir(args.id) / "signal.py", dest / "signal.py")
     manifest = {
         "id": args.id, "name": tech.get("name", args.id), "kind": tech.get("kind", "edge"),
-        "author": author, "parent": tech.get("parent"), "claim": tech.get("claim", ""),
-        "card": card, "score": edge_score(card.get("oos") or {}),
+        "author": author, "parent": tech.get("parent"), "lineage": tech.get("lineage", []),
+        "claim": tech.get("claim", ""), "card": card, "score": edge_score(card.get("oos") or {}),
         "content_hash": content_hash(args.id), "published_at": now_iso(),
     }
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -507,7 +507,8 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
     shutil.copy2(src / "signal.py", d / "signal.py")
     tech = {"id": local_id, "name": manifest.get("name", local_id),
             "kind": manifest.get("kind", "edge"), "author": agent_id(),
-            "parent": args.ref, "origin": manifest, "claim": manifest.get("claim", ""),
+            "parent": args.ref, "lineage": (manifest.get("lineage") or []) + [args.ref],
+            "origin": manifest, "claim": manifest.get("claim", ""),
             "status": "draft", "created_at": now_iso()}
     save_technique(tech)
     (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
@@ -516,6 +517,50 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
     integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
     return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
             "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+
+
+def _resolve_source(ref: str) -> tuple[Path, dict[str, Any], list[str]]:
+    """Resolve a fork source (local id or pool <author>/<id>) → signal, meta, lineage."""
+    if "/" in ref:
+        author, pid = ref.split("/", 1)
+        src = genepool_dir() / author / pid
+        if not (src / "manifest.json").exists():
+            die(f"no pooled technique '{ref}'")
+        meta = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+        return src / "signal.py", meta, meta.get("lineage") or []
+    if not (tech_dir(ref) / "technique.json").exists():
+        die(f"no local technique '{ref}'")
+    meta = load_technique(ref)
+    return tech_dir(ref) / "signal.py", meta, meta.get("lineage") or []
+
+
+def cmd_fork(args: argparse.Namespace) -> dict[str, Any]:
+    """Derive a new technique from a source to improve it; ancestry is tracked."""
+    sig_path, src_meta, parent_lineage = _resolve_source(args.source)
+    newid = slugify(args.name)
+    d = tech_dir(newid)
+    if d.exists() and not args.force:
+        die(f"technique '{newid}' exists — use a different --name or --force")
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(sig_path, d / "signal.py")
+    tech = {"id": newid, "name": args.name, "kind": src_meta.get("kind", "edge"),
+            "author": agent_id(), "parent": args.source,
+            "lineage": parent_lineage + [args.source],
+            "claim": args.claim or src_meta.get("claim", ""),
+            "status": "draft", "created_at": now_iso()}
+    save_technique(tech)
+    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
+        name=args.name, kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
+        encoding="utf-8")
+    return {"ok": True, "forked": newid, "from": args.source, "lineage": tech["lineage"],
+            "next": f"improve signal.py, then: forge.py prove {newid}"}
+
+
+def cmd_lineage(args: argparse.Namespace) -> dict[str, Any]:
+    """Show a technique's ancestry chain (oldest → this)."""
+    tech = load_technique(args.id)
+    chain = list(tech.get("lineage") or []) + [f"{tech.get('author')}/{args.id}"]
+    return {"ok": True, "id": args.id, "depth": len(chain) - 1, "lineage": chain}
 
 
 def _critique_markets(claimed: Optional[str]) -> list[str]:
@@ -729,6 +774,17 @@ def build_parser() -> argparse.ArgumentParser:
     pull.add_argument("--as", dest="as_", default=None, help="local id to save under")
     pull.add_argument("--force", action="store_true")
     pull.set_defaults(fn=cmd_pull)
+
+    fk = sub.add_parser("fork", help="derive a new technique from a source to improve it")
+    fk.add_argument("source", help="local id or pool <author>/<id>")
+    fk.add_argument("--name", required=True)
+    fk.add_argument("--claim", default="")
+    fk.add_argument("--force", action="store_true")
+    fk.set_defaults(fn=cmd_fork)
+
+    ln = sub.add_parser("lineage", help="show a technique's ancestry chain")
+    ln.add_argument("id")
+    ln.set_defaults(fn=cmd_lineage)
 
     cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
     cr.add_argument("id")
