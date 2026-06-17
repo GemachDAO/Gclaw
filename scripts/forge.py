@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
+import math
 import os
 import re
+import shutil
 import signal as signalmod
 import statistics
 import subprocess
@@ -69,6 +72,90 @@ def forge_dir() -> Path:
 
 def tech_dir(tid: str) -> Path:
     return forge_dir() / "techniques" / tid
+
+
+def genepool_dir() -> Path:
+    """The shared gene pool — common to every agent/child on the box.
+
+    Independent of ``GCLAW_HOME`` so a parent and its children publish to and
+    discover from one pool. Override with ``GCLAW_GENEPOOL``.
+    """
+    d = Path(os.environ.get("GCLAW_GENEPOOL", str(Path.home() / ".gclaw" / "genepool")))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def content_hash(tid: str) -> str:
+    """Integrity hash over a technique's signal + claim (provenance anchor)."""
+    tech = load_technique(tid)
+    src = (tech_dir(tid) / "signal.py").read_text(encoding="utf-8")
+    payload = json.dumps({"claim": tech.get("claim", ""), "signal": src}, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def edge_score(oos: dict[str, Any]) -> float:
+    """Confidence-weighted edge: expectancy scaled by sqrt(sample) (Sharpe-ish)."""
+    n = int(oos.get("n", 0))
+    if n <= 0:
+        return 0.0
+    return round(float(oos.get("expectancy", 0.0)) * math.sqrt(n), 6)
+
+
+# ── Royalties + reputation (shared, onchain-anchored) ────────────────────────
+
+ROYALTY_PCT = 10  # share of an adopter's positive PnL credited to the author
+
+
+def royalty_ledger() -> Path:
+    return genepool_dir() / "royalties.jsonl"
+
+
+def pending_path() -> Path:
+    return forge_dir() / "pending.json"
+
+
+def load_pending() -> dict[str, Any]:
+    p = pending_path()
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def save_pending(d: dict[str, Any]) -> None:
+    pending_path().write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+
+def royalty_ref(tech: dict[str, Any]) -> tuple[str, str]:
+    """Resolve the technique's origin ref and author to credit (pool parent wins)."""
+    parent = tech.get("parent") or ""
+    if "/" in parent:
+        return parent, parent.split("/", 1)[0]
+    author = tech.get("author", agent_id())
+    return f"{author}/{tech['id']}", author
+
+
+def _read_ledger() -> list[dict[str, Any]]:
+    p = royalty_ledger()
+    if not p.exists():
+        return []
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def reputation_table() -> dict[str, Any]:
+    """Aggregate the royalty ledger into per-author reputation."""
+    rep: dict[str, Any] = {}
+    for e in _read_ledger():
+        a = e["author"]
+        r = rep.setdefault(a, {"author": a, "earned_usd": 0.0, "trades": 0,
+                               "wins": 0, "adopters": set()})
+        r["earned_usd"] += e.get("royalty_usd", 0.0)
+        r["trades"] += 1
+        if e.get("pnl_usd", 0) > 0:
+            r["wins"] += 1
+        r["adopters"].add(e.get("adopter"))
+    for r in rep.values():
+        r["adopters"] = len(r["adopters"])
+        r["earned_usd"] = round(r["earned_usd"], 6)
+        r["score"] = round(r["earned_usd"] + 0.05 * r["wins"], 4)
+    return rep
 
 
 def now_iso() -> str:
@@ -187,18 +274,39 @@ def validate_signal_src(src: str) -> list[str]:
     return violations
 
 
+def _compile_signal(src: str, where: str) -> Callable[[dict[str, Any]], Any]:
+    """Validate against the sandbox policy and compile; raise ValueError if rejected."""
+    violations = validate_signal_src(src)
+    if violations:
+        raise ValueError("; ".join(violations))
+    namespace: dict[str, Any] = {}
+    exec(compile(src, where, "exec"), namespace)  # noqa: S102 — AST-validated above
+    return namespace["signal"]
+
+
 def load_signal(tid: str) -> Callable[[dict[str, Any]], Any]:
-    """Validate and import a technique's signal function."""
+    """Validate and import a local technique's signal function."""
     src_path = tech_dir(tid) / "signal.py"
     if not src_path.exists():
         die(f"no signal.py for technique '{tid}'")
-    src = src_path.read_text(encoding="utf-8")
-    violations = validate_signal_src(src)
-    if violations:
-        die(f"signal.py rejected: {'; '.join(violations)}")
-    namespace: dict[str, Any] = {}
-    exec(compile(src, str(src_path), "exec"), namespace)  # noqa: S102 — AST-validated above
-    return namespace["signal"]
+    try:
+        return _compile_signal(src_path.read_text(encoding="utf-8"), str(src_path))
+    except ValueError as exc:
+        die(f"signal.py rejected: {exc}")
+
+
+def load_pooled_signal(ref: str) -> Optional[Callable[[dict[str, Any]], Any]]:
+    """Compile a pooled technique's signal (returns None if missing or rejected)."""
+    if "/" not in ref:
+        return None
+    author, pid = ref.split("/", 1)
+    p = genepool_dir() / author / pid / "signal.py"
+    if not p.exists():
+        return None
+    try:
+        return _compile_signal(p.read_text(encoding="utf-8"), str(p))
+    except ValueError:
+        return None
 
 
 def _timeout(_signum: int, _frame: Any) -> None:
@@ -272,12 +380,12 @@ def summarise(rets: list[float]) -> dict[str, Any]:
     }
 
 
-def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
-    """Walk-forward backtest: fit-free IS/OOS split, gate on out-of-sample edge."""
-    fn = load_signal(tid)
+def _backtest_with(fn: Callable[[dict[str, Any]], Any], coin: str,
+                   interval: str, limit: int) -> dict[str, Any]:
+    """Walk-forward backtest of a signal fn; raises ValueError on thin data."""
     candles = get_candles(coin, interval, limit)
     if len(candles) < WARMUP + HORIZON + 60:
-        die(f"not enough candles ({len(candles)}) — widen --limit or --interval")
+        raise ValueError(f"not enough candles ({len(candles)}) — widen --limit or --interval")
     last = len(candles) - HORIZON
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
     is_stats = score_window(candles, fn, coin, WARMUP, split)
@@ -290,6 +398,14 @@ def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
         "in_sample": is_stats, "out_of_sample": oos_stats,
         "proven": proven, "proved_at": now_iso(),
     }
+
+
+def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
+    """Walk-forward backtest: fit-free IS/OOS split, gate on out-of-sample edge."""
+    try:
+        return _backtest_with(load_signal(tid), coin, interval, limit)
+    except ValueError as exc:
+        die(str(exc))
 
 
 # ── Style loadout ────────────────────────────────────────────────────────────
@@ -363,6 +479,9 @@ def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
     tech = load_technique(args.id)
+    if tech.get("parent") and not (tech.get("critique") or {}).get("pass") and not args.force:
+        die(f"'{args.id}' came from the pool — critique it first "
+            f"(forge.py critique {args.id}) or --force")
     if tech.get("status") != "proven" and not args.force:
         die(f"technique '{args.id}' is not proven — prove it first (or --force)")
     card = tech.get("card") or {}
@@ -396,6 +515,302 @@ def cmd_show(args: argparse.Namespace) -> dict[str, Any]:
     if card_path.exists():
         tech["card_full"] = json.loads(card_path.read_text(encoding="utf-8"))
     return {"ok": True, "technique": tech}
+
+
+def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
+    """Publish a proven technique to the shared gene pool with onchain provenance."""
+    tech = load_technique(args.id)
+    if tech.get("status") != "proven" and not args.force:
+        die(f"only proven techniques can be published — prove '{args.id}' first (or --force)")
+    card = tech.get("card") or {}
+    author = tech.get("author", agent_id())
+    dest = genepool_dir() / author / args.id
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tech_dir(args.id) / "signal.py", dest / "signal.py")
+    manifest = {
+        "id": args.id, "name": tech.get("name", args.id), "kind": tech.get("kind", "edge"),
+        "author": author, "parent": tech.get("parent"), "lineage": tech.get("lineage", []),
+        "claim": tech.get("claim", ""), "card": card, "score": edge_score(card.get("oos") or {}),
+        "content_hash": content_hash(args.id), "published_at": now_iso(),
+    }
+    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return {"ok": True, "published": f"{author}/{args.id}", "score": manifest["score"],
+            "pool": str(genepool_dir())}
+
+
+def _pool_manifests() -> list[dict[str, Any]]:
+    out = []
+    for mpath in genepool_dir().glob("*/*/manifest.json"):
+        try:
+            out.append(json.loads(mpath.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return out
+
+
+def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
+    """Browse the gene pool, ranked by confidence-weighted out-of-sample edge."""
+    items = _pool_manifests()
+    if args.kind:
+        items = [m for m in items if m.get("kind") == args.kind]
+    if args.coin:
+        items = [m for m in items if (m.get("card") or {}).get("coin") == args.coin]
+    rep = reputation_table()
+    board = load_leaderboard()
+    mine = agent_id()
+
+    def boost(ref: str) -> float:
+        rank = board["ranks"].get(ref)
+        if not rank or board["count"] == 0:
+            return 0.0
+        return (board["count"] - rank + 1) / board["count"] * 0.02
+
+    def combined(m: dict[str, Any]) -> float:
+        ref = f"{m['author']}/{m['id']}"
+        author_rep = rep.get(m["author"], {}).get("score", 0.0)
+        return m.get("score", 0.0) + 0.5 * author_rep + boost(ref)
+
+    items.sort(key=combined, reverse=True)
+    rows = []
+    for m in items[:args.limit]:
+        card = m.get("card") or {}
+        ref = f"{m['author']}/{m['id']}"
+        rows.append({
+            "ref": ref, "score": m.get("score", 0),
+            "author_reputation": rep.get(m["author"], {}).get("score", 0.0),
+            "tournament_rank": board["ranks"].get(ref),
+            "rank": round(combined(m), 6), "kind": m.get("kind"),
+            "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
+            "oos": card.get("oos", {}),
+            "author": m["author"] + (" (you)" if m["author"] == mine else ""),
+            "claim": m.get("claim", "")[:60],
+        })
+    return {"ok": True, "count": len(items), "techniques": rows}
+
+
+def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
+    """Copy a pooled technique into the local workshop as an unproven draft.
+
+    A pulled technique always lands as a draft with ``parent`` set to its pool
+    ref — you must re-prove it on your own data before adopting. Trust nothing
+    a peer claims until your own harness confirms it.
+    """
+    if "/" not in args.ref:
+        die("ref must be <author>/<id> (see: forge.py discover)")
+    author, pid = args.ref.split("/", 1)
+    src = genepool_dir() / author / pid
+    if not (src / "manifest.json").exists():
+        die(f"no pooled technique '{args.ref}'")
+    manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+    local_id = args.as_ or pid
+    d = tech_dir(local_id)
+    if d.exists() and not args.force:
+        die(f"local technique '{local_id}' exists — use --as <name> or --force")
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src / "signal.py", d / "signal.py")
+    tech = {"id": local_id, "name": manifest.get("name", local_id),
+            "kind": manifest.get("kind", "edge"), "author": agent_id(),
+            "parent": args.ref, "lineage": (manifest.get("lineage") or []) + [args.ref],
+            "origin": manifest, "claim": manifest.get("claim", ""),
+            "status": "draft", "created_at": now_iso()}
+    save_technique(tech)
+    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
+        name=tech["name"], kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
+        encoding="utf-8")
+    integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
+    return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
+            "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+
+
+def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
+    """Attribute a realized PnL to the technique that opened it and credit its author.
+
+    Called on close: looks up the pending forge trade for the coin (set by
+    ``run --execute``), credits ROYALTY_PCT of any positive PnL to the origin
+    author (never to yourself), and appends to the shared royalty ledger.
+    """
+    pending = load_pending()
+    rec = pending.get(args.coin)
+    if not rec and not args.ref:
+        die(f"no pending forge trade on {args.coin} — pass --ref <author>/<id> to attribute manually")
+    ref = (rec or {}).get("ref") or args.ref
+    author = ref.split("/", 1)[0] if "/" in ref else ref
+    adopter = agent_id()
+    pnl = float(args.pnl)
+    royalty = round(max(0.0, pnl) * ROYALTY_PCT / 100, 6) if author != adopter else 0.0
+    entry = {"ts": now_iso(), "technique": ref, "author": author, "adopter": adopter,
+             "coin": args.coin, "pnl_usd": round(pnl, 6), "royalty_usd": royalty}
+    with royalty_ledger().open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    if rec:
+        pending.pop(args.coin, None)
+        save_pending(pending)
+    return {"ok": True, "attributed": entry}
+
+
+def _sync_reputation(broadcast: bool) -> dict[str, Any]:
+    mode = "broadcast" if broadcast else "dry-run"
+    try:
+        proc = subprocess.run(["node", str(SCRIPT_DIR / "erc8004_reputation.js"), mode],
+                              capture_output=True, text=True, timeout=120)
+        tail = (proc.stdout or proc.stderr).strip().splitlines()[-1:] or [""]
+        return {"ok": proc.returncode == 0, "mode": mode, "detail": tail[0][:200]}
+    except Exception as exc:  # noqa: BLE001 — sync is best-effort
+        return {"ok": False, "mode": mode, "note": "reputation sync unavailable",
+                "error": str(exc)[:120]}
+
+
+def load_leaderboard() -> dict[str, Any]:
+    """Latest tournament standings as {ref: rank} plus the field size."""
+    p = genepool_dir() / "leaderboard.json"
+    if not p.exists():
+        return {"ranks": {}, "count": 0}
+    board = json.loads(p.read_text(encoding="utf-8"))
+    standings = board.get("standings", [])
+    return {"ranks": {s["ref"]: s["rank"] for s in standings}, "count": len(standings)}
+
+
+def cmd_tournament(args: argparse.Namespace) -> dict[str, Any]:
+    """Compete every pooled technique on one fresh, identical benchmark.
+
+    Each author chose the market their technique looked best on; a tournament
+    re-scores them all on the *same* coins and window, so the ranking is
+    head-to-head rather than self-selected. Standings are written to the shared
+    leaderboard and boost the winners in `discover`.
+    """
+    coins = [c.strip() for c in args.coins.split(",") if c.strip()]
+    manifests = _pool_manifests()
+    if not manifests:
+        die("gene pool is empty — publish a technique first")
+    standings = []
+    for m in manifests:
+        ref = f"{m['author']}/{m['id']}"
+        fn = load_pooled_signal(ref)
+        if fn is None:
+            continue
+        per_coin: dict[str, float] = {}
+        for coin in coins:
+            try:
+                card = _backtest_with(fn, coin, args.interval, args.limit)
+            except ValueError:
+                continue
+            per_coin[coin] = edge_score(card["out_of_sample"])
+        if per_coin:
+            standings.append({"ref": ref, "author": m["author"],
+                              "benchmark_score": round(sum(per_coin.values()), 6),
+                              "per_coin": per_coin})
+    standings.sort(key=lambda s: s["benchmark_score"], reverse=True)
+    for i, s in enumerate(standings, 1):
+        s["rank"] = i
+    board = {"benchmark": {"coins": coins, "interval": args.interval},
+             "standings": standings, "at": now_iso()}
+    (genepool_dir() / "leaderboard.json").write_text(json.dumps(board, indent=2), encoding="utf-8")
+    return {"ok": True, "benchmark": board["benchmark"], "standings": standings}
+
+
+def cmd_reputation(args: argparse.Namespace) -> dict[str, Any]:
+    """Show author reputation aggregated from the royalty ledger (optionally sync onchain)."""
+    rep = reputation_table()
+    if args.author:
+        rows = [rep.get(args.author, {"author": args.author, "score": 0, "earned_usd": 0})]
+    else:
+        rows = sorted(rep.values(), key=lambda x: x.get("score", 0), reverse=True)
+    out: dict[str, Any] = {"ok": True, "reputation": rows}
+    if args.sync:
+        out["onchain"] = _sync_reputation(args.broadcast)
+    return out
+
+
+def _resolve_source(ref: str) -> tuple[Path, dict[str, Any], list[str]]:
+    """Resolve a fork source (local id or pool <author>/<id>) → signal, meta, lineage."""
+    if "/" in ref:
+        author, pid = ref.split("/", 1)
+        src = genepool_dir() / author / pid
+        if not (src / "manifest.json").exists():
+            die(f"no pooled technique '{ref}'")
+        meta = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+        return src / "signal.py", meta, meta.get("lineage") or []
+    if not (tech_dir(ref) / "technique.json").exists():
+        die(f"no local technique '{ref}'")
+    meta = load_technique(ref)
+    return tech_dir(ref) / "signal.py", meta, meta.get("lineage") or []
+
+
+def cmd_fork(args: argparse.Namespace) -> dict[str, Any]:
+    """Derive a new technique from a source to improve it; ancestry is tracked."""
+    sig_path, src_meta, parent_lineage = _resolve_source(args.source)
+    newid = slugify(args.name)
+    d = tech_dir(newid)
+    if d.exists() and not args.force:
+        die(f"technique '{newid}' exists — use a different --name or --force")
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(sig_path, d / "signal.py")
+    tech = {"id": newid, "name": args.name, "kind": src_meta.get("kind", "edge"),
+            "author": agent_id(), "parent": args.source,
+            "lineage": parent_lineage + [args.source],
+            "claim": args.claim or src_meta.get("claim", ""),
+            "status": "draft", "created_at": now_iso()}
+    save_technique(tech)
+    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
+        name=args.name, kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
+        encoding="utf-8")
+    return {"ok": True, "forked": newid, "from": args.source, "lineage": tech["lineage"],
+            "next": f"improve signal.py, then: forge.py prove {newid}"}
+
+
+def cmd_lineage(args: argparse.Namespace) -> dict[str, Any]:
+    """Show a technique's ancestry chain (oldest → this)."""
+    tech = load_technique(args.id)
+    chain = list(tech.get("lineage") or []) + [f"{tech.get('author')}/{args.id}"]
+    return {"ok": True, "id": args.id, "depth": len(chain) - 1, "lineage": chain}
+
+
+def _critique_markets(claimed: Optional[str]) -> list[str]:
+    base = ["BTC", "ETH", "SOL"]
+    if claimed and claimed not in base:
+        base.append(claimed)
+    return base
+
+
+def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
+    """Adversarially re-prove a (usually pooled) technique on your own harness.
+
+    Re-runs the backtest across several markets — including the author's claimed
+    one — to see whether the edge replicates and generalises rather than fitting
+    a single cherry-picked market. Peer code runs through the same AST sandbox.
+    On a clean replication it also graduates the technique locally so it can be
+    adopted; otherwise it stays a draft with the failing verdict attached.
+    """
+    tech = load_technique(args.id)
+    origin_card = (tech.get("origin") or {}).get("card") or tech.get("card") or {}
+    interval = args.interval or origin_card.get("interval", "4h")
+    claimed_coin = origin_card.get("coin")
+    coins = [c.strip() for c in args.coins.split(",")] if args.coins else _critique_markets(claimed_coin)
+    markets: dict[str, Any] = {}
+    claimed_card: Optional[dict[str, Any]] = None
+    for coin in coins:
+        card = backtest(args.id, coin, interval, args.limit)
+        markets[coin] = {"proven": card["proven"],
+                         "oos_exp": card["out_of_sample"]["expectancy"],
+                         "n": card["out_of_sample"]["n"]}
+        if coin == claimed_coin:
+            claimed_card = card
+    replicated = bool(claimed_coin and markets.get(claimed_coin, {}).get("proven"))
+    positives = sum(1 for r in markets.values()
+                    if r["oos_exp"] > 0 and r["n"] >= MIN_OOS_SAMPLE)
+    robust = positives >= math.ceil(len(markets) / 2)
+    verdict = {"replicated": replicated, "robust": robust,
+               "pass": bool(replicated and robust), "markets": markets,
+               "interval": interval, "critic": agent_id(), "at": now_iso()}
+    (tech_dir(args.id) / "critique.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    tech["critique"] = verdict
+    if replicated and claimed_card is not None:
+        (tech_dir(args.id) / "card.json").write_text(json.dumps(claimed_card, indent=2), encoding="utf-8")
+        tech["status"] = "proven"
+        tech["card"] = {"coin": claimed_card["coin"], "interval": claimed_card["interval"],
+                        "oos": claimed_card["out_of_sample"], "proven": True}
+    save_technique(tech)
+    return {"ok": True, "id": args.id, "verdict": verdict}
 
 
 def _equity_usd() -> float:
@@ -464,7 +879,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     result = {"ok": True, "mode": mode, "equity": equity, "intents": intents}
     if args.execute and intents and mode != "hibernate" and intents[0]["notional"] >= MIN_NOTIONAL:
-        result["executed"] = _execute(intents[0])
+        top = intents[0]
+        result["executed"] = _execute(top)
+        if result["executed"].get("ok"):
+            ref, _ = royalty_ref(load_technique(top["technique"]))
+            pending = load_pending()
+            pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso()}
+            save_pending(pending)
+            result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute:
         result["executed"] = {"skipped": "hibernate, no intent, or below min notional"}
     return result
@@ -544,6 +966,59 @@ def build_parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
 
     sub.add_parser("list", help="list techniques + loadout").set_defaults(fn=cmd_list)
+
+    pub = sub.add_parser("publish", help="publish a proven technique to the gene pool")
+    pub.add_argument("id")
+    pub.add_argument("--force", action="store_true")
+    pub.set_defaults(fn=cmd_publish)
+
+    disc = sub.add_parser("discover", help="browse the gene pool, ranked by edge")
+    disc.add_argument("--kind", choices=["lens", "edge"], default=None)
+    disc.add_argument("--coin", default=None)
+    disc.add_argument("--limit", type=int, default=20)
+    disc.set_defaults(fn=cmd_discover)
+
+    pull = sub.add_parser("pull", help="copy a pooled technique locally (as a draft)")
+    pull.add_argument("ref", help="<author>/<id> from discover")
+    pull.add_argument("--as", dest="as_", default=None, help="local id to save under")
+    pull.add_argument("--force", action="store_true")
+    pull.set_defaults(fn=cmd_pull)
+
+    fk = sub.add_parser("fork", help="derive a new technique from a source to improve it")
+    fk.add_argument("source", help="local id or pool <author>/<id>")
+    fk.add_argument("--name", required=True)
+    fk.add_argument("--claim", default="")
+    fk.add_argument("--force", action="store_true")
+    fk.set_defaults(fn=cmd_fork)
+
+    ln = sub.add_parser("lineage", help="show a technique's ancestry chain")
+    ln.add_argument("id")
+    ln.set_defaults(fn=cmd_lineage)
+
+    ro = sub.add_parser("royalty", help="attribute a realized PnL and credit the author")
+    ro.add_argument("--coin", required=True)
+    ro.add_argument("--pnl", required=True, help="realized PnL in USD (signed)")
+    ro.add_argument("--ref", default=None, help="<author>/<id> if no pending trade")
+    ro.set_defaults(fn=cmd_royalty)
+
+    rep = sub.add_parser("reputation", help="author reputation from the royalty ledger")
+    rep.add_argument("--author", default=None)
+    rep.add_argument("--sync", action="store_true", help="anchor reputation onchain (dry-run)")
+    rep.add_argument("--broadcast", action="store_true", help="with --sync, actually broadcast")
+    rep.set_defaults(fn=cmd_reputation)
+
+    tr = sub.add_parser("tournament", help="compete pooled techniques on one benchmark")
+    tr.add_argument("--coins", default="BTC,ETH,SOL")
+    tr.add_argument("--interval", default="4h")
+    tr.add_argument("--limit", type=int, default=1200)
+    tr.set_defaults(fn=cmd_tournament)
+
+    cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
+    cr.add_argument("id")
+    cr.add_argument("--coins", default=None, help="markets to test (default: BTC,ETH,SOL + claimed)")
+    cr.add_argument("--interval", default=None)
+    cr.add_argument("--limit", type=int, default=1200)
+    cr.set_defaults(fn=cmd_critique)
 
     r = sub.add_parser("run", help="evaluate adopted techniques on live data")
     r.add_argument("--coins", default=None, help="override markets (default: each technique's proven market)")
