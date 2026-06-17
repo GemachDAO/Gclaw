@@ -25,9 +25,12 @@ import hashlib
 import html
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 SPECIES_PREFIX = ["Vor", "Kryo", "Zeph", "Mor", "Lyx", "Quel", "Ras", "Thi", "Nyx", "Obol"]
 SPECIES_SUFFIX = ["dax", "mire", "lith", "phar", "gax", "ven", "tide", "korn", "ses", "wraith"]
@@ -197,6 +200,45 @@ def leverage_html(state: dict[str, Any]) -> str:
     return head + "".join(rows)
 
 
+def refresh_positions(h: Path) -> None:
+    """Best-effort: cache live HL state to positions.json so the offline page can show it."""
+    try:
+        proc = subprocess.run(["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
+                              capture_output=True, text=True, timeout=80)
+        data = json.loads(proc.stdout.strip().splitlines()[-1])
+        if data.get("ok"):
+            data["ts"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            (h / "positions.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass  # keep the last good cache; the dashboard renders offline regardless
+
+
+def positions_html(h: Path) -> str:
+    """Live HyperLiquid positions, read from the cached snapshot."""
+    snap = load_json(h / "positions.json", {})
+    pos = snap.get("positions") or []
+    asof = (snap.get("ts") or "")[11:19]
+    equity = float(snap.get("accountValue", 0) or 0)
+    if not pos:
+        tail = f" · as of {asof} UTC" if asof else ""
+        return f'<p class="muted">Flat — no open positions · equity ${equity:.2f}{tail}</p>'
+    rows = []
+    for p in pos:
+        size = float(p.get("size", 0) or 0)
+        side = "LONG" if size > 0 else "SHORT"
+        up = float(p.get("unrealizedPnl", 0) or 0)
+        color = "#7CFFB2" if up >= 0 else "#ff7c8a"
+        liq = float(p.get("liquidationPx") or 0)
+        rows.append(
+            f'<li><span class="pill">{side}</span><b>{html.escape(str(p.get("coin", "?")))}</b> '
+            f'{abs(size):g} @ ${float(p.get("entryPx", 0) or 0):,.2f} '
+            f'<span style="color:{color};font-weight:700">{up:+.3f}</span> '
+            f'<span class="muted">liq ${liq:,.0f}</span></li>')
+    head = (f'<div class="muted" style="margin-bottom:8px">equity '
+            f'<b style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · as of {asof} UTC</div>')
+    return head + f'<ul class="events">{"".join(rows)}</ul>'
+
+
 def techniques_html() -> str:
     """The forge loadout — self-authored, proven trading techniques."""
     h = home()
@@ -247,6 +289,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         onchain=onchain_html(state),
         leverage=leverage_html(state),
         techniques=techniques_html(),
+        positions=positions_html(home()),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -258,6 +301,8 @@ def cmd_render(args: argparse.Namespace) -> None:
     state = load_json(h / "metabolism.json", {})
     if not state:
         raise SystemExit(f"No metabolism state at {h}. Run metabolism.py init first.")
+    if not getattr(args, "no_live", False):
+        refresh_positions(h)
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
     identity = (h / "dna" / "IDENTITY.md").read_text(encoding="utf-8") if (h / "dna" / "IDENTITY.md").exists() else ""
@@ -322,7 +367,10 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
     <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
   </div>
-  <div class="card decent" style="margin-top:18px"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
+  <div class="grid2" style="margin-top:18px">
+    <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
+    <div class="card decent"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
+  </div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
     <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
@@ -337,6 +385,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p_render = sub.add_parser("render")
     p_render.add_argument("--out")
+    p_render.add_argument("--no-live", action="store_true", help="skip the live HL positions refresh")
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--out")
     p_serve.add_argument("--port", type=int, default=8787)
