@@ -44,6 +44,11 @@ SDK: <https://github.com/0xgasless/agent-sdk>
 
 - **Identity (done, live):** `scripts/erc8004_register.js`. Gclaw minted as
   **agentId 55624** (tx `0x70203c5c…`); its DNA agent card resolves onchain via `tokenURI`.
+- **Soul on-chain (done):** the agent card embeds the full `soul` (archetype, voice, quirk,
+  temperament, catchphrase) derived identically to `persona.py`, so the personality is
+  permanent — a true onchain pet. New mints include it; refresh an existing identity with
+  `node scripts/erc8004_register.js update` (calls `setAgentURI`). Zephlith's soul went on-chain
+  in tx `0x33d935a1…`.
 - **Children (built, dry-run verified):** `erc8004_register.js dry-run|broadcast --child <name>`
   reads the child from `state.children`, builds a card with `parentAgentId` → an **onchain
   family tree**. Each child gets its own genome + agentId, owned by the control wallet.

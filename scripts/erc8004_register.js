@@ -32,11 +32,34 @@ const IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'; // ERC-8
 const ABI = [
   'function register(string agentURI) returns (uint256 agentId)',
   'function tokenURI(uint256 agentId) view returns (string)',
+  'function setAgentURI(uint256 agentId, string newURI)',
 ];
 
 const PREFIX = ['Vor', 'Kryo', 'Zeph', 'Mor', 'Lyx', 'Quel', 'Ras', 'Thi', 'Nyx', 'Obol'];
 const SUFFIX = ['dax', 'mire', 'lith', 'phar', 'gax', 'ven', 'tide', 'korn', 'ses', 'wraith'];
 const TRAITS = ['Vitality', 'Cunning', 'Aggression', 'Discipline', 'Fertility'];
+// Soul tables — MUST match scripts/persona.py byte-for-byte so the onchain soul
+// equals the local one. (archetype=d[11], voice=d[12], quirk=d[13].)
+const ARCHETYPES = ['The Gambler', 'The Sage', 'The Hustler', 'The Stoic', 'The Trickster', 'The Guardian', 'The Visionary', 'The Survivor'];
+const VOICES = ['terse and dry', 'warm and chatty', 'cryptic and poetic', 'brash and loud', 'calm and philosophical', 'anxious and over-caffeinated', 'regal and theatrical', 'deadpan and sarcastic'];
+const QUIRKS = ['talk about every trade like a war story', 'am superstitious about a lucky number', 'quote proverbs I half-remember', 'narrate my own life like a nature documentary', 'give everything a nickname', 'am convinced the market is personally out to get me', 'celebrate tiny wins enormously', 'speak of GMAC like a sacred relic'];
+const CATCHPHRASE = {
+  'The Gambler': 'Fortune favors the funded.', 'The Sage': 'Patience is a position.',
+  'The Hustler': 'Always be compounding.', 'The Stoic': 'The stop-loss protects the soul.',
+  'The Trickster': 'The market lies; so do I.', 'The Guardian': 'Survive first. Everything else is noise.',
+  'The Visionary': 'I am building something that outlives me.', 'The Survivor': 'Still here. Still trading.',
+};
+
+function temperament(s) {
+  const n = [];
+  if (s.Aggression >= 70) n.push('bold to the point of reckless');
+  else if (s.Aggression <= 40) n.push('cautious, slow to commit');
+  if (s.Discipline >= 70) n.push('rigidly disciplined');
+  if (s.Cunning >= 70) n.push('sly and calculating');
+  if (s.Vitality <= 40) n.push('haunted by the nearness of hibernation');
+  if (s.Fertility >= 70) n.push('dreams of a sprawling dynasty');
+  return n.length ? n : ['even-keeled'];
+}
 
 function genome(name, bornAt) {
   const d = crypto.createHash('sha256').update(`${name}|${bornAt}`).digest();
@@ -45,7 +68,19 @@ function genome(name, bornAt) {
   TRAITS.forEach((t, i) => {
     stats[t] = 25 + (d[6 + i] % 70);
   });
-  return { species, fingerprint: d.toString('hex').slice(0, 12), traits: stats };
+  const archetype = ARCHETYPES[d[11] % ARCHETYPES.length];
+  return {
+    species,
+    fingerprint: d.toString('hex').slice(0, 12),
+    traits: stats,
+    soul: {
+      archetype,
+      voice: VOICES[d[12] % VOICES.length],
+      quirk: QUIRKS[d[13] % QUIRKS.length],
+      temperament: temperament(stats),
+      catchphrase: CATCHPHRASE[archetype],
+    },
+  };
 }
 
 function agentCard(state, managed, child) {
@@ -66,6 +101,7 @@ function agentCard(state, managed, child) {
       species: g.species,
       genomeFingerprint: g.fingerprint,
       traits: g.traits,
+      soul: g.soul,
       bornAt,
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
@@ -98,8 +134,8 @@ function registerInLeaderboard(agentId) {
 
 async function main() {
   const mode = process.argv[2];
-  if (!['dry-run', 'broadcast'].includes(mode)) {
-    throw new Error('usage: erc8004_register.js <dry-run|broadcast> [--child <name>]');
+  if (!['dry-run', 'broadcast', 'update'].includes(mode)) {
+    throw new Error('usage: erc8004_register.js <dry-run|broadcast|update> [--child <name>]');
   }
   const childName = process.argv.includes('--child') ? process.argv[process.argv.indexOf('--child') + 1] : null;
   const state = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'metabolism.json'), 'utf8'));
@@ -132,6 +168,18 @@ async function main() {
     return;
   }
 
+  if (mode === 'update') {
+    // Refresh an already-minted identity's card (e.g. to add the soul) via setAgentURI.
+    const idRecord = child ? child.onchain_identity : state.onchain_identity;
+    if (!idRecord?.agentId) throw new Error('no onchain identity to update — mint it first (broadcast)');
+    if (bal === 0n) throw new Error('control wallet has 0 Base ETH — fund gas before update');
+    const tx = await registry.setAgentURI(BigInt(idRecord.agentId), uri);
+    console.log(`update tx: ${tx.hash} — waiting...`);
+    const receipt = await tx.wait();
+    console.log(`SOUL ON-CHAIN — agentId ${idRecord.agentId} card updated (${card['x-gclaw'].soul.archetype}, "${card['x-gclaw'].soul.catchphrase}"), tx ${tx.hash}, block ${receipt.blockNumber}`);
+    return;
+  }
+
   if (bal === 0n) throw new Error(`control wallet has 0 Base ETH — fund gas before broadcast`);
   const tx = await registry.register(uri);
   console.log(`broadcast tx: ${tx.hash} — waiting for confirmation...`);
@@ -161,7 +209,9 @@ async function main() {
   console.log(`REGISTERED ${who} — agentId ${record.agentId}, tx ${tx.hash}, block ${receipt.blockNumber}`);
 }
 
-main().catch((e) => {
-  console.error('ERROR', e.message || String(e));
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error('ERROR', e.message || String(e));
+    process.exit(1);
+  });

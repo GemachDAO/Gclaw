@@ -116,10 +116,13 @@ function render(creatures){
   creatures.sort((a,b)=>score(b.g)-score(a.g));
   document.getElementById("grid").innerHTML = creatures.map((c,i)=>{
     const g=c.g, lineage = g.parentAgentId ? `<span class="pill">child of #${g.parentAgentId} · ${g.role||""}</span>` : `<span class="pill">genesis</span>`;
+    const soul = g.soul ? `<div class="species">${g.species||"unknown"} · ${g.soul.archetype}</div>
+        <div class="muted" style="font-style:italic;margin:2px 0 6px">“${g.soul.catchphrase}”</div>` :
+        `<div class="species">${g.species||"unknown"}</div>`;
     return `<div class="card"><span class="rank">#${i+1}</span>
       <div>${helix(g.genomeFingerprint||"000000000000")}</div>
       <div style="flex:1">
-        <div class="species">${g.species||"unknown"}</div>
+        ${soul}
         <h2>${c.name||"Gclaw"} <span class="muted">#${c.id}</span></h2>
         ${traitBars(g.traits,g.genomeFingerprint||"000000")}
         ${lineage}
