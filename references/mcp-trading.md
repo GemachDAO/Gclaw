@@ -27,11 +27,14 @@ The session is now live. Keep `sessionPrivateKey` and `apiKey` for the trade cal
 
 ## Writes (use control address as walletAddress + the session)
 
-- **Open:** `mcp__gdex__open_perp_position`
-  `{ apiKey, walletAddress: <control/userId>, sessionPrivateKey, coin, isLong, price: <mark>, size, tpPrice, slPrice }`.
-  `size` is in contracts (coin units). Enforce HL's **$11 min notional** and **always** pass tp/sl.
-- **Leverage (optional):** `mcp__gdex__set_leverage` `{ apiKey, walletAddress, sessionPrivateKey, coin, leverage, isCross: true }`.
-  HL defaults to ~20x cross; risk is bounded by the stop, so this is rarely needed.
+- **Open (set leverage in the order):** `mcp__gdex__open_perp_position`
+  `{ apiKey, walletAddress: <control/userId>, sessionPrivateKey, coin, isLong, price: <mark>, size, tpPrice, slPrice, leverage }`.
+  Pass **`leverage`** in the open (1–50; keep to the strategy cap, **≤3x**). HL defaults to 20x if
+  you omit it. `size` is in contracts (coin units). Enforce HL's **$11 min notional** and always pass tp/sl.
+  - There is **no** working `set_leverage` / `update_leverage` call — that endpoint is 404. Leverage is
+    a field on the order itself.
+  - For builder/HIP-3 markets (stocks: `xyz:NVDA`, oil: `flx:OIL`), pass the coin with the **lowercase
+    dex prefix**, and use the per-asset mark from `get_hl_meta_and_asset_ctxs`/`getHlAllAssets` (not `get_mark_price`).
 - **Close:** `mcp__gdex__close_perp_position` `{ apiKey, walletAddress, sessionPrivateKey, coin }` —
   realizes PnL; read it back from `get_hl_clearinghouse_state` and `settle` into metabolism.
 

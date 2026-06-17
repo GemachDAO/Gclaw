@@ -81,7 +81,9 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    `get_hl_top_traders_by_pnl`. For events: `hl_outcomes`.
 6. **Decide & act (MCP).** At most one or two conservative moves consistent with the strategy and `mode`.
    - Open perp: `mcp__gdex__open_perp_position` with `{apiKey, walletAddress: <control>, sessionPrivateKey,
-     coin, isLong, price: <mark>, size, tpPrice, slPrice}`. A stop is mandatory; clear the $11 min. Explain the thesis first.
+     coin, isLong, price: <mark>, size, tpPrice, slPrice, leverage}`. **Pass `leverage` in the order** (≤3x per
+     strategy; HL defaults to 20x if omitted) — there is no separate set_leverage call. A stop is mandatory;
+     clear the $11 min. Explain the thesis first.
    - Close perp: `mcp__gdex__close_perp_position {apiKey, walletAddress, sessionPrivateKey, coin}`.
    - Outcome bet (defined-risk events): `node scripts/hl_outcomes.js list` then `order --outcome <id> --coin <side> --buy --price <p> --size <n>`
      (fund via `mcp__gdex__hl_swap_collateral` first). See `references/trading.md` §B. Prefer these in SURVIVE mode.
