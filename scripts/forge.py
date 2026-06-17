@@ -393,6 +393,9 @@ def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
     tech = load_technique(args.id)
+    if tech.get("parent") and not (tech.get("critique") or {}).get("pass") and not args.force:
+        die(f"'{args.id}' came from the pool — critique it first "
+            f"(forge.py critique {args.id}) or --force")
     if tech.get("status") != "proven" and not args.force:
         die(f"technique '{args.id}' is not proven — prove it first (or --force)")
     card = tech.get("card") or {}
@@ -513,6 +516,54 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
     integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
     return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
             "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+
+
+def _critique_markets(claimed: Optional[str]) -> list[str]:
+    base = ["BTC", "ETH", "SOL"]
+    if claimed and claimed not in base:
+        base.append(claimed)
+    return base
+
+
+def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
+    """Adversarially re-prove a (usually pooled) technique on your own harness.
+
+    Re-runs the backtest across several markets — including the author's claimed
+    one — to see whether the edge replicates and generalises rather than fitting
+    a single cherry-picked market. Peer code runs through the same AST sandbox.
+    On a clean replication it also graduates the technique locally so it can be
+    adopted; otherwise it stays a draft with the failing verdict attached.
+    """
+    tech = load_technique(args.id)
+    origin_card = (tech.get("origin") or {}).get("card") or tech.get("card") or {}
+    interval = args.interval or origin_card.get("interval", "4h")
+    claimed_coin = origin_card.get("coin")
+    coins = [c.strip() for c in args.coins.split(",")] if args.coins else _critique_markets(claimed_coin)
+    markets: dict[str, Any] = {}
+    claimed_card: Optional[dict[str, Any]] = None
+    for coin in coins:
+        card = backtest(args.id, coin, interval, args.limit)
+        markets[coin] = {"proven": card["proven"],
+                         "oos_exp": card["out_of_sample"]["expectancy"],
+                         "n": card["out_of_sample"]["n"]}
+        if coin == claimed_coin:
+            claimed_card = card
+    replicated = bool(claimed_coin and markets.get(claimed_coin, {}).get("proven"))
+    positives = sum(1 for r in markets.values()
+                    if r["oos_exp"] > 0 and r["n"] >= MIN_OOS_SAMPLE)
+    robust = positives >= math.ceil(len(markets) / 2)
+    verdict = {"replicated": replicated, "robust": robust,
+               "pass": bool(replicated and robust), "markets": markets,
+               "interval": interval, "critic": agent_id(), "at": now_iso()}
+    (tech_dir(args.id) / "critique.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    tech["critique"] = verdict
+    if replicated and claimed_card is not None:
+        (tech_dir(args.id) / "card.json").write_text(json.dumps(claimed_card, indent=2), encoding="utf-8")
+        tech["status"] = "proven"
+        tech["card"] = {"coin": claimed_card["coin"], "interval": claimed_card["interval"],
+                        "oos": claimed_card["out_of_sample"], "proven": True}
+    save_technique(tech)
+    return {"ok": True, "id": args.id, "verdict": verdict}
 
 
 def _equity_usd() -> float:
@@ -678,6 +729,13 @@ def build_parser() -> argparse.ArgumentParser:
     pull.add_argument("--as", dest="as_", default=None, help="local id to save under")
     pull.add_argument("--force", action="store_true")
     pull.set_defaults(fn=cmd_pull)
+
+    cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
+    cr.add_argument("id")
+    cr.add_argument("--coins", default=None, help="markets to test (default: BTC,ETH,SOL + claimed)")
+    cr.add_argument("--interval", default=None)
+    cr.add_argument("--limit", type=int, default=1200)
+    cr.set_defaults(fn=cmd_critique)
 
     r = sub.add_parser("run", help="evaluate adopted techniques on live data")
     r.add_argument("--coins", default=None, help="override markets (default: each technique's proven market)")
