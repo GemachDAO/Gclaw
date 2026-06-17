@@ -59,8 +59,9 @@ The reference creature running on our box is registered on Base right now:
 | **Agent ID** | `55624` |
 | **Network** | Base mainnet (8453) |
 | **Registry** | [IdentityRegistry](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
-| **Registration tx** | [`0x70203c…f318f3`](https://basescan.org/tx/0x70203c5cb99ccdc17d09208d9c9f6b4846d38d279348b8c975a88b99fef318f3) |
+| **Registration tx** | [`0x70203c…f318f3`](https://basescan.org/tx/0x70203c5cb99ccdc17d09208d9c9f6b4846d38d279348b8c975a88b99fef318f3) — ✓ confirmed (status: success) |
 | **Block** | 47,435,383 |
+| **Owner / identity wallet** | [`0xA3288e03…a31F9E`](https://basescan.org/address/0xA3288e03983A7C260419e348E897dd2533a31F9E) — watch the agent's onchain activity |
 
 ---
 
