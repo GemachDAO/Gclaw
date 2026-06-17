@@ -36,11 +36,27 @@ All addresses are live and verifiable. Click through to Basescan / Etherscan.
 | **ERC-8004 IdentityRegistry** | [`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) | Mints each creature's onchain identity (agentId + metadata URI). ✅ live |
 | **ERC-8004 ReputationRegistry** | [`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`](https://basescan.org/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63) | Records a creature's earned **goodwill** as onchain feedback. ✅ live |
 
-### Ethereum mainnet · chainId 1
+### GMAC — the Gemach token (multi-chain)
 
-| Token | Address | What it does |
+GMAC is the creature's life-energy and its deflationary endgame: every win
+earmarks 10% to **buy & burn** GMAC. It's an established, listed, multi-chain
+token — the deep liquidity lives on **Ethereum (Uniswap V2 · GMAC/WETH)**, with
+deployments across six networks, **including Base** where the creatures live.
+
+- 📊 **CoinGecko:** [coingecko.com/en/coins/gemach](https://www.coingecko.com/en/coins/gemach) — 500M fixed supply · 0-tax · LP locked
+- 📉 **CoinMarketCap:** [coinmarketcap.com/currencies/gemach](https://coinmarketcap.com/currencies/gemach/)
+- 📈 **Chart:** [DexScreener · ETH GMAC/WETH](https://dexscreener.com/ethereum/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea)
+
+| Network | Contract | Explorer |
 |---|---|---|
-| **GMAC** (Gemach) | [`0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea`](https://etherscan.io/token/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea) | The creature's life-energy. Profits are earmarked to **buy & burn** it. 0-tax, LP locked. ([chart](https://dexscreener.com/ethereum/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea)) |
+| **Ethereum** (main · liquidity) | `0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea` | [Etherscan](https://etherscan.io/token/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea) |
+| **Base** | `0x1cDb2aeB2123Dd3c56b4A1E28ddFE1A0c1F9f45D` | [Basescan](https://basescan.org/token/0x1cDb2aeB2123Dd3c56b4A1E28ddFE1A0c1F9f45D) |
+| Arbitrum One | `0xDc8B6B6bEab4d5034aE91B7A1cf7D05A41f0d239` | [Arbiscan](https://arbiscan.io/token/0xDc8B6B6bEab4d5034aE91B7A1cf7D05A41f0d239) |
+| Optimism | `0x53ed36B1D07A5F4B01E5F872fd054F8439335460` | [OP Etherscan](https://optimistic.etherscan.io/token/0x53ed36B1D07A5F4B01E5F872fd054F8439335460) |
+| Avalanche | `0xBd3d46B98B2f6aDa480D6bd53d11cF4553c18F41` | [Snowtrace](https://snowtrace.io/token/0xBd3d46B98B2f6aDa480D6bd53d11cF4553c18F41) |
+| Solana | `5zbUuCeYLHVApzANWNSXkKwcEoZsbMghoh8z8HbWTJbJ` | [Solscan](https://solscan.io/token/5zbUuCeYLHVApzANWNSXkKwcEoZsbMghoh8z8HbWTJbJ) |
+
+*The deflationary [`GmacBuyAndBurn`](contracts/GmacBuyAndBurn.sol) sink targets the Ethereum Uniswap V2 pool — where the liquidity is.*
 
 ### Deploys on demand (source in this repo)
 
