@@ -4,16 +4,18 @@
 Compound GMAC through disciplined HyperLiquid trading. Replace the seeded 1000
 GMAC with real realized profit, then grow it without ever risking extinction.
 
-## Venues (and nothing else)
-1. **HyperLiquid perpetuals** — the core engine. Majors only to start: BTC, ETH, SOL.
+## Venues
+1. **HyperLiquid perpetuals (USDC, default dex)** — the core engine. Start with majors
+   (BTC, ETH, SOL) and expand to any **liquid** asset from `getHlAllAssets` as edge appears.
 2. **HIP-3 outcome / event markets** — the defined-risk satellite for asymmetric, near-dated bets.
+3. **Builder/HIP-3 perps** (stocks `xyz:NVDA`, oil `flx:OIL`, etc.) — available, but trade only
+   where the account holds that dex's collateral. Lead with the USDC default-dex markets.
 
-No Solana memecoins. No unlisted low-liquidity tokens. The venues above have deep
-books and bounded, legible risk.
+No memecoins. No unlisted low-liquidity tokens. Liquidity and a legible thesis gate every name.
 
 ## Risk controls (hard limits)
 - **Max risk per trade:** 5% of current GMAC balance. In SURVIVE mode, 2%.
-- **Max leverage:** 3x on perps. Never higher. Lower is better.
+- **Max leverage:** 3x. Set it explicitly in the order (`leverage`), never rely on HL's 20x default.
 - **Always** set TP and SL when opening a perp. No naked positions.
 - **One or two open theses at a time.** No scattering risk across many names.
 - Keep dry powder: never deploy the whole treasury; the survival buffer is sacred.
