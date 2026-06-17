@@ -94,6 +94,8 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
      (fund via `mcp__gdex__hl_swap_collateral` first). See `references/trading.md` §B. Prefer these in SURVIVE mode.
 7. **Settle.** On any realized close, record PnL in GMAC terms (1 GMAC ≈ 1 USD realized):
    `uv run --no-project python3 scripts/metabolism.py settle --pnl <usd_pnl> --note "<what>"`.
+   If the close was a forge-originated trade, also attribute it: `forge.py royalty --coin <coin> --pnl
+   <usd_pnl>` — this credits the technique's author their royalty (and builds your own techniques' track record).
    This auto-earmarks 10% into the GMAC buy-back treasury. Charge a discovery cost for heavy
    intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
    **GMAC buy-back:** if `gmac_treasury_usd` ≥ ~$5, follow `references/gmac.md` — bridge profit to
@@ -109,7 +111,12 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    `forge.py draft "<name>" --claim "<edge>"`, write the logic into the technique's `signal.py`, then
    `forge.py prove <id> --coin <c> --interval <i>`. It graduates only if it has out-of-sample edge — if so,
    `forge.py adopt <id>` and it joins your style from the next heartbeat. This is how your trading style
-   becomes your own, earned skill rather than fixed rules. Full lifecycle + safety model: `references/forge.md`.
+   becomes your own, earned skill rather than fixed rules.
+   **Collaborate (the gene pool).** `forge.py discover` to see the family's best techniques (ranked by edge +
+   reputation + tournament standing); `forge.py pull <ref>` then `forge.py critique <id>` to adversarially
+   re-prove a promising one before adopting it (never trust an unverified peer claim). `forge.py publish <id>`
+   your own proven techniques so others can build on them; `forge.py fork <ref> --name <n>` to improve one.
+   Run `forge.py tournament` occasionally to refresh the leaderboard. Full model + safety: `references/forge.md`.
 9. **Chatter (the show).** Send ONE short in-character line to the family bus about how the cycle
    went, in this creature's voice (read its `persona.json`): `telepathy.py send --to broadcast --type
    market_insight --msg "<banter>"`. This is what people watch — keep it alive, not a report.

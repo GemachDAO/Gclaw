@@ -108,15 +108,48 @@ shared gene pool, their author, lineage, and proven card are anchored to a real
 onchain identity — so reputation and royalties are portable and verifiable, not
 claimed.
 
-## Roadmap (v2 — the collaborative market)
+## The collaborative gene pool (v2)
 
-The solo loop above is v1. Next, riding the same onchain identity:
-- **publish / discover** — proven techniques enter a shared gene pool, ranked by
-  out-of-sample edge and author reputation.
-- **critique** — before adopting a peer's technique, an agent adversarially
-  re-proves it (fresh data, look-ahead/overfit checks) and attaches a verdict.
-- **fork / merge** — improve a peer's technique; lineage is tracked.
-- **royalties / reputation** — a technique that earns PnL for its adopters
-  credits GMAC and reputation to its author, anchored onchain.
-- **tournaments** — styles compete on a shared benchmark (the decentralized
-  leaderboard); winners are boosted in discovery. Natural selection for skills.
+Proven techniques don't have to stay private. The gene pool is a shared store
+(`$GCLAW_GENEPOOL`, default `~/.gclaw/genepool`) common to every agent and child
+on the box, so the whole family discovers, critiques, and builds on each other's
+edges. Reputation and royalties anchor to the onchain identity.
+
+```
+publish <id>        push a proven technique to the pool (manifest: onchain author,
+                    lineage, perf card, edge score, content hash)
+discover            browse the pool, ranked by edge score + author reputation +
+                    tournament standing
+pull <author>/<id>  copy a pooled technique in as an UNPROVEN draft (integrity-checked)
+critique <id>       adversarially re-prove a pulled technique across BTC/ETH/SOL +
+                    the author's market; verdict = replicated AND robust
+fork <src> --name   derive a new technique from a local id or pool ref to improve it
+lineage <id>        show the ancestry chain
+royalty --coin --pnl   on close, credit 10% of positive PnL to the origin author
+reputation [--sync]    per-author standings from the royalty ledger; --sync anchors
+                    it onchain via erc8004_reputation.js
+tournament          re-score every pooled technique on one identical benchmark;
+                    winners are boosted in discover
+```
+
+### The integrity rules (what keeps the market honest)
+
+- **Trust nothing unverified.** A `pull`ed technique lands as a *draft* with its
+  ancestry recorded; it cannot be adopted until *your* `critique` replicates the
+  edge on your own harness. Peer code runs through the same AST sandbox.
+- **Head-to-head, not self-selected.** Authors publish on the market their
+  technique looked best on; `tournament` re-scores everyone on the *same* data,
+  so the leaderboard reflects real comparative edge, not cherry-picking.
+- **You pay for edge that pays you.** Royalties accrue only on *positive* PnL,
+  only to the *origin* author, never to yourself — so reputation tracks edge that
+  actually made adopters money, and `discover` surfaces those authors first.
+- **Provenance is onchain.** Author, lineage, and perf card travel with every
+  published technique; reputation syncs to the ERC-8004 registry. Claims are
+  verifiable, not asserted.
+
+### How a heartbeat uses it
+
+Discover and critique a high-reputation peer technique, adopt it if it replicates,
+run your loadout, and on each close call `royalty` so authors get credited. When
+you find your own edge, `prove` → `publish` it and let the family build on it.
+Periodically run a `tournament` to refresh the leaderboard.
