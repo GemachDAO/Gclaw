@@ -21,6 +21,9 @@ The session is now live. Keep `sessionPrivateKey` and `apiKey` for the trade cal
 ## Reads (no auth, use the managed address from step 3)
 
 - `mcp__gdex__get_hl_clearinghouse_state` `{ userAddress: <managed> }` — perp equity, positions, withdrawable. Authoritative.
+  - **Builder/HIP-3 positions are dex-scoped.** A `xyz:NVDA` position appears only when you pass
+    `{ dex: "xyz" }`; the default query won't show it (looks like "nothing filled" when it actually filled).
+    Read each builder dex you hold, not just the default — collateral/positions migrate to that dex's isolated account.
 - `mcp__gdex__get_hl_spot_state` `{ walletAddress: <managed> }` — spot USDC (where idle capital sits).
 - `mcp__gdex__get_hl_open_orders` `{ walletAddress: <managed> }` — resting TP/SL legs.
 - `mcp__gdex__get_mark_price` `{ coin }` · `mcp__gdex__get_hl_meta_and_asset_ctxs` — marks, funding, OI.

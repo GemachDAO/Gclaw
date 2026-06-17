@@ -66,6 +66,54 @@ async function szDecimalsFor(skill, coin) {
   return SZ_DECIMALS[coin] ?? 2;
 }
 
+function mapPositions(aps) {
+  return (aps || [])
+    .map((p) => p.position || p)
+    .filter((p) => Number(p.szi ?? p.size) !== 0)
+    .map((p) => ({
+      coin: p.coin,
+      size: Number(p.szi ?? p.size),
+      entryPx: Number(p.entryPx),
+      unrealizedPnl: Number(p.unrealizedPnl),
+      liquidationPx: p.liquidationPx ?? null,
+    }));
+}
+
+// Builder/HIP-3 dex prefixes (xyz, flx, …) present in the tradable universe.
+async function builderDexes(skill) {
+  const a = await skill.getHlAllAssets().catch(() => []);
+  const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
+  const set = new Set();
+  for (const x of arr) {
+    const c = String(x.coin || '');
+    const i = c.indexOf(':');
+    if (i !== -1) set.add(c.slice(0, i).toLowerCase());
+  }
+  return [...set];
+}
+
+// True equity + positions across default AND every builder dex. Builder/HIP-3
+// positions (xyz:NVDA, …) live under their own dex, not `default`. The bundled
+// "…StateAll" endpoint is stale (omits xyz), so query each dex explicitly via the
+// object form `{ userAddress, dex }` — the only reliable way to see migrated collateral.
+async function fullState(skill, managed) {
+  const dexes = await builderDexes(skill);
+  const [def, ...rest] = await Promise.all([
+    skill.getHlClearinghouseState(managed).catch(() => null),
+    ...dexes.map((dex) => skill.getHlClearinghouseState({ userAddress: managed, dex }).catch(() => null)),
+  ]);
+  const defRoot = def?.state || def || {};
+  let accountValue = Number(defRoot.marginSummary?.accountValue || 0);
+  const positions = mapPositions(defRoot.assetPositions);
+  for (const cs of rest) {
+    const root = cs?.state || cs;
+    if (!root) continue;
+    accountValue += Number(root.marginSummary?.accountValue || 0);
+    positions.push(...mapPositions(root.assetPositions));
+  }
+  return { accountValue, positions, withdrawable: Number(defRoot.withdrawable || 0) };
+}
+
 function die(msg) {
   process.stdout.write(JSON.stringify({ ok: false, error: msg }) + '\n');
   process.exit(1);
@@ -121,12 +169,12 @@ async function signedSkill(wallet) {
 async function cmdStatus(wallet) {
   const { skill } = await signedSkill(wallet);
   // Resilient: a transient non-JSON response on one read shouldn't fail the whole status.
-  const [stateR, spotR, ordersR] = await Promise.allSettled([
-    skill.getHlAccountState(wallet.managed),
+  const [fullR, spotR, ordersR] = await Promise.allSettled([
+    fullState(skill, wallet.managed),
     skill.getHlSpotState(wallet.managed),
     skill.getHlOpenOrders(wallet.managed),
   ]);
-  const state = stateR.status === 'fulfilled' ? stateR.value : { accountValue: 0, positions: [] };
+  const full = fullR.status === 'fulfilled' ? fullR.value : { accountValue: 0, positions: [], withdrawable: 0 };
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
   const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
   const usdc = (spot.balances || []).find((b) => b.coin === 'USDC');
@@ -134,14 +182,9 @@ async function cmdStatus(wallet) {
     ok: true,
     managed: wallet.managed,
     spotUsdc: usdc ? Number(usdc.total) : 0,
-    accountValue: Number(state.accountValue),
-    positions: (state.positions || []).map((p) => ({
-      coin: p.coin || p.position?.coin,
-      size: Number(p.size ?? p.szi ?? p.position?.szi),
-      entryPx: Number(p.entryPx ?? p.position?.entryPx),
-      unrealizedPnl: Number(p.unrealizedPnl ?? p.position?.unrealizedPnl),
-      liquidationPx: p.liquidationPx ?? p.position?.liquidationPx ?? null,
-    })),
+    accountValue: full.accountValue, // total tradable equity across default + builder dexes
+    withdrawable: full.withdrawable,
+    positions: full.positions, // includes builder-dex (xyz:*) positions
     openOrders: (orders || []).map((o) => ({ coin: o.coin, px: Number(o.limitPx), sz: Number(o.sz), reduceOnly: !!o.reduceOnly })),
   };
 }
@@ -182,14 +225,30 @@ async function cmdOpen(wallet, args) {
   return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', leverage, mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
 }
 
+// Resolve a position's signed size from the coin's own dex (builder coins live
+// under their dex's isolated account, not the default clearinghouse).
+async function positionSize(skill, managed, coin) {
+  const i = coin.indexOf(':');
+  if (i === -1) {
+    const state = await skill.getHlAccountState(managed);
+    const pos = (state.positions || []).find(
+      (p) => String(p.coin || p.position?.coin).toLowerCase() === coin.toLowerCase(),
+    );
+    return pos ? Number(pos.size ?? pos.szi ?? pos.position?.szi) : 0;
+  }
+  const cs = await skill
+    .getHlClearinghouseState({ userAddress: managed, dex: coin.slice(0, i).toLowerCase() })
+    .catch(() => null);
+  const pos = mapPositions((cs?.state || cs)?.assetPositions).find(
+    (p) => String(p.coin).toLowerCase() === coin.toLowerCase(),
+  );
+  return pos ? pos.size : 0;
+}
+
 async function cmdClose(wallet, args) {
   const coin = normalizeCoin(args.coin || 'ETH');
   const { skill, creds } = await signedSkill(wallet);
-  const state = await skill.getHlAccountState(wallet.managed);
-  const pos = (state.positions || []).find(
-    (p) => String(p.coin || p.position?.coin).toLowerCase() === coin.toLowerCase(),
-  );
-  const szi = pos ? Number(pos.size ?? pos.szi ?? pos.position?.szi) : 0;
+  const szi = await positionSize(skill, wallet.managed, coin);
   if (!szi) return { ok: true, action: 'close', coin, note: 'no open position' };
   const px = await markPriceFor(skill, coin);
   const res = await skill.hlCreateOrder({
