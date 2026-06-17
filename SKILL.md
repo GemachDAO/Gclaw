@@ -31,6 +31,8 @@ itself about its own balance.
 - `scripts/hl_perp.js` — SDK fallback executor (status/open/close) if the MCP path is down.
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
+- `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
+- `scripts/erc8004_register.js` — ERC-8004 onchain identity mint (`dry-run` / `broadcast`); `references/onchain-identity.md`.
 - `dna/` — the DNA template (SOUL, IDENTITY, TRADING_STRATEGY, AGENT, HEARTBEAT, USER).
 - `references/mcp-trading.md` — the MCP-driven signed-trade flow. **Read before trading.**
 - `references/trading.md` — HL perps + outcome markets playbook and managed-address gotchas.
@@ -72,7 +74,10 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    - Close: `mcp__gdex__close_perp_position {apiKey, walletAddress, sessionPrivateKey, coin}`.
 7. **Settle.** On any realized close, record PnL in GMAC terms (1 GMAC ≈ 1 USD realized):
    `uv run --no-project python3 scripts/metabolism.py settle --pnl <usd_pnl> --note "<what>"`.
-   Charge a discovery cost for heavy intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
+   This auto-earmarks 10% into the GMAC buy-back treasury. Charge a discovery cost for heavy
+   intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
+   **GMAC buy-back:** if `gmac_treasury_usd` ≥ ~$5, follow `references/gmac.md` — bridge profit to
+   Ethereum and `node scripts/gmac_buy.js buy --usd <treasury>`, then `metabolism.py gmac --spend ...`.
 8. **Evolve.** `uv run --no-project python3 scripts/evolve.py capabilities`. If a threshold is newly
    crossed, follow `references/evolution.md`: replicate a mutated child **with a swarm role**
    (`evolve.py replicate --name <n> --role scout|analyst|executor|leader --mutation "<axis>"`),

@@ -46,6 +46,12 @@ GOODWILL_PROFIT_FLAT = 5
 GOODWILL_PROFIT_CAP = 20
 GOODWILL_LOSS_PENALTY = 2
 
+# GMAC buy-back: a fixed share of every realized USD profit is set aside (in USD)
+# to later buy real GMAC (the Gemach token) on Ethereum. See references/gmac.md.
+# Note: `gmac_balance` is abstract life energy; `gmac_treasury_usd` is real money
+# earmarked to buy the real token; `gmac_tokens_held` is the token actually bought.
+GMAC_BUYBACK_RATE = 0.10
+
 
 def gclaw_home() -> Path:
     """Return the runtime state root, honoring $GCLAW_HOME."""
@@ -121,6 +127,8 @@ def cmd_init(args: argparse.Namespace) -> dict[str, Any]:
         "heartbeats": 0,
         "recodes": 0,
         "children": [],
+        "gmac_treasury_usd": 0.0,
+        "gmac_tokens_held": 0.0,
         "born_at": now_iso(),
         "updated_at": now_iso(),
         **DEFAULTS,
@@ -195,6 +203,8 @@ def cmd_settle(args: argparse.Namespace) -> dict[str, Any]:
     pnl = round(float(args.pnl), 6)
     state["gmac_balance"] = round(state["gmac_balance"] + pnl, 6)
     goodwill_delta = apply_goodwill(state, pnl)
+    buyback = round(max(0.0, pnl) * GMAC_BUYBACK_RATE, 6)
+    state["gmac_treasury_usd"] = round(state.get("gmac_treasury_usd", 0.0) + buyback, 6)
     refresh(state)
     save_state(state)
     append_journal(
@@ -204,6 +214,8 @@ def cmd_settle(args: argparse.Namespace) -> dict[str, Any]:
             "pnl": pnl,
             "goodwill_delta": goodwill_delta,
             "goodwill": state["goodwill"],
+            "gmac_buyback_usd": buyback,
+            "gmac_treasury_usd": state["gmac_treasury_usd"],
             "balance": state["gmac_balance"],
             "mode": state["mode"],
             "note": args.note,
@@ -222,6 +234,8 @@ def render(state: dict[str, Any], as_json: bool) -> str:
         f"  goodwill:  {state['goodwill']}",
         f"  heartbeats:{state['heartbeats']}   recodes: {state['recodes']}   "
         f"children: {len(state['children'])}",
+        f"  GMAC buy-back: ${state.get('gmac_treasury_usd', 0.0):.2f} earmarked, "
+        f"{state.get('gmac_tokens_held', 0.0):g} GMAC held",
     ]
     if state["mode"] == "hibernate":
         lines.append("  ⚠ HIBERNATING — balance depleted. No trading. Awaiting reseed/recovery.")
@@ -230,12 +244,39 @@ def render(state: dict[str, Any], as_json: bool) -> str:
     return "\n".join(lines)
 
 
+def cmd_gmac(args: argparse.Namespace) -> dict[str, Any]:
+    """Report the GMAC buy-back treasury, or record a completed onchain buy."""
+    state = load_state()
+    if args.spend:
+        spent = round(float(args.spend), 6)
+        tokens = round(float(args.tokens), 6)
+        if spent > state.get("gmac_treasury_usd", 0.0) + 1e-9:
+            sys.exit(f"spend ${spent} exceeds treasury ${state.get('gmac_treasury_usd', 0.0)}")
+        state["gmac_treasury_usd"] = round(state["gmac_treasury_usd"] - spent, 6)
+        state["gmac_tokens_held"] = round(state.get("gmac_tokens_held", 0.0) + tokens, 6)
+        refresh(state)
+        save_state(state)
+        append_journal(
+            {
+                "ts": now_iso(),
+                "event": "gmac_buy",
+                "spent_usd": spent,
+                "tokens": tokens,
+                "tx": args.tx,
+                "treasury_usd": state["gmac_treasury_usd"],
+                "tokens_held": state["gmac_tokens_held"],
+            }
+        )
+    return refresh(state)
+
+
 COMMANDS = {
     "init": cmd_init,
     "status": cmd_status,
     "tick": cmd_tick,
     "charge": cmd_charge,
     "settle": cmd_settle,
+    "gmac": cmd_gmac,
 }
 
 
@@ -258,6 +299,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_settle = sub.add_parser("settle", help="apply realized trade PnL")
     p_settle.add_argument("--pnl", required=True)
     p_settle.add_argument("--note", default="")
+
+    p_gmac = sub.add_parser("gmac", help="GMAC buy-back treasury (report, or record a buy)")
+    p_gmac.add_argument("--spend", help="USD spent on a completed GMAC buy")
+    p_gmac.add_argument("--tokens", default="0", help="GMAC tokens received")
+    p_gmac.add_argument("--tx", default="", help="onchain tx hash")
     return parser
 
 
