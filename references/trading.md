@@ -24,9 +24,14 @@ Read the managed addresses from the wallet JSON (`~/gdex-test-wallet.json`):
 
 - `get_hl_clearinghouse_state` with `userAddress = <managed HL address>` and `dex: "default"` —
   authoritative perp account: `accountValue`, `withdrawable`, positions. **Use this one.**
+- **Builder/HIP-3 positions live under their own dex, NOT `default`.** A `xyz:NVDA` position
+  shows up only when you query with `dex: "xyz"` — querying `default` returns it empty and looks
+  like "nothing filled." When holding builder-dex perps, read each dex you trade (`dex: "xyz"`),
+  not just `default`. (Live-confirmed: `xyz:NVDA`/`xyz:SPCX` opened fine but were invisible under
+  `default` — the position migrates to the builder dex's isolated account.)
 - `get_usdc_balance` / `get_hl_spot_state` with the managed HL address — HL USDC and spot balances.
 - `get_account_state` can return `$0` for a funded account if it hits a different/empty builder DEX —
-  trust `get_hl_clearinghouse_state` with `dex: "default"` over it.
+  trust `get_hl_clearinghouse_state` (with the right `dex`) over it.
 - `get_portfolio` / `get_balances` are known-buggy (wrong params); for spot use the raw
   `client.get('/v1/portfolio', {userId, chainId, data})` flow. Note **native SOL/ETH are NOT in
   `portfolio.holding[]`** — check native balance separately.
@@ -53,21 +58,38 @@ tightest spreads, and the most reliable funding — the opposite of memecoin ris
   Use as a *sentiment* read, not a copy signal, unless explicitly running copy-trading.
 - `get_hl_user_stats` — a specific trader's stats by address (`ethAddress`).
 
-**Act — use the bundled execution helper, not the MCP write tools.** The MCP
-`open_perp_position`/`set_leverage` tools require a freshly-signed managed session
-that cannot be threaded cleanly through tool calls. `scripts/hl_perp.js` performs
-the proven sign-in (chainId 42161, fresh session, 0x-stripped signature) and
-trades on the managed account. It emits JSON.
+**Act — `open_perp_position` (MCP) or `scripts/hl_perp.js` (fallback).** Both do the
+proven sign-in (chainId 42161, fresh session, 0x-stripped signature) and trade on the
+managed account. The helper emits JSON.
 
 - `node scripts/hl_perp.js status` — spot USDC, account value, positions, open orders.
-- `node scripts/hl_perp.js open --coin ETH --side long --notional 12 --sl-pct 2 --tp-pct 3`
+- `node scripts/hl_perp.js open --coin ETH --side long --notional 12 --leverage 3 --sl-pct 2 --tp-pct 3`
   — market entry with reduce-only TP/SL legs. A stop is mandatory; the $11 HL minimum is enforced.
 - `node scripts/hl_perp.js close --coin ETH` — reduce-only market close, realizing PnL.
 
-HyperLiquid applies its default cross leverage (e.g. 20x) unless changed; risk is
-bounded by the **stop**, not the leverage, so keep size small and the stop tight.
-The MCP read tools (`get_mark_price`, `get_hl_meta_and_asset_ctxs`,
+**Leverage is settable and you must set it.** Pass `leverage` in the open (the MCP
+`open_perp_position` tool and `hl_perp.js --leverage` both forward it as a top-level
+field on the order). HL defaults to **20x** if you omit it — never rely on that. The
+strategy cap is **≤3x**. There is no separate `set_leverage` call (that endpoint is
+404). Live-confirmed: opens land at exactly the leverage passed (3x isolated on builder
+dexes, 3x on default). The MCP read tools (`get_mark_price`, `get_hl_meta_and_asset_ctxs`,
 `get_hl_clearinghouse_state`) remain the way to gather intel.
+
+### Builder/HIP-3 perps (stocks, commodities — verified working)
+
+Beyond the default USDC dex, HL exposes builder dexes with stock and commodity perps:
+`xyz:NVDA`, `xyz:TSLA`, `xyz:SPCX` (SpaceX), oil, etc. These are **USDC-collateralized,
+24-hour markets** — no collateral swap needed. To trade them:
+
+- Pass the coin with the **lowercase dex prefix** (`xyz:NVDA`, not `XYZ:NVDA`); the SDK
+  normalizes casing but feed it correctly.
+- Use the per-asset mark from `get_hl_all_assets` / `get_hl_meta_and_asset_ctxs` — plain
+  `get_mark_price` returns 0 for builder coins.
+- They open **isolated** automatically and honor the `leverage` you pass (3x verified live).
+- Read the resulting position with `get_hl_clearinghouse_state { dex: "xyz" }`, not `default`.
+
+Lead with default-dex USDC majors; treat builder stock/commodity perps as the same
+mechanism with a dex-prefixed coin and a dex-scoped position read.
 
 **Discipline:**
 - One thesis per trade, stated before you open it.
