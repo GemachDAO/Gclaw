@@ -82,20 +82,21 @@ Change / No Change; per-country Yes/No markets). Each market exposes `outcomes`
 with `sideSpecs` and a `quoteToken`. They are **defined-risk** directional bets —
 good for survival mode because the downside is bounded.
 
-**Read:**
-- `hl_outcomes` — list markets (filter by `status`/`dex`; `withVolume=true` adds 24h notional, slower).
-- `get_hl_outcome_volumes` — 24h volume per outcome market (liquidity filter).
-- `hl_outcome_account` — your outcome positions and balances.
+**Use the bundled helper** `scripts/hl_outcomes.js` (proven signed flow; emits JSON):
+- `node scripts/hl_outcomes.js list` — active markets with `outcomeId` + sides (e.g. #104 "June Fed rate change" → Change/No Change). 122 live markets.
+- `node scripts/hl_outcomes.js account --outcome <id>` — your positions/balance in a market.
+- `node scripts/hl_outcomes.js enable` — one-time HL-trading enable (required before the first order; idempotent).
+- `node scripts/hl_outcomes.js order --outcome <id> --coin <side> --buy --price <0..1> --size <n> [--market]` — take a side.
+- `node scripts/hl_outcomes.js close --outcome <id> --coin <side>` — exit.
 
-**Act:**
-- `hl_create_outcome_order` — take a side of an outcome at a price.
-- `hl_close_outcome_order` / `hl_cancel_outcome_order` — exit / pull.
-- `hl_swap_collateral` — move collateral between perp and outcome accounts.
+**Funding:** the outcome account is separate from perps. Move collateral with
+`mcp__gdex__hl_swap_collateral` (perp → outcome) before betting; size it from the
+survival buffer, not the whole treasury.
 
 **Discipline:**
-- Only enter markets with real volume (`get_hl_outcome_volumes`) and a clear, near-dated resolution.
+- Only enter markets with real volume (`mcp__gdex__get_hl_outcome_volumes`) and a clear, near-dated resolution.
 - Price = implied probability. Only bet when your estimate diverges meaningfully from the price.
-- Treat each ticket as fully-at-risk capital; size as a fraction of the survival buffer, not the whole treasury.
+- Treat each ticket as fully-at-risk capital. In SURVIVE mode, prefer these defined-risk bets over leveraged perps.
 
 ## Settling PnL into metabolism
 

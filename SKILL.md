@@ -29,6 +29,7 @@ itself about its own balance.
 - `scripts/evolve.py` — goodwill-gated replication and self-recoding.
 - `scripts/gdex_sign.js` — instant local signer; the one step the MCP can't do (`node scripts/gdex_sign.js`).
 - `scripts/hl_perp.js` — SDK fallback executor (status/open/close) if the MCP path is down.
+- `scripts/hl_outcomes.js` — HIP-3 outcome markets (list/account/enable/order/close).
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
@@ -70,9 +71,11 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
 5. **Intelligence.** `mcp__gdex__get_mark_price`, `get_hl_meta_and_asset_ctxs`, optionally
    `get_hl_top_traders_by_pnl`. For events: `hl_outcomes`.
 6. **Decide & act (MCP).** At most one or two conservative moves consistent with the strategy and `mode`.
-   - Open: `mcp__gdex__open_perp_position` with `{apiKey, walletAddress: <control>, sessionPrivateKey,
+   - Open perp: `mcp__gdex__open_perp_position` with `{apiKey, walletAddress: <control>, sessionPrivateKey,
      coin, isLong, price: <mark>, size, tpPrice, slPrice}`. A stop is mandatory; clear the $11 min. Explain the thesis first.
-   - Close: `mcp__gdex__close_perp_position {apiKey, walletAddress, sessionPrivateKey, coin}`.
+   - Close perp: `mcp__gdex__close_perp_position {apiKey, walletAddress, sessionPrivateKey, coin}`.
+   - Outcome bet (defined-risk events): `node scripts/hl_outcomes.js list` then `order --outcome <id> --coin <side> --buy --price <p> --size <n>`
+     (fund via `mcp__gdex__hl_swap_collateral` first). See `references/trading.md` §B. Prefer these in SURVIVE mode.
 7. **Settle.** On any realized close, record PnL in GMAC terms (1 GMAC ≈ 1 USD realized):
    `uv run --no-project python3 scripts/metabolism.py settle --pnl <usd_pnl> --note "<what>"`.
    This auto-earmarks 10% into the GMAC buy-back treasury. Charge a discovery cost for heavy
