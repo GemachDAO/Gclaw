@@ -65,10 +65,12 @@ async function main() {
   console.log(`   control / identity: ${w.address}`);
   console.log('\n💰 Fund these to come alive:');
   const hl = managed['Arbitrum (HyperLiquid)'];
-  const base = managed['Base'];
-  if (hl?.address) console.log(`   • Trading capital → send USDC on Arbitrum to:\n       ${hl.address}`);
-  if (base?.address) console.log(`   • Gas for onchain identity → send ~0.001 ETH on Base to:\n       ${w.address}`);
-  console.log('\n   Then run:  gclaw fund    (checks your balances)  ·  gclaw start   (go live)');
+  if (hl?.address) {
+    console.log(`   • Trading capital → send USDC **or just ETH** on Arbitrum to:\n       ${hl.address}`);
+    console.log('       (ETH is auto-swapped to USDC + deposited — run: gclaw autofund)');
+  }
+  console.log(`   • Gas for onchain identity → send ~0.001 ETH on Base to:\n       ${w.address}`);
+  console.log('\n   Then run:  gclaw fund   ·   gclaw autofund   ·   gclaw start');
 }
 
 main()

@@ -20,6 +20,10 @@ exec 9>"$LOCK"; flock -n 9 || { echo "$(ts) still running, skipped" >>"$LOG"; ex
 echo "===== $(ts) heartbeat start =====" >>"$LOG"
 cd "$HOME"
 
+# Auto-fund: convert any ETH a player sent to Arbitrum into USDC + deposit to HL.
+[[ -f "$SKILL_DIR/scripts/autofund.js" ]] &&
+  echo "$(ts) autofund: $(node "$SKILL_DIR/scripts/autofund.js" run 2>&1)" >>"$LOG" || true
+
 # Deterministic: book realized PnL from any closes before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true

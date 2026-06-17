@@ -63,29 +63,46 @@ async function main() {
   const tradingUsdc = perpUsd + spotUsd;
 
   let baseEth = 0;
+  let arbEth = 0;
   try {
-    const provider = new ethers.JsonRpcProvider(process.env.BASE_RPC || 'https://mainnet.base.org');
-    baseEth = Number(ethers.formatEther(await provider.getBalance(control)));
+    const baseP = new ethers.JsonRpcProvider(process.env.BASE_RPC || 'https://mainnet.base.org');
+    baseEth = Number(ethers.formatEther(await baseP.getBalance(control)));
+  } catch {
+    /* leave 0 */
+  }
+  try {
+    // ETH sent to the managed Arbitrum wallet can be auto-swapped to USDC + deposited.
+    const arbP = new ethers.JsonRpcProvider(process.env.ARB_RPC || 'https://arb1.arbitrum.io/rpc');
+    arbEth = Number(ethers.formatEther(await arbP.getBalance(hl)));
   } catch {
     /* leave 0 */
   }
 
+  const convertibleEth = Math.max(0, arbEth - 0.0003); // minus a gas reserve
   const canTrade = tradingUsdc >= MIN_TRADING_USDC;
   const canMint = baseEth >= MIN_BASE_ETH;
   const verdict = {
     ok: true,
     ready: canTrade,
     tradingUsdc: Math.round(tradingUsdc * 100) / 100,
+    arbitrumEth: arbEth,
+    convertibleEth: Number(convertibleEth.toFixed(6)),
     baseEthGas: baseEth,
     canTrade,
     canMintIdentity: canMint,
     fund: {
-      tradingCapital: canTrade ? '✓ funded' : `→ send USDC on Arbitrum to ${hl}`,
+      tradingCapital: canTrade
+        ? '✓ funded'
+        : convertibleEth > 0
+          ? `≈ ${convertibleEth.toFixed(5)} ETH on Arbitrum to convert — run: gclaw autofund`
+          : `→ send USDC (or ETH) on Arbitrum to ${hl}`,
       identityGas: canMint ? '✓ funded' : `→ send ~0.001 ETH on Base to ${control}`,
     },
     message: canTrade
       ? '✓ Ready to live — run: gclaw start'
-      : 'Waiting on trading capital (USDC on the HyperLiquid account).',
+      : convertibleEth > 0
+        ? 'You sent ETH — run `gclaw autofund` to convert it to USDC and deposit to HL.'
+        : 'Send USDC or ETH to the Arbitrum address, then `gclaw autofund`.',
   };
   console.log(JSON.stringify(verdict, null, 2));
 }

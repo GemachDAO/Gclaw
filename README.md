@@ -32,13 +32,14 @@ gclaw dashboard     # watch its living DNA page
 gclaw talk Gclaw    # say hello (run inside Claude Code to converse)
 ```
 
-That's it. `install.sh` makes you a fresh managed-custody wallet and prints the two
-addresses to fund:
+That's it. `install.sh` makes you a fresh managed-custody wallet and prints the addresses to fund:
 
-- **Trading capital** — USDC on the HyperLiquid account (this is what it trades).
+- **Trading capital** — send USDC **or just ETH** on Arbitrum. If you send ETH, `gclaw autofund`
+  (and every heartbeat) automatically swaps the surplus to USDC and deposits it to HyperLiquid,
+  keeping a gas reserve. No manual bridging or swapping.
 - **Identity gas** — ~0.001 ETH on Base (to mint its onchain identity; optional to start).
 
-`gclaw fund` polls until your money lands and says **✓ Ready to live**.
+`gclaw fund` counts your USDC *and* any convertible ETH, and says **✓ Ready to live** when set.
 
 ## The one command for everything — `gclaw`
 
