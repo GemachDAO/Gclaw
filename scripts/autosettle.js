@@ -58,9 +58,13 @@ function selectNew(fills, cursor) {
 }
 
 function settle(pnl, note) {
-  execFileSync('python3', [path.join(__dirname, 'metabolism.py'), 'settle', '--pnl', String(pnl), '--note', note], {
+  // Use `uv run --no-project python3` — bare python3 is blocked on this box and is
+  // not guaranteed on PATH. This is the only path that books PnL and awards goodwill,
+  // so it must not fail silently; surface stderr if metabolism.py errors.
+  execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'metabolism.py'),
+    'settle', '--pnl', String(pnl), '--note', note], {
     env: { ...process.env, GCLAW_HOME },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
 
