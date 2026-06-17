@@ -157,6 +157,67 @@ def telepathy_html(messages: list[dict[str, Any]]) -> str:
     return f'<ul class="events">{"".join(rows)}</ul>'
 
 
+LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
+
+
+def leverage_cap(goodwill: float) -> int:
+    cap = LEVERAGE_LADDER[0][1]
+    for threshold, lev in LEVERAGE_LADDER:
+        if goodwill >= threshold:
+            cap = lev
+    return cap
+
+
+def onchain_html(state: dict[str, Any]) -> str:
+    """Decentralized identity panel — the ERC-8004 agent registered on Base."""
+    ident = state.get("onchain_identity") or {}
+    aid = ident.get("agentId")
+    if not aid:
+        return '<p class="muted">No onchain identity yet — run erc8004_register.js broadcast.</p>'
+    tx = ident.get("txHash", "")
+    url = ident.get("agentUrl") or (f"https://basescan.org/tx/{tx}" if tx else "#")
+    reg = (ident.get("registry") or "")[:12]
+    return (f'<div class="idrow"><span class="pill">ERC-8004</span> agent <b>#{aid}</b> '
+            f'on {ident.get("chain", "base:8453")}</div>'
+            f'<div class="muted" style="margin-top:8px">registry {reg}…</div>'
+            f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>')
+
+
+def leverage_html(state: dict[str, Any]) -> str:
+    """Earned-leverage ladder — the cap rises with goodwill won from real trades."""
+    gw = float(state.get("goodwill", 0) or 0)
+    cap = leverage_cap(gw)
+    rows = []
+    for threshold, lev in LEVERAGE_LADDER:
+        cls = "lev on" if lev == cap else ("lev" if lev <= cap else "lev locked")
+        need = f"{threshold} goodwill" if threshold > 0 else "base"
+        state_word = "◄ you" if lev == cap else ("unlocked" if lev <= cap else need)
+        rows.append(f'<div class="{cls}"><b>{lev}×</b><span>{state_word}</span></div>')
+    head = f'<div class="muted" style="margin-bottom:8px">goodwill {int(gw)} → cap <b style="color:#7CFFB2">{cap}×</b></div>'
+    return head + "".join(rows)
+
+
+def techniques_html() -> str:
+    """The forge loadout — self-authored, proven trading techniques."""
+    h = home()
+    style = load_json(h / "forge" / "style.json", {})
+    adopted = style.get("adopted", [])
+    if not adopted:
+        return '<p class="muted">No techniques adopted yet — author one with forge.py draft/prove/adopt.</p>'
+    items = []
+    for e in adopted:
+        tid = e.get("id") if isinstance(e, dict) else e
+        tech = load_json(h / "forge" / "techniques" / tid / "technique.json", {})
+        card = tech.get("card") or {}
+        oos = card.get("oos") or {}
+        market = f'{card.get("coin", "")}/{card.get("interval", "")}'
+        items.append(
+            f'<li><span class="pill">{tech.get("status", "?")}</span><b>{tid}</b> '
+            f'<span class="muted">{market} · OOS exp {oos.get("expectancy", 0):+.4f} '
+            f'n{oos.get("n", 0)} · by #{tech.get("author", "?")}</span></li>')
+    return f'<ul class="events">{"".join(items)}</ul>'
+
+
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
     name = "Gclaw"
     g = genome(name, state.get("born_at", "genesis"))
@@ -183,6 +244,9 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         family=family_html(state),
         events=events_html(journal),
         telepathy=telepathy_html(messages),
+        onchain=onchain_html(state),
+        leverage=leverage_html(state),
+        techniques=techniques_html(),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -235,6 +299,10 @@ h1{{margin:0;font-size:26px;letter-spacing:.5px}}h2{{font-size:13px;text-transfo
 ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}}
 .pill{{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
 .muted{{color:var(--muted);font-size:12px}}.foot{{text-align:center;color:var(--muted);font-size:11px;margin-top:18px}}
+.lev{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}}
+.lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:#7CFFB2;font-size:15px}}.lev.locked{{opacity:.5}}
+.link{{display:inline-block;margin-top:10px;color:#9db4ff;text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
+.decent h2{{color:#7CFFB2}}
 @media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}}}
 </style></head><body><div class="wrap">
 <div class="card hero">
@@ -250,6 +318,11 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card"><h2>Genome traits</h2>{traits}</div>
     <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
   </div>
+  <div class="grid2" style="margin-top:18px">
+    <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
+    <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
+  </div>
+  <div class="card decent" style="margin-top:18px"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
     <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
