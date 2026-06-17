@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
+import math
 import os
 import re
+import shutil
 import signal as signalmod
 import statistics
 import subprocess
@@ -69,6 +72,33 @@ def forge_dir() -> Path:
 
 def tech_dir(tid: str) -> Path:
     return forge_dir() / "techniques" / tid
+
+
+def genepool_dir() -> Path:
+    """The shared gene pool — common to every agent/child on the box.
+
+    Independent of ``GCLAW_HOME`` so a parent and its children publish to and
+    discover from one pool. Override with ``GCLAW_GENEPOOL``.
+    """
+    d = Path(os.environ.get("GCLAW_GENEPOOL", str(Path.home() / ".gclaw" / "genepool")))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def content_hash(tid: str) -> str:
+    """Integrity hash over a technique's signal + claim (provenance anchor)."""
+    tech = load_technique(tid)
+    src = (tech_dir(tid) / "signal.py").read_text(encoding="utf-8")
+    payload = json.dumps({"claim": tech.get("claim", ""), "signal": src}, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def edge_score(oos: dict[str, Any]) -> float:
+    """Confidence-weighted edge: expectancy scaled by sqrt(sample) (Sharpe-ish)."""
+    n = int(oos.get("n", 0))
+    if n <= 0:
+        return 0.0
+    return round(float(oos.get("expectancy", 0.0)) * math.sqrt(n), 6)
 
 
 def now_iso() -> str:
@@ -398,6 +428,93 @@ def cmd_show(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "technique": tech}
 
 
+def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
+    """Publish a proven technique to the shared gene pool with onchain provenance."""
+    tech = load_technique(args.id)
+    if tech.get("status") != "proven" and not args.force:
+        die(f"only proven techniques can be published — prove '{args.id}' first (or --force)")
+    card = tech.get("card") or {}
+    author = tech.get("author", agent_id())
+    dest = genepool_dir() / author / args.id
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tech_dir(args.id) / "signal.py", dest / "signal.py")
+    manifest = {
+        "id": args.id, "name": tech.get("name", args.id), "kind": tech.get("kind", "edge"),
+        "author": author, "parent": tech.get("parent"), "claim": tech.get("claim", ""),
+        "card": card, "score": edge_score(card.get("oos") or {}),
+        "content_hash": content_hash(args.id), "published_at": now_iso(),
+    }
+    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return {"ok": True, "published": f"{author}/{args.id}", "score": manifest["score"],
+            "pool": str(genepool_dir())}
+
+
+def _pool_manifests() -> list[dict[str, Any]]:
+    out = []
+    for mpath in genepool_dir().glob("*/*/manifest.json"):
+        try:
+            out.append(json.loads(mpath.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return out
+
+
+def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
+    """Browse the gene pool, ranked by confidence-weighted out-of-sample edge."""
+    items = _pool_manifests()
+    if args.kind:
+        items = [m for m in items if m.get("kind") == args.kind]
+    if args.coin:
+        items = [m for m in items if (m.get("card") or {}).get("coin") == args.coin]
+    items.sort(key=lambda m: m.get("score", 0), reverse=True)
+    mine = agent_id()
+    rows = []
+    for m in items[:args.limit]:
+        card = m.get("card") or {}
+        rows.append({
+            "ref": f"{m['author']}/{m['id']}", "score": m.get("score", 0),
+            "kind": m.get("kind"),
+            "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
+            "oos": card.get("oos", {}),
+            "author": m["author"] + (" (you)" if m["author"] == mine else ""),
+            "claim": m.get("claim", "")[:60],
+        })
+    return {"ok": True, "count": len(items), "techniques": rows}
+
+
+def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
+    """Copy a pooled technique into the local workshop as an unproven draft.
+
+    A pulled technique always lands as a draft with ``parent`` set to its pool
+    ref — you must re-prove it on your own data before adopting. Trust nothing
+    a peer claims until your own harness confirms it.
+    """
+    if "/" not in args.ref:
+        die("ref must be <author>/<id> (see: forge.py discover)")
+    author, pid = args.ref.split("/", 1)
+    src = genepool_dir() / author / pid
+    if not (src / "manifest.json").exists():
+        die(f"no pooled technique '{args.ref}'")
+    manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+    local_id = args.as_ or pid
+    d = tech_dir(local_id)
+    if d.exists() and not args.force:
+        die(f"local technique '{local_id}' exists — use --as <name> or --force")
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src / "signal.py", d / "signal.py")
+    tech = {"id": local_id, "name": manifest.get("name", local_id),
+            "kind": manifest.get("kind", "edge"), "author": agent_id(),
+            "parent": args.ref, "origin": manifest, "claim": manifest.get("claim", ""),
+            "status": "draft", "created_at": now_iso()}
+    save_technique(tech)
+    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
+        name=tech["name"], kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
+        encoding="utf-8")
+    integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
+    return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
+            "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+
+
 def _equity_usd() -> float:
     """Read HL account value via hl_perp.js (best effort; 0 on failure)."""
     try:
@@ -544,6 +661,23 @@ def build_parser() -> argparse.ArgumentParser:
         s.set_defaults(fn=fn)
 
     sub.add_parser("list", help="list techniques + loadout").set_defaults(fn=cmd_list)
+
+    pub = sub.add_parser("publish", help="publish a proven technique to the gene pool")
+    pub.add_argument("id")
+    pub.add_argument("--force", action="store_true")
+    pub.set_defaults(fn=cmd_publish)
+
+    disc = sub.add_parser("discover", help="browse the gene pool, ranked by edge")
+    disc.add_argument("--kind", choices=["lens", "edge"], default=None)
+    disc.add_argument("--coin", default=None)
+    disc.add_argument("--limit", type=int, default=20)
+    disc.set_defaults(fn=cmd_discover)
+
+    pull = sub.add_parser("pull", help="copy a pooled technique locally (as a draft)")
+    pull.add_argument("ref", help="<author>/<id> from discover")
+    pull.add_argument("--as", dest="as_", default=None, help="local id to save under")
+    pull.add_argument("--force", action="store_true")
+    pull.set_defaults(fn=cmd_pull)
 
     r = sub.add_parser("run", help="evaluate adopted techniques on live data")
     r.add_argument("--coins", default=None, help="override markets (default: each technique's proven market)")
