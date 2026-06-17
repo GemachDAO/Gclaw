@@ -32,6 +32,7 @@ itself about its own balance.
 - `scripts/hl_outcomes.js` — HIP-3 outcome markets (list/account/enable/order/close).
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
 - `scripts/swarm.py` — leader coordination (`status`/`signals`/`consensus`/`assign`); goodwill ≥ 200.
+- `scripts/venture.py` + `scripts/venture_deploy.js` + `contracts/GmacBuyAndBurn.sol` — Venture Architect (goodwill ≥ 5000): deploy DeFi infra with a perpetual GMAC buy-and-burn. See `references/venture.md`.
 - `scripts/autosettle.js` — deterministic realized-PnL settle from HL fills (`run`/`peek`).
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
