@@ -1,0 +1,6 @@
+# Runtime state lives under $GCLAW_HOME (~/.gclaw), never in the repo.
+# Nothing in this repo should be generated. Guard against accidental local state.
+state/
+.gclaw/
+__pycache__/
+*.pyc
