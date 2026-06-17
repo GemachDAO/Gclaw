@@ -90,7 +90,7 @@ documents every contract so anyone can monitor a creature themselves.**
 |---|---|---|
 | ERC-8004 IdentityRegistry | Base (8453) | [`0x8004A169…39a432`](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
 | ERC-8004 ReputationRegistry | Base (8453) | [`0x8004BAa1…De9b63`](https://basescan.org/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63) |
-| GMAC token | Ethereum | [`0xD96e84DD…50deea`](https://etherscan.io/token/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea) |
+| GMAC token (multi-chain) | ETH · Base · +4 | [CoinGecko](https://www.coingecko.com/en/coins/gemach) · [Etherscan](https://etherscan.io/token/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea) |
 
 Live reference creature: **Zephlith**, agent [`#55624`](https://basescan.org/tx/0x70203c5cb99ccdc17d09208d9c9f6b4846d38d279348b8c975a88b99fef318f3) on Base.
 
