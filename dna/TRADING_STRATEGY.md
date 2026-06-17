@@ -18,8 +18,18 @@ No memecoins. No unlisted low-liquidity tokens. Liquidity and a legible thesis g
 
 ## Risk controls (hard limits)
 - **Max risk per trade:** 5% of current GMAC balance. In SURVIVE mode, 2%.
-- **Max leverage:** 3x. Set it explicitly in the order (`leverage`) — verified to land at exactly 3x
-  (isolated on builder dexes). Never rely on HL's 20x default; there is no separate set_leverage call.
+- **Max leverage is EARNED, gated by goodwill** (won from profitable trades). The cap rises as the
+  organism proves it can survive — start careful, earn your rope:
+  | goodwill | leverage cap |
+  |---|---|
+  | 0–49 | 3x |
+  | 50–199 | 5x |
+  | 200–499 | 10x |
+  | 500–999 | 15x |
+  | ≥1000 | 20x (max) |
+  Set leverage explicitly in the order (`leverage`); both `hl_perp.js` and the forge clamp it to the
+  earned cap automatically. Never rely on HL's 20x default; there is no separate set_leverage call.
+  At goodwill 0 you trade 3x no matter what you ask for — go earn it.
 - **Always** set TP and SL when opening a perp. No naked positions.
 - **One or two open theses at a time.** No scattering risk across many names.
 - Keep dry powder: never deploy the whole treasury; the survival buffer is sacred.

@@ -26,6 +26,7 @@ const ARB_RPC = process.env.ARB_RPC || 'https://arb1.arbitrum.io/rpc';
 const ARB_CHAIN = 42161;
 const ARB_USDC = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831';
 const GAS_RESERVE_ETH = 0.0003; // keep enough Arbitrum ETH for the swap + deposit tx
+const MIN_SWAP_ETH = 0.006; // ~$10 at current ETH; below this a swap can't clear the HL min — skip dust
 const MIN_DEPOSIT_USDC = 10; // HyperLiquid minimum
 const SLIPPAGE = 2;
 
@@ -65,8 +66,10 @@ async function main() {
   const swapEth = Math.max(0, ethBal - GAS_RESERVE_ETH);
   const summary = { ok: true, mode, arbitrumEth: ethBal, gasReserve: GAS_RESERVE_ETH, swapEth: Number(swapEth.toFixed(6)) };
 
-  if (swapEth <= 0) {
-    summary.action = 'nothing to convert (ETH at or below gas reserve)';
+  if (swapEth < MIN_SWAP_ETH) {
+    summary.action = swapEth <= 0
+      ? 'nothing to convert (ETH at or below gas reserve)'
+      : `holding ${swapEth.toFixed(6)} ETH dust (below ${MIN_SWAP_ETH} min swap — would not clear the HL deposit min)`;
     console.log(JSON.stringify(summary, null, 2));
     return;
   }

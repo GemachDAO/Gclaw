@@ -33,8 +33,24 @@ const SDK = require(path.join(GDEX_DIR, 'dist'));
 
 const HL_CHAIN_ID = 42161; // sign in on Arbitrum for HyperLiquid
 const MIN_NOTIONAL = 11; // HyperLiquid minimum order value (USD)
-const DEFAULT_LEVERAGE = 3; // strategy cap; HL defaults to 20x cross if we don't set it
+const DEFAULT_LEVERAGE = 3; // default requested leverage; clamped to the EARNED cap below
 const SZ_DECIMALS = { BTC: 5, ETH: 4, SOL: 2 }; // fallback size precision if meta is unavailable
+
+// Leverage is EARNED: the cap rises with goodwill. Keep this ladder in sync with forge.py.
+const LEVERAGE_LADDER = [[0, 3], [50, 5], [200, 10], [500, 15], [1000, 20]];
+
+function earnedLeverageCap() {
+  try {
+    const home = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
+    const meta = JSON.parse(fs.readFileSync(path.join(home, 'metabolism.json'), 'utf8'));
+    const goodwill = Number(meta.goodwill || 0);
+    let cap = LEVERAGE_LADDER[0][1];
+    for (const [threshold, lev] of LEVERAGE_LADDER) if (goodwill >= threshold) cap = lev;
+    return cap;
+  } catch {
+    return DEFAULT_LEVERAGE; // no metabolism state → conservative base
+  }
+}
 
 // Builder/HIP-3 coins are `dex:ASSET` with a LOWERCASE dex prefix (xyz:NVDA); plain coins uppercase.
 function normalizeCoin(coin) {
@@ -197,8 +213,9 @@ async function cmdOpen(wallet, args) {
   const tpPct = Number(args['tp-pct'] || 3);
   if (!args['sl-pct'] && slPct <= 0) die('a stop-loss is required (--sl-pct)');
 
-  // Leverage is a real, settable order field now (sent top-level by the SDK).
-  const leverage = Math.max(1, Math.min(50, Math.round(Number(args.leverage || DEFAULT_LEVERAGE))));
+  // Leverage is a real, settable order field, clamped to the EARNED cap (goodwill ladder).
+  const cap = earnedLeverageCap();
+  const leverage = Math.max(1, Math.min(cap, Math.round(Number(args.leverage || DEFAULT_LEVERAGE))));
 
   const { skill, creds } = await signedSkill(wallet);
   const px = await markPriceFor(skill, coin);
@@ -222,7 +239,7 @@ async function cmdOpen(wallet, args) {
     ...creds,
   });
   if (res && res.isSuccess === false) die(`open rejected: ${JSON.stringify(res)}`);
-  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', leverage, mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
+  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', leverage, leverageCap: cap, mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
 }
 
 // Resolve a position's signed size from the coin's own dex (builder coins live

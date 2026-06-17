@@ -38,7 +38,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 # Risk caps (mirror dna/TRADING_STRATEGY.md — enforced, never bypassable).
-MAX_LEVERAGE = 3
+# Leverage is EARNED: the cap rises with goodwill, the metric won from profitable
+# trades. A young agent trades small and careful; it unlocks more rope as it
+# proves it can survive. Keep this ladder in sync with hl_perp.js.
+MAX_LEVERAGE = 20  # absolute ceiling at the top of the ladder
+LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
 RISK_PCT = {"thrive": 5, "survive": 2, "hibernate": 0}
 MIN_NOTIONAL = 11
 
@@ -176,6 +180,17 @@ def load_metabolism() -> dict[str, Any]:
 def agent_id() -> str:
     ident = load_metabolism().get("onchain_identity") or {}
     return str(ident.get("agentId") or "local")
+
+
+def leverage_cap(goodwill: Optional[float] = None) -> int:
+    """The agent's earned leverage ceiling, unlocked by goodwill."""
+    if goodwill is None:
+        goodwill = float(load_metabolism().get("goodwill", 0) or 0)
+    cap = LEVERAGE_LADDER[0][1]
+    for threshold, lev in LEVERAGE_LADDER:
+        if goodwill >= threshold:
+            cap = lev
+    return min(cap, MAX_LEVERAGE)
 
 
 def die(msg: str) -> None:
@@ -823,9 +838,10 @@ def _equity_usd() -> float:
         return 0.0
 
 
-def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float) -> dict[str, Any]:
-    """Turn a signal decision into a cap-enforced order intent."""
-    leverage = max(1, min(MAX_LEVERAGE, int(decision.get("leverage") or MAX_LEVERAGE)))
+def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float,
+            cap: int) -> dict[str, Any]:
+    """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling)."""
+    leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
     stop_pct = float(decision.get("stop_pct") or 0)
     risk_pct = RISK_PCT.get(mode, 0)
     risk_usd = equity * risk_pct / 100.0
@@ -855,9 +871,11 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     """Evaluate adopted techniques on live features; optionally execute top intent."""
     meta = load_metabolism()
     mode = meta.get("mode", "thrive")
+    cap = leverage_cap(float(meta.get("goodwill", 0) or 0))
     style = load_style()
     if not style["adopted"]:
-        return {"ok": True, "mode": mode, "intents": [], "note": "no adopted techniques"}
+        return {"ok": True, "mode": mode, "leverage_cap": cap, "intents": [],
+                "note": "no adopted techniques"}
     # Each adopted technique runs on its own proven (coin, interval) unless overridden.
     worklist = _worklist(style["adopted"], args)
     coins = sorted({coin for _, coin, _ in worklist})
@@ -875,9 +893,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
         decision = call_signal(load_signal(tid), f)
         if decision and decision["action"] != "flat" and float(decision.get("stop_pct") or 0) > 0:
-            intents.append(_intent(tid, coin, decision, mode, equity))
+            intents.append(_intent(tid, coin, decision, mode, equity, cap))
     intents.sort(key=lambda x: x["confidence"], reverse=True)
-    result = {"ok": True, "mode": mode, "equity": equity, "intents": intents}
+    result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity, "intents": intents}
     if args.execute and intents and mode != "hibernate" and intents[0]["notional"] >= MIN_NOTIONAL:
         top = intents[0]
         result["executed"] = _execute(top)

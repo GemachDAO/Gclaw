@@ -92,9 +92,11 @@ optional and a technique cannot widen them:
 - **Sandbox** — `signal.py` may import only `math`/`statistics`; `eval`, `open`,
   `os`, `__import__`, dunder access, etc. are rejected by an AST check before the
   code ever runs, and execution is wall-clock capped.
-- **Caps** — leverage clamped to **≤3×**; a **stop is mandatory**; size comes
-  from the risk budget (5% equity in THRIVE, 2% in SURVIVE) divided by the stop;
-  HIBERNATE blocks execution; the **$11 HL minimum** is enforced.
+- **Caps** — leverage is **earned**: clamped to the goodwill ladder (3× at
+  goodwill 0, rising to 20× at 1000+), so a technique can never trade more rope
+  than the organism has earned; a **stop is mandatory**; size comes from the risk
+  budget (5% equity in THRIVE, 2% in SURVIVE) divided by the stop; HIBERNATE
+  blocks execution; the **$11 HL minimum** is enforced.
 - **One execution path** — `run --execute` places trades only through
   `hl_perp.js`, which re-applies every cap. A technique never touches execution
   directly.
