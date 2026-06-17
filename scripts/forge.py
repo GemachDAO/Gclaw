@@ -274,18 +274,39 @@ def validate_signal_src(src: str) -> list[str]:
     return violations
 
 
+def _compile_signal(src: str, where: str) -> Callable[[dict[str, Any]], Any]:
+    """Validate against the sandbox policy and compile; raise ValueError if rejected."""
+    violations = validate_signal_src(src)
+    if violations:
+        raise ValueError("; ".join(violations))
+    namespace: dict[str, Any] = {}
+    exec(compile(src, where, "exec"), namespace)  # noqa: S102 — AST-validated above
+    return namespace["signal"]
+
+
 def load_signal(tid: str) -> Callable[[dict[str, Any]], Any]:
-    """Validate and import a technique's signal function."""
+    """Validate and import a local technique's signal function."""
     src_path = tech_dir(tid) / "signal.py"
     if not src_path.exists():
         die(f"no signal.py for technique '{tid}'")
-    src = src_path.read_text(encoding="utf-8")
-    violations = validate_signal_src(src)
-    if violations:
-        die(f"signal.py rejected: {'; '.join(violations)}")
-    namespace: dict[str, Any] = {}
-    exec(compile(src, str(src_path), "exec"), namespace)  # noqa: S102 — AST-validated above
-    return namespace["signal"]
+    try:
+        return _compile_signal(src_path.read_text(encoding="utf-8"), str(src_path))
+    except ValueError as exc:
+        die(f"signal.py rejected: {exc}")
+
+
+def load_pooled_signal(ref: str) -> Optional[Callable[[dict[str, Any]], Any]]:
+    """Compile a pooled technique's signal (returns None if missing or rejected)."""
+    if "/" not in ref:
+        return None
+    author, pid = ref.split("/", 1)
+    p = genepool_dir() / author / pid / "signal.py"
+    if not p.exists():
+        return None
+    try:
+        return _compile_signal(p.read_text(encoding="utf-8"), str(p))
+    except ValueError:
+        return None
 
 
 def _timeout(_signum: int, _frame: Any) -> None:
@@ -359,12 +380,12 @@ def summarise(rets: list[float]) -> dict[str, Any]:
     }
 
 
-def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
-    """Walk-forward backtest: fit-free IS/OOS split, gate on out-of-sample edge."""
-    fn = load_signal(tid)
+def _backtest_with(fn: Callable[[dict[str, Any]], Any], coin: str,
+                   interval: str, limit: int) -> dict[str, Any]:
+    """Walk-forward backtest of a signal fn; raises ValueError on thin data."""
     candles = get_candles(coin, interval, limit)
     if len(candles) < WARMUP + HORIZON + 60:
-        die(f"not enough candles ({len(candles)}) — widen --limit or --interval")
+        raise ValueError(f"not enough candles ({len(candles)}) — widen --limit or --interval")
     last = len(candles) - HORIZON
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
     is_stats = score_window(candles, fn, coin, WARMUP, split)
@@ -377,6 +398,14 @@ def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
         "in_sample": is_stats, "out_of_sample": oos_stats,
         "proven": proven, "proved_at": now_iso(),
     }
+
+
+def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
+    """Walk-forward backtest: fit-free IS/OOS split, gate on out-of-sample edge."""
+    try:
+        return _backtest_with(load_signal(tid), coin, interval, limit)
+    except ValueError as exc:
+        die(str(exc))
 
 
 # ── Style loadout ────────────────────────────────────────────────────────────
@@ -527,19 +556,29 @@ def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
     if args.coin:
         items = [m for m in items if (m.get("card") or {}).get("coin") == args.coin]
     rep = reputation_table()
+    board = load_leaderboard()
     mine = agent_id()
 
+    def boost(ref: str) -> float:
+        rank = board["ranks"].get(ref)
+        if not rank or board["count"] == 0:
+            return 0.0
+        return (board["count"] - rank + 1) / board["count"] * 0.02
+
     def combined(m: dict[str, Any]) -> float:
+        ref = f"{m['author']}/{m['id']}"
         author_rep = rep.get(m["author"], {}).get("score", 0.0)
-        return m.get("score", 0.0) + 0.5 * author_rep
+        return m.get("score", 0.0) + 0.5 * author_rep + boost(ref)
 
     items.sort(key=combined, reverse=True)
     rows = []
     for m in items[:args.limit]:
         card = m.get("card") or {}
+        ref = f"{m['author']}/{m['id']}"
         rows.append({
-            "ref": f"{m['author']}/{m['id']}", "score": m.get("score", 0),
+            "ref": ref, "score": m.get("score", 0),
             "author_reputation": rep.get(m["author"], {}).get("score", 0.0),
+            "tournament_rank": board["ranks"].get(ref),
             "rank": round(combined(m), 6), "kind": m.get("kind"),
             "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
             "oos": card.get("oos", {}),
@@ -619,6 +658,54 @@ def _sync_reputation(broadcast: bool) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — sync is best-effort
         return {"ok": False, "mode": mode, "note": "reputation sync unavailable",
                 "error": str(exc)[:120]}
+
+
+def load_leaderboard() -> dict[str, Any]:
+    """Latest tournament standings as {ref: rank} plus the field size."""
+    p = genepool_dir() / "leaderboard.json"
+    if not p.exists():
+        return {"ranks": {}, "count": 0}
+    board = json.loads(p.read_text(encoding="utf-8"))
+    standings = board.get("standings", [])
+    return {"ranks": {s["ref"]: s["rank"] for s in standings}, "count": len(standings)}
+
+
+def cmd_tournament(args: argparse.Namespace) -> dict[str, Any]:
+    """Compete every pooled technique on one fresh, identical benchmark.
+
+    Each author chose the market their technique looked best on; a tournament
+    re-scores them all on the *same* coins and window, so the ranking is
+    head-to-head rather than self-selected. Standings are written to the shared
+    leaderboard and boost the winners in `discover`.
+    """
+    coins = [c.strip() for c in args.coins.split(",") if c.strip()]
+    manifests = _pool_manifests()
+    if not manifests:
+        die("gene pool is empty — publish a technique first")
+    standings = []
+    for m in manifests:
+        ref = f"{m['author']}/{m['id']}"
+        fn = load_pooled_signal(ref)
+        if fn is None:
+            continue
+        per_coin: dict[str, float] = {}
+        for coin in coins:
+            try:
+                card = _backtest_with(fn, coin, args.interval, args.limit)
+            except ValueError:
+                continue
+            per_coin[coin] = edge_score(card["out_of_sample"])
+        if per_coin:
+            standings.append({"ref": ref, "author": m["author"],
+                              "benchmark_score": round(sum(per_coin.values()), 6),
+                              "per_coin": per_coin})
+    standings.sort(key=lambda s: s["benchmark_score"], reverse=True)
+    for i, s in enumerate(standings, 1):
+        s["rank"] = i
+    board = {"benchmark": {"coins": coins, "interval": args.interval},
+             "standings": standings, "at": now_iso()}
+    (genepool_dir() / "leaderboard.json").write_text(json.dumps(board, indent=2), encoding="utf-8")
+    return {"ok": True, "benchmark": board["benchmark"], "standings": standings}
 
 
 def cmd_reputation(args: argparse.Namespace) -> dict[str, Any]:
@@ -919,6 +1006,12 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("--sync", action="store_true", help="anchor reputation onchain (dry-run)")
     rep.add_argument("--broadcast", action="store_true", help="with --sync, actually broadcast")
     rep.set_defaults(fn=cmd_reputation)
+
+    tr = sub.add_parser("tournament", help="compete pooled techniques on one benchmark")
+    tr.add_argument("--coins", default="BTC,ETH,SOL")
+    tr.add_argument("--interval", default="4h")
+    tr.add_argument("--limit", type=int, default=1200)
+    tr.set_defaults(fn=cmd_tournament)
 
     cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
     cr.add_argument("id")
