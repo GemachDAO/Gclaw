@@ -31,6 +31,8 @@ itself about its own balance.
 - `scripts/hl_perp.js` — SDK fallback executor (status/open/close) if the MCP path is down.
 - `scripts/hl_outcomes.js` — HIP-3 outcome markets (list/account/enable/order/close).
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
+- `scripts/swarm.py` — leader coordination (`status`/`signals`/`consensus`/`assign`); goodwill ≥ 200.
+- `scripts/autosettle.js` — deterministic realized-PnL settle from HL fills (`run`/`peek`).
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
 - `scripts/erc8004_register.js` — ERC-8004 identity mint, self + `--child <name>` (`dry-run`/`broadcast`); `references/onchain-identity.md`.
@@ -88,6 +90,9 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    crossed, follow `references/evolution.md`: replicate a mutated child **with a swarm role**
    (`evolve.py replicate --name <n> --role scout|analyst|executor|leader --mutation "<axis>"`),
    or recode a DNA file. Share a signal with the family when useful: `telepathy.py send --to broadcast ...`.
+   **Swarm (goodwill ≥ 200):** run `scripts/swarm.py signals` and `consensus` to aggregate the children's
+   reads and spot crowding, act on the consensus, then `swarm.py assign` so each child takes a distinct
+   asset — the family stops piling into one side. See `references/evolution.md`.
 9. **Refresh the dashboard.** `uv run --no-project python3 scripts/dashboard.py render` so the DNA page reflects this cycle.
 10. **Report.** One tight paragraph: mode, balance, goodwill, what you did and why, open risk.
 

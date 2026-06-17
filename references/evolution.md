@@ -54,7 +54,19 @@ organism may sharpen how it trades, not forget what it is.
 
 ## Swarm (goodwill ≥ 200)
 
-At 200, coordinate the family: assign children non-overlapping mandates (one
-takes BTC perps, one takes outcome markets), share theses, and avoid the whole
-family crowding the same side. No automated swarm runtime yet — coordinate by
-reading children's DNA and journals and editing their strategies.
+At 200, the leader coordinates the family so it doesn't crowd one trade. Use
+`scripts/swarm.py`:
+
+```
+uv run --no-project python3 scripts/swarm.py status      # roster + unlock
+uv run --no-project python3 scripts/swarm.py signals     # aggregate child signals per asset; flags CROWDING
+uv run --no-project python3 scripts/swarm.py consensus    # net long/short stance per asset
+uv run --no-project python3 scripts/swarm.py assign      # give each child a distinct asset mandate (via telepathy)
+```
+
+Children report via `telepathy.py send --to gclaw --type trade_signal ...` (run
+with `GCLAW_AGENT=<child>`). `signals` reads those, counts distinct voices per
+side, and flags **crowding** (≥2 children one side, none opposing). The leader
+acts on `consensus`, then `assign` rotates children across BTC/ETH/SOL/OUTCOME so
+their efforts don't overlap. The deterministic aggregation keeps the leader honest;
+the final trade is still the leader's judgement.
