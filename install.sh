@@ -21,15 +21,16 @@ command -v node >/dev/null || { echo "Need Node 22+. Install it, then re-run."; 
 command -v python3 >/dev/null || { echo "Need python3. Install it, then re-run."; exit 1; }
 ok "node $(node -v) · python3 $(python3 -V 2>&1 | awk '{print $2}')"
 
-# 2) GDEX SDK (the trading engine). Not on npm — needs the GemachDAO/gdex-skill clone.
+# 2) GDEX SDK (the trading engine). Public repo; auto-clone + build if missing.
 GDEX_DIR="${GDEX_SKILL_DIR:-$HOME/gdex-skill}"
 if [ ! -d "$GDEX_DIR/dist" ]; then
-  arrow "GDEX SDK not found at $GDEX_DIR"
-  arrow "Clone it:  git clone https://github.com/GemachDAO/gdex-skill ~/gdex-skill && (cd ~/gdex-skill && npm i && npm run build)"
-  arrow "Or set GDEX_SKILL_DIR to your copy, then re-run ./install.sh"
-  exit 1
+  arrow "GDEX SDK not found — fetching GemachDAO/gdex-skill (public)…"
+  if [ ! -d "$GDEX_DIR/.git" ]; then
+    git clone --depth 1 https://github.com/GemachDAO/gdex-skill "$GDEX_DIR" || { echo "clone failed — set GDEX_SKILL_DIR to your copy and re-run."; exit 1; }
+  fi
+  ( cd "$GDEX_DIR" && npm install --no-audit --no-fund && npm run build ) || { echo "SDK build failed — see $GDEX_DIR."; exit 1; }
 fi
-ok "GDEX SDK at $GDEX_DIR"
+[ -d "$GDEX_DIR/dist" ] && ok "GDEX SDK ready at $GDEX_DIR" || { echo "GDEX SDK missing dist/ — build it in $GDEX_DIR"; exit 1; }
 
 # 3) Link the skill + put gclaw on PATH
 ln -sfn "$SKILL_DIR" "$HOME/.claude/skills/gclaw"

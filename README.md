@@ -8,6 +8,10 @@ its powers — deploys infrastructure that buys and burns GMAC forever.
 
 *Watch it. Talk to it. Raise it like a pet.*
 
+<img src="assets/zephlith.png" alt="A Gclaw creature card" width="560">
+
+*Every creature's DNA **and soul** are drawn from its genome and live permanently on-chain (ERC-8004 on Base).*
+
 </div>
 
 ---
