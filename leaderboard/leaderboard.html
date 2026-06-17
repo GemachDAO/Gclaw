@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gclaw — Living Agent Leaderboard</title>
+<!--
+  Fully decentralized: no backend, no host. This file reads every creature's DNA
+  directly from the ERC-8004 IdentityRegistry on Base mainnet via a public RPC.
+  Open it from the repo (file://) or pin it to IPFS — the data is always onchain.
+-->
+<style>
+:root{--bg:#0b1020;--card:#141b2e;--ink:#e7ecf6;--muted:#8a96b3;--line:#243049}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#1b2540,#0b1020);color:var(--ink);
+font:15px/1.5 'Segoe UI',system-ui,sans-serif;padding:24px}
+header{max-width:1080px;margin:0 auto 18px;display:flex;justify-content:space-between;align-items:end;flex-wrap:wrap;gap:10px}
+h1{margin:0;font-size:26px;letter-spacing:.5px}
+.sub{color:var(--muted);font-size:13px}
+.chain{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
+.grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;gap:14px}
+.card h2{margin:0;font-size:18px}
+.species{color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase}
+.fp{font-family:ui-monospace,monospace;color:var(--muted);font-size:10px;margin-top:6px}
+.rank{position:absolute;margin:-26px 0 0 -8px;background:#1d2a47;color:#9db4ff;border-radius:999px;padding:1px 8px;font-size:11px}
+.trait{display:grid;grid-template-columns:74px 1fr 26px;align-items:center;gap:6px;margin:4px 0;font-size:12px}
+.trait b{text-align:right}
+.tbar{height:7px;background:#0c1322;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
+.pill{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-top:6px}
+.muted{color:var(--muted);font-size:12px}
+.foot{max-width:1080px;margin:22px auto 0;color:var(--muted);font-size:12px;text-align:center}
+input{background:#0c1322;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;width:240px}
+a{color:#9db4ff}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🜃 Gclaw — Living Agent Leaderboard</h1>
+    <div class="sub">Every creature's DNA, read live from the blockchain. No server.</div>
+  </div>
+  <div>
+    <input id="add" placeholder="add agentId(s), comma-separated" />
+    <div class="chain">ERC-8004 · Base mainnet · IdentityRegistry 0x8004A169…</div>
+  </div>
+</header>
+<div id="status" class="foot">Reading the chain…</div>
+<div id="grid" class="grid"></div>
+<div class="foot">
+  Decentralized: open from the repo (<code>file://</code>) or pin to IPFS. Data lives in ERC-8004 onchain.
+  Add an agent with <code>?agents=55624,123</code>.
+</div>
+
+<script>
+const REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
+const TOKEN_URI_SELECTOR = "0xc87b56dd"; // tokenURI(uint256)
+const RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base-rpc.publicnode.com"];
+const PREFIX = ["Vor","Kryo","Zeph","Mor","Lyx","Quel","Ras","Thi","Nyx","Obol"];
+const SUFFIX = ["dax","mire","lith","phar","gax","ven","tide","korn","ses","wraith"];
+
+function pad32(n){ return BigInt(n).toString(16).padStart(64,"0"); }
+
+async function ethCall(to, data){
+  const body = JSON.stringify({jsonrpc:"2.0",id:1,method:"eth_call",params:[{to,data},"latest"]});
+  for(const url of RPCS){
+    try{
+      const r = await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body});
+      const j = await r.json();
+      if(j.result) return j.result;
+    }catch(e){ /* try next rpc */ }
+  }
+  throw new Error("all RPCs failed");
+}
+
+function decodeString(hex){
+  hex = hex.replace(/^0x/,"");
+  const len = parseInt(hex.slice(64,128),16);          // [offset][length][bytes]
+  const bytes = hex.slice(128,128+len*2);
+  let s = "";
+  for(let i=0;i<bytes.length;i+=2) s += String.fromCharCode(parseInt(bytes.substr(i,2),16));
+  return s;
+}
+
+function cardFromUri(uri){
+  if(uri.startsWith("data:")){ return JSON.parse(decodeURIComponent(escape(atob(uri.split(",")[1])))); }
+  return null; // http/ipfs cards would be fetched separately; v1 handles inline data URIs
+}
+
+function helix(fp){
+  // derive avatar colors + rungs from the genome fingerprint (first bytes)
+  const b = i => parseInt(fp.substr(i*2,2),16) || 0;
+  const hue1 = b(0)/255*360, hue2 = (hue1+90+b(1)/255*120)%360, rungs = 14 + (b(5)%10);
+  const c1=`hsl(${hue1},75%,60%)`, c2=`hsl(${hue2},75%,60%)`, W=120,H=170;
+  let p=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+  for(let i=0;i<rungs;i++){
+    const t=i/(rungs-1), y=12+t*(H-24), ph=t*Math.PI*4;
+    const x1=W/2+Math.sin(ph)*38, x2=W/2+Math.sin(ph+Math.PI)*38;
+    const col = Math.sin(ph)>=0?c1:c2;
+    p+=`<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="2" opacity="0.7"/>`;
+    p+=`<circle cx="${x1.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c1}"/><circle cx="${x2.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c2}"/>`;
+  }
+  return p+"</svg>";
+}
+
+function traitBars(traits, fp){
+  const hue = (parseInt(fp.substr(0,2),16)||0)/255*360;
+  return Object.entries(traits||{}).map(([k,v])=>
+    `<div class="trait"><span>${k}</span><div class="tbar"><div class="tfill" style="width:${v}%;background:hsl(${hue},70%,55%)"></div></div><b>${v}</b></div>`
+  ).join("");
+}
+
+function score(g){ return (g.goodwill||0)*10 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0); }
+
+function render(creatures){
+  creatures.sort((a,b)=>score(b.g)-score(a.g));
+  document.getElementById("grid").innerHTML = creatures.map((c,i)=>{
+    const g=c.g, lineage = g.parentAgentId ? `<span class="pill">child of #${g.parentAgentId} · ${g.role||""}</span>` : `<span class="pill">genesis</span>`;
+    return `<div class="card"><span class="rank">#${i+1}</span>
+      <div>${helix(g.genomeFingerprint||"000000000000")}</div>
+      <div style="flex:1">
+        <div class="species">${g.species||"unknown"}</div>
+        <h2>${c.name||"Gclaw"} <span class="muted">#${c.id}</span></h2>
+        ${traitBars(g.traits,g.genomeFingerprint||"000000")}
+        ${lineage}
+        <div class="fp">genome ${g.genomeFingerprint||"—"} · goodwill ${g.goodwill??0}</div>
+      </div></div>`;
+  }).join("");
+}
+
+async function loadAgent(id){
+  const hex = await ethCall(REGISTRY, TOKEN_URI_SELECTOR + pad32(id));
+  const uri = decodeString(hex);
+  const card = cardFromUri(uri);
+  if(!card || !card["x-gclaw"]) return null;       // not a Gclaw creature
+  return { id, name: card.name, g: card["x-gclaw"] };
+}
+
+async function main(){
+  const params = new URLSearchParams(location.search);
+  let ids = (params.get("agents")||"").split(",").map(s=>s.trim()).filter(Boolean).map(Number);
+  if(!ids.length){
+    try{ const r = await fetch("agents.json"); ids = (await r.json()).agents; }
+    catch(e){ ids = [55624]; }                     // fallback to the genesis creature
+  }
+  const st = document.getElementById("status");
+  const out = [];
+  for(const id of ids){
+    st.textContent = `Reading agent #${id} from Base…`;
+    try{ const c = await loadAgent(id); if(c) out.push(c); }catch(e){ /* skip unreadable */ }
+  }
+  st.textContent = out.length ? `${out.length} living creature(s) onchain` : "No Gclaw creatures found for those IDs.";
+  render(out);
+}
+
+document.getElementById("add").addEventListener("change", e=>{
+  const cur = new URLSearchParams(location.search).get("agents")||"";
+  location.search = "?agents=" + [cur, e.target.value].filter(Boolean).join(",");
+});
+main();
+</script>
+</body>
+</html>

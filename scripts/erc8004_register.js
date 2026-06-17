@@ -81,6 +81,21 @@ function cardToDataUri(card) {
   return `data:application/json;base64,${b64}`;
 }
 
+function registerInLeaderboard(agentId) {
+  if (!agentId) return;
+  const file = path.join(__dirname, '..', 'leaderboard', 'agents.json');
+  try {
+    const reg = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { agents: [] };
+    const id = Number(agentId);
+    if (!reg.agents.includes(id)) {
+      reg.agents.push(id);
+      fs.writeFileSync(file, JSON.stringify(reg) + '\n');
+    }
+  } catch {
+    /* leaderboard registry is best-effort */
+  }
+}
+
 async function main() {
   const mode = process.argv[2];
   if (!['dry-run', 'broadcast'].includes(mode)) {
@@ -141,6 +156,7 @@ async function main() {
     state.onchain_identity = record;
   }
   fs.writeFileSync(path.join(GCLAW_HOME, 'metabolism.json'), JSON.stringify(state, null, 2) + '\n');
+  registerInLeaderboard(record.agentId);
   const who = child ? `child ${child.name}` : 'Gclaw';
   console.log(`REGISTERED ${who} — agentId ${record.agentId}, tx ${tx.hash}, block ${receipt.blockNumber}`);
 }
