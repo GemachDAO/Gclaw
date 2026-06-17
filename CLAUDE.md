@@ -21,6 +21,7 @@ with `gdex_sign.js` providing the one local signature managed custody can't dele
 | `scripts/evolve.py` | goodwill-gated `replicate/recode/capabilities` |
 | `scripts/gdex_sign.js` | instant local sign-in signer (pure crypto) |
 | `scripts/hl_perp.js` | SDK fallback executor (`status/open/close`) |
+| `scripts/forge.py` + `scripts/forge_data.js` | technique forge — author/prove/adopt/run self-made trading skills |
 | `references/` | `mcp-trading.md` (primary), `trading.md`, `metabolism.md`, `evolution.md` |
 
 ## Build / test / lint

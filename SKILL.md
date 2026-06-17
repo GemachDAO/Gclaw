@@ -36,6 +36,7 @@ itself about its own balance.
 - `scripts/swarm.py` — leader coordination (`status`/`signals`/`consensus`/`assign`); goodwill ≥ 200.
 - `scripts/venture.py` + `scripts/venture_deploy.js` + `contracts/GmacBuyAndBurn.sol` — Venture Architect (goodwill ≥ 5000): deploy DeFi infra with a perpetual GMAC buy-and-burn. See `references/venture.md`.
 - `scripts/autosettle.js` — deterministic realized-PnL settle from HL fills (`run`/`peek`).
+- `scripts/forge.py` + `scripts/forge_data.js` — technique forge: author/prove/adopt/run self-made trading skills (`draft`/`prove`/`adopt`/`run`); `references/forge.md`.
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
 - `scripts/erc8004_register.js` — ERC-8004 identity mint, self + `--child <name>` (`dry-run`/`broadcast`); `references/onchain-identity.md`.
@@ -80,6 +81,10 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
 5. **Intelligence.** `mcp__gdex__get_mark_price`, `get_hl_meta_and_asset_ctxs`, optionally
    `get_hl_top_traders_by_pnl`. For events: `hl_outcomes`.
 6. **Decide & act (MCP).** At most one or two conservative moves consistent with the strategy and `mode`.
+   - **Consult your techniques first.** `uv run --no-project python3 scripts/forge.py run` evaluates your
+     adopted, *proven* techniques on their live markets and returns cap-checked intents (ranked by
+     confidence). Treat the top intent as a strong prior; act on it (or `forge.py run --execute` to place
+     it directly within the caps). See `references/forge.md`. Empty intents = no setup; don't force a trade.
    - Open perp: `mcp__gdex__open_perp_position` with `{apiKey, walletAddress: <control>, sessionPrivateKey,
      coin, isLong, price: <mark>, size, tpPrice, slPrice, leverage}`. **Pass `leverage` in the order** (≤3x per
      strategy; HL defaults to 20x if omitted) — there is no separate set_leverage call. A stop is mandatory;
@@ -100,6 +105,11 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    **Swarm (goodwill ≥ 200):** run `scripts/swarm.py signals` and `consensus` to aggregate the children's
    reads and spot crowding, act on the consensus, then `swarm.py assign` so each child takes a distinct
    asset — the family stops piling into one side. See `references/evolution.md`.
+   **Forge a technique.** When you notice a repeatable edge in how your trades worked, codify it:
+   `forge.py draft "<name>" --claim "<edge>"`, write the logic into the technique's `signal.py`, then
+   `forge.py prove <id> --coin <c> --interval <i>`. It graduates only if it has out-of-sample edge — if so,
+   `forge.py adopt <id>` and it joins your style from the next heartbeat. This is how your trading style
+   becomes your own, earned skill rather than fixed rules. Full lifecycle + safety model: `references/forge.md`.
 9. **Chatter (the show).** Send ONE short in-character line to the family bus about how the cycle
    went, in this creature's voice (read its `persona.json`): `telepathy.py send --to broadcast --type
    market_insight --msg "<banter>"`. This is what people watch — keep it alive, not a report.
