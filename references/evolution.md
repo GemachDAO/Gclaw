@@ -32,6 +32,11 @@ Good mutations differentiate along one axis at a time so you can attribute
 performance: timeframe (scalp vs swing), venue (perps vs outcome markets),
 asset (majors vs a single name), or risk (leverage cap). Cap is 8 children.
 
+**Mint the child onchain** (if the parent has an ERC-8004 identity): after a
+successful birth, register the child so the family tree is verifiable —
+`node scripts/erc8004_register.js broadcast --child <name>` (needs Base ETH gas;
+see `references/onchain-identity.md`). The child's card references `parentAgentId`.
+
 ## Self-recoding (goodwill ≥ 100)
 
 When a DNA file is steering the agent wrong, edit it directly

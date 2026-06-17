@@ -40,13 +40,26 @@ SDK: <https://github.com/0xgasless/agent-sdk>
 4. **Family tree onchain** — children register with a parent reference for a
    verifiable lineage and a public leaderboard.
 
-## What's needed before building
+## Status — BUILT & live on Base mainnet
 
-- **Network choice:** Base **Sepolia** (free testnet — recommended for the beta)
-  vs **Base mainnet** (real provenance, costs ETH gas).
-- **Gas:** the control wallet (`0xA328…`) needs a little Base ETH (Sepolia ETH is
-  free from a faucet).
-- **Dependency:** add `0xgasless/agent-sdk` (ERC-8004 + x402) under `~/gdex-skill`'s
-  node_modules or a dedicated helper dir; writes are signed locally like `gdex_sign.js`.
+- **Identity (done, live):** `scripts/erc8004_register.js`. Gclaw minted as
+  **agentId 55624** (tx `0x70203c5c…`); its DNA agent card resolves onchain via `tokenURI`.
+- **Children (built, dry-run verified):** `erc8004_register.js dry-run|broadcast --child <name>`
+  reads the child from `state.children`, builds a card with `parentAgentId` → an **onchain
+  family tree**. Each child gets its own genome + agentId, owned by the control wallet.
+- **Reputation (built, dry-run verified):** `scripts/erc8004_reputation.js`. Registry
+  `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` (Base mainnet). `giveFeedback` works (~196k gas).
 
-Until built, this is documented intent — no onchain writes happen yet.
+### Reputation requires an external attester (key finding)
+
+The ReputationRegistry **reverts `"Self-feedback not allowed"`** — the agent owner
+cannot rate its own agent. This is the correct trust model. So goodwill is posted by
+a distinct **attester wallet** (the game operator / a verifying client) set via
+`GCLAW_ATTESTER_KEY`. That wallet needs its own Base ETH gas. Self-owned identity,
+externally-attested reputation.
+
+### Live-broadcast prerequisites
+
+- **Child mint:** the agent must have replicated (goodwill ≥ 50) so a child exists; ~$0.01 gas.
+- **Reputation:** goodwill > 0 (earned from real trades) + a funded `GCLAW_ATTESTER_KEY` wallet.
+- Control wallet `0xA328…` holds the gas for identity/child mints (currently ~0.001 ETH on Base).

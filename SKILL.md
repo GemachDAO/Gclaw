@@ -32,7 +32,8 @@ itself about its own balance.
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
 - `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
-- `scripts/erc8004_register.js` — ERC-8004 onchain identity mint (`dry-run` / `broadcast`); `references/onchain-identity.md`.
+- `scripts/erc8004_register.js` — ERC-8004 identity mint, self + `--child <name>` (`dry-run`/`broadcast`); `references/onchain-identity.md`.
+- `scripts/erc8004_reputation.js` — sync goodwill to the ERC-8004 Reputation registry (needs `GCLAW_ATTESTER_KEY`).
 - `dna/` — the DNA template (SOUL, IDENTITY, TRADING_STRATEGY, AGENT, HEARTBEAT, USER).
 - `references/mcp-trading.md` — the MCP-driven signed-trade flow. **Read before trading.**
 - `references/trading.md` — HL perps + outcome markets playbook and managed-address gotchas.

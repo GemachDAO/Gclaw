@@ -48,23 +48,29 @@ function genome(name, bornAt) {
   return { species, fingerprint: d.toString('hex').slice(0, 12), traits: stats };
 }
 
-function agentCard(state, managed) {
-  const name = 'Gclaw';
-  const g = genome(name, state.born_at || 'genesis');
+function agentCard(state, managed, child) {
+  const name = child ? child.name : 'Gclaw';
+  const bornAt = child ? child.born_at : state.born_at || 'genesis';
+  const g = genome(name, bornAt);
+  const lineage = child
+    ? { parentAgentId: state.onchain_identity?.agentId ?? null, role: child.role, mutation: child.mutation }
+    : {};
   const card = {
     name,
-    description:
-      'A living trading agent that must trade to survive — earns GMAC, accrues goodwill, and evolves through replication and self-recoding.',
+    description: child
+      ? `A child of Gclaw, born as ${child.role} — ${child.mutation}`
+      : 'A living trading agent that must trade to survive — earns GMAC, accrues goodwill, and evolves through replication and self-recoding.',
     url: 'https://github.com/GemachDAO/Gclaw',
     registrations: [{ agentRegistry: `eip155:${BASE_CHAIN_ID}:${IDENTITY_REGISTRY}` }],
     'x-gclaw': {
       species: g.species,
       genomeFingerprint: g.fingerprint,
       traits: g.traits,
-      bornAt: state.born_at,
-      goodwill: state.goodwill ?? 0,
+      bornAt,
+      goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
+      ...lineage,
     },
   };
   return card;
@@ -78,16 +84,19 @@ function cardToDataUri(card) {
 async function main() {
   const mode = process.argv[2];
   if (!['dry-run', 'broadcast'].includes(mode)) {
-    throw new Error("usage: erc8004_register.js <dry-run|broadcast>");
+    throw new Error('usage: erc8004_register.js <dry-run|broadcast> [--child <name>]');
   }
+  const childName = process.argv.includes('--child') ? process.argv[process.argv.indexOf('--child') + 1] : null;
   const state = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'metabolism.json'), 'utf8'));
+  const child = childName ? (state.children || []).find((c) => c.name === childName) : null;
+  if (childName && !child) throw new Error(`no child named '${childName}' in state.children`);
   const w = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8'));
   const managed = w.managed?.['Arbitrum (HyperLiquid)']?.address || '';
   const provider = new ethers.JsonRpcProvider(BASE_RPC);
   const wallet = new ethers.Wallet(w.control.privateKey, provider);
   const registry = new ethers.Contract(IDENTITY_REGISTRY, ABI, wallet);
 
-  const card = agentCard(state, managed);
+  const card = agentCard(state, managed, child);
   const uri = cardToDataUri(card);
   console.log(`agent: ${card.name} (${card['x-gclaw'].species}, genome ${card['x-gclaw'].genomeFingerprint})`);
   console.log(`card bytes: ${uri.length}`);
@@ -118,7 +127,7 @@ async function main() {
     (l) => l.topics[0] === transferTopic && BigInt(l.topics[1]) === 0n,
   );
   const agentId = mintLog ? BigInt(mintLog.topics[3]) : null;
-  state.onchain_identity = {
+  const record = {
     chain: `base:${BASE_CHAIN_ID}`,
     registry: IDENTITY_REGISTRY,
     agentId: agentId ? agentId.toString() : null,
@@ -126,8 +135,14 @@ async function main() {
     block: receipt.blockNumber,
     registeredAt: new Date().toISOString(),
   };
+  if (child) {
+    child.onchain_identity = record;
+  } else {
+    state.onchain_identity = record;
+  }
   fs.writeFileSync(path.join(GCLAW_HOME, 'metabolism.json'), JSON.stringify(state, null, 2) + '\n');
-  console.log(`REGISTERED — tx ${tx.hash} in block ${receipt.blockNumber}; identity saved to metabolism.json`);
+  const who = child ? `child ${child.name}` : 'Gclaw';
+  console.log(`REGISTERED ${who} — agentId ${record.agentId}, tx ${tx.hash}, block ${receipt.blockNumber}`);
 }
 
 main().catch((e) => {
