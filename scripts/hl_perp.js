@@ -33,7 +33,19 @@ const SDK = require(path.join(GDEX_DIR, 'dist'));
 
 const HL_CHAIN_ID = 42161; // sign in on Arbitrum for HyperLiquid
 const MIN_NOTIONAL = 11; // HyperLiquid minimum order value (USD)
-const SZ_DECIMALS = { BTC: 5, ETH: 4, SOL: 2 }; // size precision per major
+const SZ_DECIMALS = { BTC: 5, ETH: 4, SOL: 2 }; // fallback size precision if meta is unavailable
+
+async function szDecimalsFor(skill, coin) {
+  try {
+    const a = await skill.getHlAllAssets();
+    const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
+    const m = arr.find((x) => x.coin === coin || x.baseCoin === coin);
+    if (m && Number.isInteger(m.szDecimals)) return m.szDecimals;
+  } catch {
+    /* fall back to the static map below */
+  }
+  return SZ_DECIMALS[coin] ?? 2;
+}
 
 function die(msg) {
   process.stdout.write(JSON.stringify({ ok: false, error: msg }) + '\n');
@@ -89,11 +101,15 @@ async function signedSkill(wallet) {
 
 async function cmdStatus(wallet) {
   const { skill } = await signedSkill(wallet);
-  const [state, spot, orders] = await Promise.all([
+  // Resilient: a transient non-JSON response on one read shouldn't fail the whole status.
+  const [stateR, spotR, ordersR] = await Promise.allSettled([
     skill.getHlAccountState(wallet.managed),
     skill.getHlSpotState(wallet.managed),
     skill.getHlOpenOrders(wallet.managed),
   ]);
+  const state = stateR.status === 'fulfilled' ? stateR.value : { accountValue: 0, positions: [] };
+  const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
+  const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
   const usdc = (spot.balances || []).find((b) => b.coin === 'USDC');
   return {
     ok: true,
@@ -121,7 +137,7 @@ async function cmdOpen(wallet, args) {
 
   const { skill, creds } = await signedSkill(wallet);
   const px = await skill.getHlMarkPrice(coin);
-  const dp = SZ_DECIMALS[coin] ?? 2;
+  const dp = await szDecimalsFor(skill, coin);
   const size = Math.max(0, Number((notionalTarget / px).toFixed(dp)));
   const notional = px * size;
   if (notional < MIN_NOTIONAL) die(`notional $${notional.toFixed(2)} below $${MIN_NOTIONAL} min — raise --notional`);

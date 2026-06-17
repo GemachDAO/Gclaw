@@ -37,9 +37,10 @@ The session is now live. Keep `sessionPrivateKey` and `apiKey` for the trade cal
 
 ## Sizing
 
-`size = round(targetNotionalUsd / mark, szDecimals)` — szDecimals: BTC 5, ETH 4, SOL 2.
-Keep `targetNotionalUsd ≥ 12` so it clears the $11 floor after rounding. Stop/TP prices
-to ~5 significant figures.
+`size = round(targetNotionalUsd / mark, szDecimals)`. `hl_perp.js` fetches `szDecimals`
+per asset from `getHlAllAssets` (falling back to BTC 5 / ETH 4 / SOL 2), so any HL asset
+works without edits. Keep `targetNotionalUsd ≥ 12` so it clears the $11 floor after
+rounding. Stop/TP prices to ~5 significant figures.
 
 ## Fallback
 
