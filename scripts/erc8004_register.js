@@ -112,7 +112,12 @@ async function main() {
   const tx = await registry.register(uri);
   console.log(`broadcast tx: ${tx.hash} — waiting for confirmation...`);
   const receipt = await tx.wait();
-  const agentId = await registry.register.staticCall(uri).catch(() => null);
+  // ERC-721 mint emits Transfer(0x0, owner, tokenId); read the real id from topics.
+  const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  const mintLog = receipt.logs.find(
+    (l) => l.topics[0] === transferTopic && BigInt(l.topics[1]) === 0n,
+  );
+  const agentId = mintLog ? BigInt(mintLog.topics[3]) : null;
   state.onchain_identity = {
     chain: `base:${BASE_CHAIN_ID}`,
     registry: IDENTITY_REGISTRY,
