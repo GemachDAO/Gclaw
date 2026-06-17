@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+/**
+ * Gclaw ERC-8004 identity registration (Base mainnet).
+ *
+ * Mints the creature's onchain identity in the ERC-8004 IdentityRegistry, with
+ * an agent card (registration file) carrying its DNA genome. The card is encoded
+ * as a self-contained base64 `data:` URI, so no external hosting is required.
+ *
+ * The genome derivation mirrors dashboard.py so the onchain identity matches the
+ * visual creature exactly.
+ *
+ *   node erc8004_register.js dry-run     # eth_call only — proves the mint, no gas, no state change
+ *   node erc8004_register.js broadcast   # real tx (needs Base ETH gas); writes agentId into metabolism.json
+ *
+ * Env: GDEX_SKILL_DIR (default ~/gdex-skill) for ethers, GCLAW_WALLET, GCLAW_HOME, BASE_RPC.
+ */
+'use strict';
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
+const WALLET_PATH = process.env.GCLAW_WALLET || path.join(os.homedir(), 'gdex-test-wallet.json');
+const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
+const { ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers'));
+
+const BASE_RPC = process.env.BASE_RPC || 'https://mainnet.base.org';
+const BASE_CHAIN_ID = 8453;
+const IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'; // ERC-8004 IdentityRegistry, Base mainnet
+const ABI = [
+  'function register(string agentURI) returns (uint256 agentId)',
+  'function tokenURI(uint256 agentId) view returns (string)',
+];
+
+const PREFIX = ['Vor', 'Kryo', 'Zeph', 'Mor', 'Lyx', 'Quel', 'Ras', 'Thi', 'Nyx', 'Obol'];
+const SUFFIX = ['dax', 'mire', 'lith', 'phar', 'gax', 'ven', 'tide', 'korn', 'ses', 'wraith'];
+const TRAITS = ['Vitality', 'Cunning', 'Aggression', 'Discipline', 'Fertility'];
+
+function genome(name, bornAt) {
+  const d = crypto.createHash('sha256').update(`${name}|${bornAt}`).digest();
+  const species = PREFIX[d[2] % PREFIX.length] + SUFFIX[d[3] % SUFFIX.length];
+  const stats = {};
+  TRAITS.forEach((t, i) => {
+    stats[t] = 25 + (d[6 + i] % 70);
+  });
+  return { species, fingerprint: d.toString('hex').slice(0, 12), traits: stats };
+}
+
+function agentCard(state, managed) {
+  const name = 'Gclaw';
+  const g = genome(name, state.born_at || 'genesis');
+  const card = {
+    name,
+    description:
+      'A living trading agent that must trade to survive — earns GMAC, accrues goodwill, and evolves through replication and self-recoding.',
+    url: 'https://github.com/GemachDAO/Gclaw',
+    registrations: [{ agentRegistry: `eip155:${BASE_CHAIN_ID}:${IDENTITY_REGISTRY}` }],
+    'x-gclaw': {
+      species: g.species,
+      genomeFingerprint: g.fingerprint,
+      traits: g.traits,
+      bornAt: state.born_at,
+      goodwill: state.goodwill ?? 0,
+      controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
+      managedHlWallet: managed,
+    },
+  };
+  return card;
+}
+
+function cardToDataUri(card) {
+  const b64 = Buffer.from(JSON.stringify(card), 'utf8').toString('base64');
+  return `data:application/json;base64,${b64}`;
+}
+
+async function main() {
+  const mode = process.argv[2];
+  if (!['dry-run', 'broadcast'].includes(mode)) {
+    throw new Error("usage: erc8004_register.js <dry-run|broadcast>");
+  }
+  const state = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'metabolism.json'), 'utf8'));
+  const w = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8'));
+  const managed = w.managed?.['Arbitrum (HyperLiquid)']?.address || '';
+  const provider = new ethers.JsonRpcProvider(BASE_RPC);
+  const wallet = new ethers.Wallet(w.control.privateKey, provider);
+  const registry = new ethers.Contract(IDENTITY_REGISTRY, ABI, wallet);
+
+  const card = agentCard(state, managed);
+  const uri = cardToDataUri(card);
+  console.log(`agent: ${card.name} (${card['x-gclaw'].species}, genome ${card['x-gclaw'].genomeFingerprint})`);
+  console.log(`card bytes: ${uri.length}`);
+
+  const bal = await provider.getBalance(wallet.address);
+  console.log(`control ${wallet.address} Base ETH: ${ethers.formatEther(bal)}`);
+
+  if (mode === 'dry-run') {
+    const agentId = await registry.register.staticCall(uri);
+    let gas = 'n/a (needs gas balance to estimate)';
+    try {
+      gas = (await registry.register.estimateGas(uri)).toString();
+    } catch {
+      /* estimateGas needs balance; staticCall already proved the call succeeds */
+    }
+    console.log(`DRY-RUN OK — would mint agentId=${agentId.toString()} | gas≈${gas}`);
+    console.log(`card: ${JSON.stringify(card)}`);
+    return;
+  }
+
+  if (bal === 0n) throw new Error(`control wallet has 0 Base ETH — fund gas before broadcast`);
+  const tx = await registry.register(uri);
+  console.log(`broadcast tx: ${tx.hash} — waiting for confirmation...`);
+  const receipt = await tx.wait();
+  const agentId = await registry.register.staticCall(uri).catch(() => null);
+  state.onchain_identity = {
+    chain: `base:${BASE_CHAIN_ID}`,
+    registry: IDENTITY_REGISTRY,
+    agentId: agentId ? agentId.toString() : null,
+    txHash: tx.hash,
+    block: receipt.blockNumber,
+    registeredAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(GCLAW_HOME, 'metabolism.json'), JSON.stringify(state, null, 2) + '\n');
+  console.log(`REGISTERED — tx ${tx.hash} in block ${receipt.blockNumber}; identity saved to metabolism.json`);
+}
+
+main().catch((e) => {
+  console.error('ERROR', e.message || String(e));
+  process.exit(1);
+});
