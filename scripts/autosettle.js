@@ -22,7 +22,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
-const WALLET_PATH = process.env.GCLAW_WALLET || path.join(os.homedir(), 'gdex-test-wallet.json');
+const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const SDK = require(path.join(GDEX_DIR, 'dist'));
 

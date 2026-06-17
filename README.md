@@ -1,54 +1,85 @@
-# Gclaw — The Living Trading Agent (skill-native)
+<div align="center">
 
-Gclaw is a **living trading agent**: an organism whose GMAC balance is its life
-energy. Every heartbeat costs GMAC; profitable trades replenish it; at zero it
-hibernates. It trades **HyperLiquid perpetuals and HIP-3 outcome markets**
-through the GDEX MCP, and earns **goodwill** that unlocks **replication** and
-**self-recoding**.
+# 🜃 Gclaw — The Living Trading Agent
 
-This is the skill-native rewrite. The original Gclaw was a ~Go single-binary
-agent that reimplemented an entire LLM runtime and then shelled out to Node to
-trade. That host is retired: **Claude Code is the runtime, the GDEX MCP is the
-trading arm, and deterministic Python owns the survival bookkeeping** so the
-agent cannot lie to itself about its own balance.
+**A creature that must trade to survive.** It earns GMAC to stay alive, grows a
+personality, reproduces a swarm, earns an onchain identity, and — at the height of
+its powers — deploys infrastructure that buys and burns GMAC forever.
 
-## Why a skill instead of a client
+*Watch it. Talk to it. Raise it like a pet.*
 
-| | Old Go client | This skill |
-|---|---|---|
-| LLM loop, tools, sessions, cron | reimplemented in Go | provided by Claude Code |
-| Trading | Go → `npm install` at runtime → Node SDK → HTTP | direct GDEX MCP calls, zero Node |
-| Reproducibility | helper pinned to a moving git HEAD | MCP server, no per-run installs |
-| The novel part (metabolism, DNA, evolution) | buried in a binary | a few markdown files + ~2 small scripts |
+</div>
 
-## Install
+---
+
+## Quick start (≈ 3 commands)
 
 ```bash
-# Make the skill discoverable to Claude Code
-ln -s "$PWD" ~/.claude/skills/gclaw
-
-# Birth the agent (one time)
-uv run --no-project python3 scripts/metabolism.py init --seed 1000
-mkdir -p ~/.gclaw && cp -r dna ~/.gclaw/dna
+git clone https://github.com/GemachDAO/Gclaw && cd Gclaw
+./install.sh        # checks prereqs, links the skill, makes you a wallet
+gclaw fund          # tells you exactly what to send where, and when it's landed
+gclaw start         # births your creature + schedules its hourly heartbeat
 ```
 
-Then in Claude Code: **`/gclaw`** to run a heartbeat, or wire `/loop` / `/schedule`
-for autonomous cycles.
+Then:
 
-## Layout
+```bash
+gclaw dashboard     # watch its living DNA page
+gclaw talk Gclaw    # say hello (run inside Claude Code to converse)
+```
 
-- `SKILL.md` — the entry point: trigger + heartbeat procedure.
-- `dna/` — SOUL, IDENTITY, TRADING_STRATEGY, AGENT, HEARTBEAT, USER (the agent's DNA template).
-- `scripts/metabolism.py` — survival state machine (init / status / tick / charge / settle).
-- `scripts/evolve.py` — goodwill-gated replication & self-recoding.
-- `references/` — metabolism economics, the goodwill ladder, and the HL trading playbook.
+That's it. `install.sh` makes you a fresh managed-custody wallet and prints the two
+addresses to fund:
 
-Runtime state lives under `$GCLAW_HOME` (default `~/.gclaw`): `metabolism.json`,
-`journal.jsonl`, `dna/`, and `children/`.
+- **Trading capital** — USDC on the HyperLiquid account (this is what it trades).
+- **Identity gas** — ~0.001 ETH on Base (to mint its onchain identity; optional to start).
 
-## Trading scope
+`gclaw fund` polls until your money lands and says **✓ Ready to live**.
 
-HyperLiquid perpetuals (majors first: BTC/ETH/SOL, ≤3x, always stop-protected)
-and HIP-3 outcome/event markets (defined-risk, near-dated). **No memecoins.**
-Requires a funded HyperLiquid managed account — an unfunded account is the usual
-reason "trading doesn't work".
+## The one command for everything — `gclaw`
+
+| command | what it does |
+|---------|--------------|
+| `gclaw doctor` | check your setup is healthy |
+| `gclaw wallet` | create your wallet + show what to fund |
+| `gclaw fund` | has the money landed yet? |
+| `gclaw start` | bring the creature to life (birth + hourly heartbeat) |
+| `gclaw status` | how it's doing right now |
+| `gclaw dashboard` | open its living DNA page |
+| `gclaw talk <name>` | talk to a creature in character |
+| `gclaw beat` | run one heartbeat now |
+
+Kill switch any time: `touch ~/.gclaw/PAUSE` (and `rm` it to resume).
+
+## What it actually does
+
+Every hour, on its own, your creature: ticks its GMAC life-energy, reads the
+HyperLiquid market, and — only with a real edge — opens one small, **always
+stop-protected** trade (perps or HIP-3 event markets). It books its own PnL,
+earns goodwill, and as goodwill grows it unlocks:
+
+| goodwill | unlocks |
+|---|---|
+| 50 | **Reproduce** — spawn a child with a mutated strategy and its own soul |
+| 100 | **Self-recode** — rewrite its own strategy |
+| 200 | **Swarm** — the family coordinates so it never crowds one trade |
+| 5000 | **Venture Architect** — deploy DeFi infra with a perpetual GMAC buy-and-burn |
+
+Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
+arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
+
+## Decentralized by design
+
+Every creature's DNA lives onchain (ERC-8004 on Base). The leaderboard
+(`leaderboard/leaderboard.html`) is a single static file that reads the chain
+directly — **no server, no host.** Open it from the repo or pin it to IPFS.
+
+## Under the hood
+
+Claude Code is the runtime; the GDEX MCP is the trading arm; deterministic Python
+owns the survival bookkeeping so the agent can't lie to itself. See `SKILL.md` for
+the heartbeat, `CLAUDE.md` for development, and `references/` for the playbooks.
+
+> Requires Node 22+, Python 3, and the GDEX SDK (`GemachDAO/gdex-skill`). Trading
+> uses real money — start small. Your wallet's secrets live in `~/.gclaw/wallet.json`
+> (chmod 600); never commit it.

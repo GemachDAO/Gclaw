@@ -4,3 +4,9 @@ state/
 .gclaw/
 __pycache__/
 *.pyc
+
+# Never commit wallet secrets or private keys.
+wallet.json
+*-wallet.json
+*.key
+.env
