@@ -155,4 +155,7 @@ async function main() {
   process.stdout.write(JSON.stringify(result) + '\n');
 }
 
-main().catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));
+// The HL trader keeps a connection open; exit explicitly so we don't hang.
+main()
+  .then(() => process.exit(0))
+  .catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));

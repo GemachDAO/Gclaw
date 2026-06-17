@@ -66,8 +66,10 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    `uv run --no-project python3 scripts/telepathy.py inbox` (act on fresh trade_signal/warning).
    Read live exposure via `mcp__gdex__get_hl_clearinghouse_state {userAddress: <managed>}`,
    `get_hl_spot_state`, and `get_hl_open_orders` — the source of truth for positions and free capital.
-4. **Reconcile closes.** For each position open last cycle but gone now (TP/SL fired), compute realized
-   PnL and **settle** it (step 7). `~/.gclaw/journal.jsonl` holds the prior state.
+4. **Reconcile closes (auto).** Run `node scripts/autosettle.js run` — it books realized PnL from any
+   closes (TP/SL or manual) by reading HL fills, netting `closedPnl − fee`, and calling `metabolism.py
+   settle` exactly once per close (cursor-deduped; safe if the cron already ran it). Don't settle trade
+   PnL by hand — this is the single settle path for trades.
 5. **Intelligence.** `mcp__gdex__get_mark_price`, `get_hl_meta_and_asset_ctxs`, optionally
    `get_hl_top_traders_by_pnl`. For events: `hl_outcomes`.
 6. **Decide & act (MCP).** At most one or two conservative moves consistent with the strategy and `mode`.
