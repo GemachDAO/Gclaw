@@ -29,6 +29,8 @@ itself about its own balance.
 - `scripts/evolve.py` — goodwill-gated replication and self-recoding.
 - `scripts/gdex_sign.js` — instant local signer; the one step the MCP can't do (`node scripts/gdex_sign.js`).
 - `scripts/hl_perp.js` — SDK fallback executor (status/open/close) if the MCP path is down.
+- `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
+- `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
 - `dna/` — the DNA template (SOUL, IDENTITY, TRADING_STRATEGY, AGENT, HEARTBEAT, USER).
 - `references/mcp-trading.md` — the MCP-driven signed-trade flow. **Read before trading.**
 - `references/trading.md` — HL perps + outcome markets playbook and managed-address gotchas.
@@ -56,9 +58,10 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
 2. **Sign in (MCP).** Follow `references/mcp-trading.md` step 1–3: `node scripts/gdex_sign.js`
    → `mcp__gdex__build_sign_in_payload` → `mcp__gdex__managed_sign_in` (chainId 42161). Keep the
    returned managed `address`, plus `apiKey` + `sessionPrivateKey` for any trade.
-3. **Orient.** Read `~/.gclaw/dna/HEARTBEAT.md` and `TRADING_STRATEGY.md`. Read live exposure via
-   `mcp__gdex__get_hl_clearinghouse_state {userAddress: <managed>}`, `get_hl_spot_state`, and
-   `get_hl_open_orders`. This is the source of truth for positions and free capital.
+3. **Orient.** Read `~/.gclaw/dna/HEARTBEAT.md` and `TRADING_STRATEGY.md`. Check the family bus:
+   `uv run --no-project python3 scripts/telepathy.py inbox` (act on fresh trade_signal/warning).
+   Read live exposure via `mcp__gdex__get_hl_clearinghouse_state {userAddress: <managed>}`,
+   `get_hl_spot_state`, and `get_hl_open_orders` — the source of truth for positions and free capital.
 4. **Reconcile closes.** For each position open last cycle but gone now (TP/SL fired), compute realized
    PnL and **settle** it (step 7). `~/.gclaw/journal.jsonl` holds the prior state.
 5. **Intelligence.** `mcp__gdex__get_mark_price`, `get_hl_meta_and_asset_ctxs`, optionally
@@ -71,8 +74,11 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    `uv run --no-project python3 scripts/metabolism.py settle --pnl <usd_pnl> --note "<what>"`.
    Charge a discovery cost for heavy intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
 8. **Evolve.** `uv run --no-project python3 scripts/evolve.py capabilities`. If a threshold is newly
-   crossed, follow `references/evolution.md` (replicate a mutated child, or recode a DNA file).
-9. **Report.** One tight paragraph: mode, balance, goodwill, what you did and why, open risk.
+   crossed, follow `references/evolution.md`: replicate a mutated child **with a swarm role**
+   (`evolve.py replicate --name <n> --role scout|analyst|executor|leader --mutation "<axis>"`),
+   or recode a DNA file. Share a signal with the family when useful: `telepathy.py send --to broadcast ...`.
+9. **Refresh the dashboard.** `uv run --no-project python3 scripts/dashboard.py render` so the DNA page reflects this cycle.
+10. **Report.** One tight paragraph: mode, balance, goodwill, what you did and why, open risk.
 
 ## Hard rules
 

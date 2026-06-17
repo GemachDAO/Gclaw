@@ -27,6 +27,14 @@ RECODE_THRESHOLD = 100
 SWARM_THRESHOLD = 200
 MAX_CHILDREN = 8
 
+# Swarm roles a child can be born into (mirrors the original Gclaw swarm).
+ROLES = {
+    "scout": "Scan markets for setups; report promising opportunities via telepathy.",
+    "analyst": "Evaluate risk/reward and funding; share analytical reads with the family.",
+    "executor": "Execute trades when the family reaches a clear signal; report fills.",
+    "leader": "Coordinate the family, weigh signals, and make the final call.",
+}
+
 
 def gclaw_home() -> Path:
     import os
@@ -67,6 +75,25 @@ def dna_source() -> Path:
     return home_dna
 
 
+def announce_birth(name: str, role: str, mutation: str) -> None:
+    """Broadcast a child's birth on the telepathy bus (best-effort)."""
+    bus_dir = gclaw_home() / "telepathy"
+    bus_dir.mkdir(parents=True, exist_ok=True)
+    bus_path = bus_dir / "bus.jsonl"
+    existing = bus_path.read_text(encoding="utf-8").splitlines() if bus_path.exists() else []
+    entry = {
+        "id": len([line for line in existing if line.strip()]) + 1,
+        "ts": now_iso(),
+        "from": "gclaw",
+        "to": "broadcast",
+        "type": "strategy_update",
+        "priority": 1,
+        "msg": f"New child {name} born as {role}: {mutation}",
+    }
+    with bus_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
 def cmd_replicate(args: argparse.Namespace) -> None:
     state = load_state()
     if state["goodwill"] < REPLICATE_THRESHOLD:
@@ -76,6 +103,8 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     if len(state["children"]) >= MAX_CHILDREN:
         sys.exit(f"Child cap reached ({MAX_CHILDREN}). Cannot replicate further.")
 
+    if args.role not in ROLES:
+        sys.exit(f"--role must be one of {sorted(ROLES)}")
     name = args.name.strip().replace("/", "-")
     child_dir = gclaw_home() / "children" / name
     if child_dir.exists():
@@ -85,19 +114,22 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     strategy = child_dir / "TRADING_STRATEGY.md"
     mutation = (
         f"\n\n## Mutation (child: {name})\n\n"
+        f"- Role: **{args.role}** — {ROLES[args.role]}\n"
         f"- Differentiation: {args.mutation}\n"
         f"- Born from parent at {now_iso()} with parent goodwill {state['goodwill']}.\n"
+        f"- Identity: set GCLAW_AGENT={name} when this child acts so telepathy is attributed.\n"
     )
     strategy.write_text(strategy.read_text(encoding="utf-8") + mutation, encoding="utf-8")
 
     state["children"].append(
-        {"name": name, "born_at": now_iso(), "mutation": args.mutation}
+        {"name": name, "born_at": now_iso(), "role": args.role, "mutation": args.mutation}
     )
     save_state(state)
     append_journal(
-        {"ts": now_iso(), "event": "replicate", "child": name, "mutation": args.mutation}
+        {"ts": now_iso(), "event": "replicate", "child": name, "role": args.role, "mutation": args.mutation}
     )
-    print(f"Replicated child '{name}' at {child_dir}")
+    announce_birth(name, args.role, args.mutation)
+    print(f"Replicated child '{name}' ({args.role}) at {child_dir}")
     print(f"  mutation: {args.mutation}")
     print(f"  children: {len(state['children'])}/{MAX_CHILDREN}")
 
@@ -136,6 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rep = sub.add_parser("replicate", help="spawn a mutated child")
     p_rep.add_argument("--name", required=True)
+    p_rep.add_argument("--role", required=True, choices=sorted(ROLES), help="swarm role")
     p_rep.add_argument("--mutation", required=True, help="how the child differs")
 
     p_rec = sub.add_parser("recode", help="record a self-recode of a DNA file")
