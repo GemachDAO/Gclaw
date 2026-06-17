@@ -33,13 +33,32 @@ const SDK = require(path.join(GDEX_DIR, 'dist'));
 
 const HL_CHAIN_ID = 42161; // sign in on Arbitrum for HyperLiquid
 const MIN_NOTIONAL = 11; // HyperLiquid minimum order value (USD)
+const DEFAULT_LEVERAGE = 3; // strategy cap; HL defaults to 20x cross if we don't set it
 const SZ_DECIMALS = { BTC: 5, ETH: 4, SOL: 2 }; // fallback size precision if meta is unavailable
+
+// Builder/HIP-3 coins are `dex:ASSET` with a LOWERCASE dex prefix (xyz:NVDA); plain coins uppercase.
+function normalizeCoin(coin) {
+  const i = coin.indexOf(':');
+  return i === -1 ? coin.toUpperCase() : coin.slice(0, i).toLowerCase() + ':' + coin.slice(i + 1).toUpperCase();
+}
+
+async function findAsset(skill, coin) {
+  const a = await skill.getHlAllAssets();
+  const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
+  return arr.find((x) => String(x.coin).toLowerCase() === coin.toLowerCase() || x.baseCoin === coin);
+}
+
+// getHlMarkPrice only covers the default dex; builder markets need getHlAllAssets.markPx.
+async function markPriceFor(skill, coin) {
+  const px = await skill.getHlMarkPrice(coin).catch(() => 0);
+  if (px > 0) return px;
+  const asset = await findAsset(skill, coin).catch(() => null);
+  return Number(asset?.markPx) || 0;
+}
 
 async function szDecimalsFor(skill, coin) {
   try {
-    const a = await skill.getHlAllAssets();
-    const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
-    const m = arr.find((x) => x.coin === coin || x.baseCoin === coin);
+    const m = await findAsset(skill, coin);
     if (m && Number.isInteger(m.szDecimals)) return m.szDecimals;
   } catch {
     /* fall back to the static map below */
@@ -128,15 +147,18 @@ async function cmdStatus(wallet) {
 }
 
 async function cmdOpen(wallet, args) {
-  const coin = (args.coin || 'ETH').toUpperCase();
+  const coin = normalizeCoin(args.coin || 'ETH');
   const isLong = (args.side || 'long').toLowerCase() !== 'short';
   const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional || 12));
   const slPct = Number(args['sl-pct'] || 2);
   const tpPct = Number(args['tp-pct'] || 3);
   if (!args['sl-pct'] && slPct <= 0) die('a stop-loss is required (--sl-pct)');
 
+  // Leverage is a real, settable order field now (sent top-level by the SDK).
+  const leverage = Math.max(1, Math.min(50, Math.round(Number(args.leverage || DEFAULT_LEVERAGE))));
+
   const { skill, creds } = await signedSkill(wallet);
-  const px = await skill.getHlMarkPrice(coin);
+  const px = await markPriceFor(skill, coin);
   const dp = await szDecimalsFor(skill, coin);
   const size = Math.max(0, Number((notionalTarget / px).toFixed(dp)));
   const notional = px * size;
@@ -153,20 +175,23 @@ async function cmdOpen(wallet, args) {
     isMarket: true,
     tpPrice: String(tp),
     slPrice: String(sl),
+    leverage,
     ...creds,
   });
   if (res && res.isSuccess === false) die(`open rejected: ${JSON.stringify(res)}`);
-  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
+  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', leverage, mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
 }
 
 async function cmdClose(wallet, args) {
-  const coin = (args.coin || 'ETH').toUpperCase();
+  const coin = normalizeCoin(args.coin || 'ETH');
   const { skill, creds } = await signedSkill(wallet);
   const state = await skill.getHlAccountState(wallet.managed);
-  const pos = (state.positions || []).find((p) => (p.coin || p.position?.coin) === coin);
+  const pos = (state.positions || []).find(
+    (p) => String(p.coin || p.position?.coin).toLowerCase() === coin.toLowerCase(),
+  );
   const szi = pos ? Number(pos.size ?? pos.szi ?? pos.position?.szi) : 0;
   if (!szi) return { ok: true, action: 'close', coin, note: 'no open position' };
-  const px = await skill.getHlMarkPrice(coin);
+  const px = await markPriceFor(skill, coin);
   const res = await skill.hlCreateOrder({
     coin,
     isLong: szi < 0, // opposite side to flatten
