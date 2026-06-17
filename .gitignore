@@ -1,59 +1,12 @@
-# Binaries
-# Go build artifacts
-bin/
-build/
-*.exe
-*.dll
-*.so
-*.dylib
-*.test
-*.out
-/gclaw
-/gclaw-test
-cmd/gclaw/workspace
-
-# Gclaw specific
-
-# Gclaw
+# Runtime state lives under $GCLAW_HOME (~/.gclaw), never in the repo.
+# Nothing in this repo should be generated. Guard against accidental local state.
+state/
 .gclaw/
-config.json
-sessions/
-build/
+__pycache__/
+*.pyc
 
-# Coverage
-
-# Secrets & Config (keep templates, ignore actual secrets)
-.env
-.env.*
-*.pem
+# Never commit wallet secrets or private keys.
+wallet.json
+*-wallet.json
 *.key
-*.p12
-*.keystore
-*.secret
-*.seed
-secrets/
-config/config.json
-
-# Test
-coverage.txt
-coverage.html
-
-# OS
-.DS_Store
-
-# Ralph workspace
-ralph/
-.ralph/
-tasks/
-
-# Editors
-.vscode/
-.idea/
-
-# Added by goreleaser init:
-dist/
-node_modules/
-
-# Dolt database files (added by bd init)
-.dolt/
-*.db
+.env

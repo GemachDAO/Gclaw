@@ -1,9 +1,0 @@
-{
-  "name": "gdex-trading-helpers",
-  "version": "2.0.0",
-  "description": "Helper scripts for GDEX trading tools (uses @gdexsdk/gdex-skill)",
-  "dependencies": {
-    "@gdexsdk/gdex-skill": "github:GemachDAO/gdex-skill",
-    "ethers": "^6.13.0"
-  }
-}

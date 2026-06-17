@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# gclaw — one command for the whole life of your creature.
+#
+#   gclaw doctor      check everything is set up
+#   gclaw wallet      create your wallet + show what to fund
+#   gclaw fund        check whether your money has landed
+#   gclaw start       bring your creature to life (birth + hourly heartbeat)
+#   gclaw status      how it's doing right now
+#   gclaw dashboard   open its living DNA page
+#   gclaw talk <name> talk to a creature (run inside Claude Code to converse)
+#   gclaw beat        run one heartbeat now
+set -euo pipefail
+
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export GCLAW_HOME="${GCLAW_HOME:-$HOME/.gclaw}"
+PY="$(command -v python3 || true)"
+NODE="$(command -v node || true)"
+b(){ printf '\033[1m%s\033[0m\n' "$1"; }
+ok(){ printf '  \033[32m✓\033[0m %s\n' "$1"; }
+no(){ printf '  \033[31m✗\033[0m %s\n' "$1"; }
+arrow(){ printf '  \033[33m→\033[0m %s\n' "$1"; }
+
+cmd_doctor() {
+  b "Gclaw doctor"
+  if [ -n "$NODE" ]; then ok "node $($NODE -v)"; else no "node not found — install Node 22+"; fi
+  if [ -n "$PY" ]; then ok "python3 $($PY -V 2>&1 | awk '{print $2}')"; else no "python3 not found"; fi
+  if [ -d "${GDEX_SKILL_DIR:-$HOME/gdex-skill}/dist" ]; then ok "GDEX SDK present"; else no "GDEX SDK missing — set GDEX_SKILL_DIR or clone GemachDAO/gdex-skill to ~/gdex-skill"; fi
+  if [ -e "$HOME/.claude/skills/gclaw" ]; then ok "skill installed"; else arrow "skill not linked — run: gclaw install"; fi
+  if [ -f "$GCLAW_HOME/wallet.json" ] || [ -f "$HOME/gdex-test-wallet.json" ]; then ok "wallet present"; else arrow "no wallet — run: gclaw wallet"; fi
+  if [ -f "$GCLAW_HOME/metabolism.json" ]; then ok "creature alive (born)"; else arrow "not born yet — run: gclaw start"; fi
+  if command -v solc >/dev/null && command -v forge >/dev/null; then ok "solc + forge (venture deploys)"; else arrow "solc/forge optional (only for venture tier)"; fi
+}
+
+cmd_install() {
+  ln -sfn "$SKILL_DIR" "$HOME/.claude/skills/gclaw"
+  ok "linked skill → ~/.claude/skills/gclaw"
+}
+
+cmd_wallet() { "$NODE" "$SKILL_DIR/scripts/new_wallet.js" "$@"; }
+
+cmd_fund() {
+  b "Funding status"
+  "$NODE" "$SKILL_DIR/scripts/fund_status.js" || true
+}
+
+birth() {
+  if [ ! -f "$GCLAW_HOME/metabolism.json" ]; then
+    "$PY" "$SKILL_DIR/scripts/metabolism.py" init --seed 1000 >/dev/null
+    mkdir -p "$GCLAW_HOME/dna" && cp "$SKILL_DIR"/dna/*.md "$GCLAW_HOME/dna/"
+    "$PY" "$SKILL_DIR/scripts/persona.py" for-genesis
+    ok "born — a soul was drawn from its genome"
+  else
+    ok "already alive"
+  fi
+}
+
+install_cron() {
+  local wrap="$GCLAW_HOME/heartbeat.sh"
+  sed "s#__SKILL_DIR__#$SKILL_DIR#g; s#__HOME__#$HOME#g" "$SKILL_DIR/templates/heartbeat.sh" > "$wrap"
+  chmod +x "$wrap"
+  if command -v crontab >/dev/null; then
+    ( crontab -l 2>/dev/null | grep -v 'gclaw.*heartbeat.sh'; echo "0 * * * * $wrap" ) | crontab -
+    ok "hourly heartbeat scheduled (kill switch: touch $GCLAW_HOME/PAUSE)"
+  else
+    arrow "no crontab — run heartbeats manually with: gclaw beat"
+  fi
+}
+
+cmd_start() {
+  b "Bringing your creature to life"
+  birth
+  "$PY" "$SKILL_DIR/scripts/dashboard.py" render >/dev/null && ok "DNA dashboard rendered"
+  install_cron
+  echo; "$PY" "$SKILL_DIR/scripts/metabolism.py" status
+  echo; arrow "watch it:  gclaw dashboard   ·   talk to it:  gclaw talk Gclaw"
+}
+
+cmd_status() { "$PY" "$SKILL_DIR/scripts/metabolism.py" status; }
+
+cmd_dashboard() {
+  "$PY" "$SKILL_DIR/scripts/dashboard.py" render
+  local f="$GCLAW_HOME/dashboard.html"
+  (command -v xdg-open >/dev/null && xdg-open "$f") || (command -v open >/dev/null && open "$f") || arrow "open $f in a browser"
+}
+
+cmd_talk() {
+  local name="${1:-Gclaw}"
+  "$PY" "$SKILL_DIR/scripts/chat.py" sheet --name "$name"
+  echo; arrow "To actually converse, run this inside Claude Code and reply as the creature."
+}
+
+cmd_beat() {
+  [ -x "$GCLAW_HOME/heartbeat.sh" ] && "$GCLAW_HOME/heartbeat.sh" && tail -3 "$GCLAW_HOME/heartbeat.log" || arrow "run /gclaw inside Claude Code for a full heartbeat"
+}
+
+case "${1:-help}" in
+  doctor) cmd_doctor ;;
+  install) cmd_install ;;
+  wallet) shift; cmd_wallet "$@" ;;
+  fund) cmd_fund ;;
+  start) cmd_start ;;
+  status) cmd_status ;;
+  dashboard|dash) cmd_dashboard ;;
+  talk) shift; cmd_talk "$@" ;;
+  beat|heartbeat) cmd_beat ;;
+  *) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+esac
