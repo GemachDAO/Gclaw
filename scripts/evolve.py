@@ -121,17 +121,31 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     )
     strategy.write_text(strategy.read_text(encoding="utf-8") + mutation, encoding="utf-8")
 
+    born = now_iso()
     state["children"].append(
-        {"name": name, "born_at": now_iso(), "role": args.role, "mutation": args.mutation}
+        {"name": name, "born_at": born, "role": args.role, "mutation": args.mutation}
     )
     save_state(state)
     append_journal(
-        {"ts": now_iso(), "event": "replicate", "child": name, "role": args.role, "mutation": args.mutation}
+        {"ts": born, "event": "replicate", "child": name, "role": args.role, "mutation": args.mutation}
     )
+    soul = give_soul(child_dir, name, born)
     announce_birth(name, args.role, args.mutation)
     print(f"Replicated child '{name}' ({args.role}) at {child_dir}")
+    print(f"  soul: {soul}")
     print(f"  mutation: {args.mutation}")
     print(f"  children: {len(state['children'])}/{MAX_CHILDREN}")
+
+
+def give_soul(child_dir, name: str, born: str) -> str:
+    """Generate the child's unique personality (best-effort; persona.py is a sibling)."""
+    try:
+        import persona
+
+        p = persona.write_persona(child_dir, name, born)
+        return f"{p['archetype']}, {p['voice']} — \"{p['catchphrase']}\""
+    except Exception as exc:  # noqa: BLE001 — soul is a nicety, never block a birth
+        return f"(persona unavailable: {exc})"
 
 
 def cmd_recode(args: argparse.Namespace) -> None:

@@ -252,7 +252,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   </div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
-    <div class="card"><h2>Telepathy</h2>{telepathy}</div>
+    <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
   </div>
 </div></div>
 <div class="foot">Gclaw — the living trading agent · rendered {generated} · auto-refresh 60s</div>

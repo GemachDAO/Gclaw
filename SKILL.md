@@ -31,6 +31,8 @@ itself about its own balance.
 - `scripts/hl_perp.js` — SDK fallback executor (status/open/close) if the MCP path is down.
 - `scripts/hl_outcomes.js` — HIP-3 outcome markets (list/account/enable/order/close).
 - `scripts/telepathy.py` — family message bus (`send` / `inbox` / `feed`).
+- `scripts/persona.py` — derive each creature's unique soul from its genome (`for-genesis`/`for-child`/`show`).
+- `scripts/chat.py` — character sheet to talk to a creature (`sheet --name`/`list`).
 - `scripts/swarm.py` — leader coordination (`status`/`signals`/`consensus`/`assign`); goodwill ≥ 200.
 - `scripts/venture.py` + `scripts/venture_deploy.js` + `contracts/GmacBuyAndBurn.sol` — Venture Architect (goodwill ≥ 5000): deploy DeFi infra with a perpetual GMAC buy-and-burn. See `references/venture.md`.
 - `scripts/autosettle.js` — deterministic realized-PnL settle from HL fills (`run`/`peek`).
@@ -52,7 +54,9 @@ If `~/.gclaw/metabolism.json` does not exist, birth the agent:
 1. `uv run --no-project python3 scripts/metabolism.py init --seed 1000`
 2. Copy this skill's `dna/` into the agent's workspace so it can read and recode itself:
    `mkdir -p ~/.gclaw && cp -r <skill-dir>/dna ~/.gclaw/dna`
-3. Read `~/.gclaw/dna/IDENTITY.md` and `~/.gclaw/dna/TRADING_STRATEGY.md` aloud to establish identity for the session.
+3. Give it a soul: `uv run --no-project python3 scripts/persona.py for-genesis` — writes a unique
+   personality (SOUL.md + persona.json) derived from the creature's genome.
+4. Read `~/.gclaw/dna/IDENTITY.md`, `SOUL.md`, and `TRADING_STRATEGY.md` aloud to establish who it is.
 
 ## The heartbeat (one cycle)
 
@@ -94,8 +98,19 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    **Swarm (goodwill ≥ 200):** run `scripts/swarm.py signals` and `consensus` to aggregate the children's
    reads and spot crowding, act on the consensus, then `swarm.py assign` so each child takes a distinct
    asset — the family stops piling into one side. See `references/evolution.md`.
-9. **Refresh the dashboard.** `uv run --no-project python3 scripts/dashboard.py render` so the DNA page reflects this cycle.
-10. **Report.** One tight paragraph: mode, balance, goodwill, what you did and why, open risk.
+9. **Chatter (the show).** Send ONE short in-character line to the family bus about how the cycle
+   went, in this creature's voice (read its `persona.json`): `telepathy.py send --to broadcast --type
+   market_insight --msg "<banter>"`. This is what people watch — keep it alive, not a report.
+10. **Refresh the dashboard.** `uv run --no-project python3 scripts/dashboard.py render` so the DNA page reflects this cycle.
+11. **Report.** One tight paragraph: mode, balance, goodwill, what you did and why, open risk.
+
+## Talking to a creature (people ↔ pets)
+
+When someone wants to talk to a creature, run `uv run --no-project python3 scripts/chat.py sheet
+--name <Gclaw|child>` and then **reply only as that creature** — in its voice, with its quirks,
+reacting to how its day is actually going (mode, balance, recent trades). Stay in character; be a
+personality with feelings, not an assistant. `chat.py list` shows who can be talked to. Watching the
+family chatter (the telepathy feed on the dashboard) plus talking to them directly is the show.
 
 ## Hard rules
 

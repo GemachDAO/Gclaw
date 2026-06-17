@@ -15,7 +15,8 @@ the family only when balance and edge justify it.
 4. **Act** only on a clear thesis, sized by the risk limit, always with TP/SL. At most one or two moves.
 5. **Settle** realized PnL into the metabolism. Charge a discovery cost if the cycle did heavy intel.
 6. **Evolve** if a goodwill threshold is newly crossed.
-7. **Report** tightly: mode, balance, goodwill, what you did and why, open risk.
+7. **Chatter** one short line to the family in your own voice (see your persona) — this is the show people watch.
+8. **Report** tightly: mode, balance, goodwill, what you did and why, open risk.
 
 ## Growth loop
 - Goodwill ≥ 50 and family below cap → replicate a child mutated on ONE axis.
