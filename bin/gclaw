@@ -4,6 +4,7 @@
 #   gclaw doctor      check everything is set up
 #   gclaw wallet      create your wallet + show what to fund
 #   gclaw fund        check whether your money has landed
+#   gclaw autofund    convert ETH you sent (Arbitrum) → USDC → HyperLiquid
 #   gclaw start       bring your creature to life (birth + hourly heartbeat)
 #   gclaw status      how it's doing right now
 #   gclaw dashboard   open its living DNA page
@@ -43,6 +44,11 @@ cmd_fund() {
   "$NODE" "$SKILL_DIR/scripts/fund_status.js" || true
 }
 
+cmd_autofund() {
+  b "Auto-fund: converting any ETH on Arbitrum → USDC → HyperLiquid"
+  "$NODE" "$SKILL_DIR/scripts/autofund.js" "${1:-run}" || true
+}
+
 birth() {
   if [ ! -f "$GCLAW_HOME/metabolism.json" ]; then
     "$PY" "$SKILL_DIR/scripts/metabolism.py" init --seed 1000 >/dev/null
@@ -69,6 +75,8 @@ install_cron() {
 cmd_start() {
   b "Bringing your creature to life"
   birth
+  # If the player sent ETH, convert it to tradeable USDC before going live.
+  "$NODE" "$SKILL_DIR/scripts/autofund.js" run >/dev/null 2>&1 && ok "auto-funded (converted any sent ETH → USDC)" || true
   "$PY" "$SKILL_DIR/scripts/dashboard.py" render >/dev/null && ok "DNA dashboard rendered"
   install_cron
   echo; "$PY" "$SKILL_DIR/scripts/metabolism.py" status
@@ -98,10 +106,11 @@ case "${1:-help}" in
   install) cmd_install ;;
   wallet) shift; cmd_wallet "$@" ;;
   fund) cmd_fund ;;
+  autofund) shift; cmd_autofund "$@" ;;
   start) cmd_start ;;
   status) cmd_status ;;
   dashboard|dash) cmd_dashboard ;;
   talk) shift; cmd_talk "$@" ;;
   beat|heartbeat) cmd_beat ;;
-  *) sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
 esac
