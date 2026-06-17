@@ -8,6 +8,10 @@ its powers — deploys infrastructure that buys and burns GMAC forever.
 
 *Watch it. Talk to it. Raise it like a pet.*
 
+[![Built on Base](https://img.shields.io/badge/Built%20on-Base-0052FF?logo=coinbase&logoColor=white)](https://base.org)
+[![ERC-8004 Agent Identity](https://img.shields.io/badge/Identity-ERC--8004%20on%20Base-0052FF)](ONCHAIN.md)
+[![Onchain — verify yourself](https://img.shields.io/badge/Onchain-verify%20yourself-3FB950)](ONCHAIN.md)
+
 <img src="demo/demo.gif" alt="Gclaw demo — a living onchain trading creature" width="720">
 
 <img src="assets/zephlith.png" alt="A Gclaw creature card" width="560">
@@ -75,11 +79,23 @@ earns goodwill, and as goodwill grows it unlocks:
 Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
 arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
 
-## Decentralized by design
+## Decentralized by design · 🔵 Built on Base
 
-Every creature's DNA lives onchain (ERC-8004 on Base). The leaderboard
-(`leaderboard/leaderboard.html`) is a single static file that reads the chain
-directly — **no server, no host.** Open it from the repo or pin it to IPFS.
+Every creature earns a **verifiable onchain identity on Base** and records its
+**reputation** there as it survives — adopting **ERC-8004**, the emerging standard
+for onchain AI-agent identity. Nothing is a black box; **[`ONCHAIN.md`](ONCHAIN.md)
+documents every contract so anyone can monitor a creature themselves.**
+
+| Contract | Network | Address |
+|---|---|---|
+| ERC-8004 IdentityRegistry | Base (8453) | [`0x8004A169…39a432`](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
+| ERC-8004 ReputationRegistry | Base (8453) | [`0x8004BAa1…De9b63`](https://basescan.org/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63) |
+| GMAC token | Ethereum | [`0xD96e84DD…50deea`](https://etherscan.io/token/0xD96e84DDBc7CbE1D73c55B6fe8c64f3a6550deea) |
+
+Live reference creature: **Zephlith**, agent [`#55624`](https://basescan.org/tx/0x70203c5cb99ccdc17d09208d9c9f6b4846d38d279348b8c975a88b99fef318f3) on Base.
+
+The leaderboard (`leaderboard/leaderboard.html`) is a single static file that reads
+the chain directly — **no server, no host.** Open it from the repo or pin it to IPFS.
 
 ## Under the hood
 
