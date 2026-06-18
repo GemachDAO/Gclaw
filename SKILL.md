@@ -74,6 +74,11 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    `uv run --no-project python3 scripts/telepathy.py inbox` (act on fresh trade_signal/warning).
    Read live exposure via `mcp__gdex__get_hl_clearinghouse_state {userAddress: <managed>}`,
    `get_hl_spot_state`, and `get_hl_open_orders` — the source of truth for positions and free capital.
+   **Capital gauge:** HL keeps ONE unified USDC balance. Free buying power for a new
+   trade is `node scripts/hl_perp.js status` → `buyingPower` (spot USDC `total − hold`),
+   NOT perp `withdrawable`/`accountValue` (those only show margin already committed and
+   read ~$0 even when the account is fully funded). Deposits land in spot; HL pledges
+   margin from it automatically when a perp is opened — there is no spot→perp transfer.
 4. **Reconcile closes (auto).** Run `node scripts/autosettle.js run` — it books realized PnL from any
    closes (TP/SL or manual) by reading HL fills, netting `closedPnl − fee`, and calling `metabolism.py
    settle` exactly once per close (cursor-deduped; safe if the cron already ran it). Don't settle trade

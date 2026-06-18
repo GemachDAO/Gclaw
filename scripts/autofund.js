@@ -58,6 +58,32 @@ async function signIn(skill, wallet) {
   return { apiKey, walletAddress: wallet.control, sessionPrivateKey: kp.sessionPrivateKey };
 }
 
+// Managed-custody EVM swaps require a session-key-signed computedData posted to
+// /v1/purchase_v2 — the plain buyToken() flow is rejected ("missing params").
+async function swapEthToUsdc(skill, creds, swapEth) {
+  const amountWei = ethers.parseEther(swapEth.toFixed(9)).toString();
+  const trade = SDK.buildGdexManagedTradeComputedData({
+    apiKey: creds.apiKey,
+    action: 'purchase',
+    userId: creds.walletAddress,
+    tokenAddress: ARB_USDC,
+    amount: amountWei,
+    nonce: String(Date.now()),
+    sessionPrivateKey: creds.sessionPrivateKey,
+  });
+  const sub = await skill.submitManagedPurchase({ computedData: trade.computedData, chainId: ARB_CHAIN, slippage: SLIPPAGE });
+  const requestId = sub.requestId || sub.jobId || sub?.data?.requestId;
+  if (!requestId) throw new Error(`swap not accepted: ${JSON.stringify(sub)}`);
+  for (let i = 0; i < 18; i += 1) {
+    await sleep(8000);
+    const st = await skill.getManagedTradeStatus(requestId);
+    const state = st.status || 'unknown';
+    if (['completed', 'confirmed', 'success'].includes(state)) return st.hash || st.txHash || 'confirmed';
+    if (state === 'failed') throw new Error(`swap failed: ${JSON.stringify(st)}`);
+  }
+  throw new Error('swap timed out waiting for confirmation');
+}
+
 async function main() {
   const mode = process.argv[2] || 'plan';
   const wallet = loadWallet();
@@ -84,12 +110,10 @@ async function main() {
   const creds = await signIn(skill, wallet);
 
   const before = await usdcBalance(provider, wallet.managed);
-  const swap = await skill.buyToken({ chain: ARB_CHAIN, tokenAddress: ARB_USDC, amount: String(swapEth), slippage: SLIPPAGE, ...creds });
-  if (swap && swap.isSuccess === false) throw new Error(`swap rejected: ${JSON.stringify(swap)}`);
-  summary.swap = 'submitted';
+  summary.swap = await swapEthToUsdc(skill, creds, swapEth);
 
   let after = before;
-  for (let i = 0; i < 12 && after <= before + 0.01; i += 1) {
+  for (let i = 0; i < 6 && after <= before + 0.01; i += 1) {
     await sleep(5000);
     after = await usdcBalance(provider, wallet.managed);
   }

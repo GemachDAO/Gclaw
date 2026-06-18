@@ -194,11 +194,20 @@ async function cmdStatus(wallet) {
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
   const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
   const usdc = (spot.balances || []).find((b) => b.coin === 'USDC');
+  const spotTotal = usdc ? Number(usdc.total) : 0;
+  const spotHold = usdc ? Number(usdc.hold) : 0;
+  const unrealized = (full.positions || []).reduce((s, p) => s + Number(p.unrealizedPnl || 0), 0);
   return {
     ok: true,
     managed: wallet.managed,
-    spotUsdc: usdc ? Number(usdc.total) : 0,
-    accountValue: full.accountValue, // total tradable equity across default + builder dexes
+    // HL uses ONE unified USDC balance: spot `total` is the whole account, `hold`
+    // is the slice already pledged as perp margin. Free collateral for NEW perps
+    // is total - hold — perp `withdrawable` reads ~0 and is NOT the buying power.
+    spotUsdc: spotTotal,
+    spotHold,
+    buyingPower: Math.max(0, spotTotal - spotHold),
+    equity: spotTotal + unrealized, // true account equity for risk sizing
+    accountValue: full.accountValue, // perp-committed margin only (legacy field)
     withdrawable: full.withdrawable,
     positions: full.positions, // includes builder-dex (xyz:*) positions
     openOrders: (orders || []).map((o) => ({ coin: o.coin, px: Number(o.limitPx), sz: Number(o.sz), reduceOnly: !!o.reduceOnly })),

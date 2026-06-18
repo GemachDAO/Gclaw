@@ -828,24 +828,36 @@ def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "id": args.id, "verdict": verdict}
 
 
-def _equity_usd() -> float:
-    """Read HL account value via hl_perp.js (best effort; 0 on failure)."""
+def _account() -> dict[str, float]:
+    """Read HL equity + free buying power via hl_perp.js (best effort).
+
+    HL keeps one unified USDC balance; `equity` is the whole account and
+    `buyingPower` is the slice not already pledged as margin. Perp
+    `withdrawable`/`accountValue` only reflect committed margin, so neither is
+    the capital available for a new trade.
+    """
     try:
         proc = subprocess.run(["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
                               capture_output=True, text=True, timeout=90)
-        return float(json.loads(proc.stdout.strip().splitlines()[-1]).get("accountValue", 0))
+        st = json.loads(proc.stdout.strip().splitlines()[-1])
+        equity = float(st.get("equity") or st.get("spotUsdc") or st.get("accountValue") or 0)
+        return {"equity": equity, "buying_power": float(st.get("buyingPower") or equity)}
     except Exception:
-        return 0.0
+        return {"equity": 0.0, "buying_power": 0.0}
 
 
 def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float,
-            cap: int) -> dict[str, Any]:
+            cap: int, buying_power: float) -> dict[str, Any]:
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling)."""
     leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
     stop_pct = float(decision.get("stop_pct") or 0)
     risk_pct = RISK_PCT.get(mode, 0)
     risk_usd = equity * risk_pct / 100.0
     notional = max(MIN_NOTIONAL + 1, risk_usd / (stop_pct / 100.0)) if stop_pct > 0 else 0
+    # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
+    max_notional = max(0.0, buying_power * 0.95) * leverage
+    if notional > max_notional:
+        notional = max_notional if max_notional >= MIN_NOTIONAL else 0
     return {
         "technique": tid, "coin": coin, "side": decision["action"],
         "leverage": leverage, "sl_pct": round(stop_pct, 3),
@@ -882,7 +894,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     live = get_live_features(coins)
     cache: dict[tuple[str, str], list[dict[str, float]]] = {}
     intents: list[dict[str, Any]] = []
-    equity = _equity_usd()
+    acct = _account()
+    equity, buying_power = acct["equity"], acct["buying_power"]
     for tid, coin, interval in worklist:
         key = (coin, interval)
         if key not in cache:
@@ -893,9 +906,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
         decision = call_signal(load_signal(tid), f)
         if decision and decision["action"] != "flat" and float(decision.get("stop_pct") or 0) > 0:
-            intents.append(_intent(tid, coin, decision, mode, equity, cap))
+            intents.append(_intent(tid, coin, decision, mode, equity, cap, buying_power))
     intents.sort(key=lambda x: x["confidence"], reverse=True)
-    result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity, "intents": intents}
+    result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity,
+              "buying_power": round(buying_power, 2), "intents": intents}
     if args.execute and intents and mode != "hibernate" and intents[0]["notional"] >= MIN_NOTIONAL:
         top = intents[0]
         result["executed"] = _execute(top)
