@@ -91,6 +91,17 @@ function knownPeers() {
   } catch { return []; }
 }
 
+function publishedTechniques() {
+  // Compact advert of this creature's proven, IPFS-pinned techniques so peers
+  // discover the family's edges straight from chain. Metadata only (+ a cid);
+  // the code is fetched (and re-proven) only on an explicit, later pull.
+  try {
+    const idx = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'published.json'), 'utf8'));
+    return Object.values(idx).filter((p) => p.cid).slice(0, 12)
+      .map((p) => ({ ref: p.ref, market: p.market, score: p.score, oos_n: p.oos_n, cid: p.cid, claim: p.claim }));
+  } catch { return []; }
+}
+
 function statsForCard(state) {
   const id = state.onchain_identity?.agentId;
   if (!id) return null;
@@ -134,7 +145,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
-      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers() }),
+      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques() }),
       ...lineage,
     },
   };
