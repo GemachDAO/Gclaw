@@ -134,6 +134,15 @@ async function main() {
     settle(net, `auto-settle: ${fresh.length} fills, ${closes} closes, funding ${summary.fundingPnl}`);
     residual = 0;
     settled = true;
+    // Auto-attribute each closing fill to its technique's author (royalty) — works
+    // regardless of how the trade was opened (forge --execute OR the model via MCP).
+    for (const f of fresh.filter((x) => Number(x.closedPnl || 0) !== 0)) {
+      try {
+        execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'forge.py'),
+          'royalty', '--coin', String(f.coin), '--pnl', String(f.closedPnl), '--auto'],
+        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });
+      } catch { /* attribution is best-effort */ }
+    }
   }
   saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual, lastFundingTime: maxFundingTime });
   summary.settled = settled;

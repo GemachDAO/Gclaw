@@ -121,11 +121,15 @@ function statsForCard(state) {
 }
 
 function agentCard(state, managed, child) {
-  // A stable display name (set once in metabolism.json `name`) is preserved
-  // across every beacon — beaconing must never clobber a custom identity.
+  // Display name (set once in metabolism.json `name`) is preserved across every
+  // beacon. The GENOME is seeded separately from a stable value ('Gclaw' for the
+  // main creature, the child's name for offspring) + born_at, so renaming a
+  // creature never mutates its species/traits — and existing genomes are
+  // unchanged (they were always seeded from 'Gclaw' + born_at).
   const name = child ? child.name : (state.name || 'Gclaw');
   const bornAt = child ? child.born_at : state.born_at || 'genesis';
-  const g = genome(name, bornAt);
+  const genomeSeed = child ? child.name : 'Gclaw';
+  const g = genome(genomeSeed, bornAt);
   const lineage = child
     ? { parentAgentId: state.onchain_identity?.agentId ?? null, role: child.role, mutation: child.mutation }
     : {};

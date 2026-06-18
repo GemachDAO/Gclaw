@@ -771,9 +771,18 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
     """
     pending = load_pending()
     rec = pending.get(args.coin)
+    # Fall back to the adopted technique trading this coin, so trades opened via
+    # MCP (not `run --execute`, which sets pending) still credit the right author.
+    fallback = None
     if not rec and not args.ref:
-        die(f"no pending forge trade on {args.coin} — pass --ref <author>/<id> to attribute manually")
-    ref = (rec or {}).get("ref") or args.ref
+        adopted = next((e for e in load_style().get("adopted", []) if e.get("coin") == args.coin), None)
+        if adopted:
+            fallback, _ = royalty_ref(load_technique(adopted["id"]))
+    ref = (rec or {}).get("ref") or args.ref or fallback
+    if not ref:
+        if getattr(args, "auto", False):
+            return {"ok": True, "attributed": None, "note": f"no technique attributable to {args.coin}"}
+        die(f"no pending or adopted technique on {args.coin} — pass --ref <author>/<id> to attribute manually")
     author = ref.split("/", 1)[0] if "/" in ref else ref
     adopter = agent_id()
     pnl = float(args.pnl)
@@ -1203,6 +1212,7 @@ def build_parser() -> argparse.ArgumentParser:
     ro.add_argument("--coin", required=True)
     ro.add_argument("--pnl", required=True, help="realized PnL in USD (signed)")
     ro.add_argument("--ref", default=None, help="<author>/<id> if no pending trade")
+    ro.add_argument("--auto", action="store_true", help="no-op (don't error) when nothing is attributable")
     ro.set_defaults(fn=cmd_royalty)
 
     rep = sub.add_parser("reputation", help="author reputation from the royalty ledger")
