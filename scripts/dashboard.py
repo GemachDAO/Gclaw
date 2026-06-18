@@ -206,9 +206,15 @@ def onchain_html(state: dict[str, Any]) -> str:
     tx = ident.get("txHash", "")
     url = ident.get("agentUrl") or (f"https://basescan.org/tx/{tx}" if tx else "#")
     reg = (ident.get("registry") or "")[:12]
+    gas = load_json(home() / "gas.json", {})
+    gas_line = ""
+    if gas.get("status"):
+        dot = {"healthy": "🟢", "low": "🟡", "empty": "🔴"}.get(gas["status"], "⚪")
+        gas_line = (f'<div class="muted" style="margin-top:8px">{dot} beacon gas: '
+                    f'{gas.get("baseEth", 0):.5f} Base ETH · ~{gas.get("beaconRunway", 0)} beacons</div>')
     return (f'<div class="idrow"><span class="pill">ERC-8004</span> agent <b>#{aid}</b> '
             f'on {ident.get("chain", "base:8453")}</div>'
-            f'<div class="muted" style="margin-top:8px">registry {reg}…</div>'
+            f'<div class="muted" style="margin-top:8px">registry {reg}…</div>{gas_line}'
             f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>')
 
 
@@ -402,6 +408,12 @@ def cmd_render(args: argparse.Namespace) -> None:
         for step in (["stats.js", "publish"], ["erc8004_register.js", "beacon"]):
             subprocess.run(["node", str(SCRIPT_DIR / step[0]), *step[1:]],
                            capture_output=True, text=True, timeout=80)
+        try:
+            gp = subprocess.run(["node", str(SCRIPT_DIR / "gas.js"), "check"],
+                                capture_output=True, text=True, timeout=30)
+            (h / "gas.json").write_text(gp.stdout.strip(), encoding="utf-8")
+        except (OSError, subprocess.SubprocessError):
+            pass
         refresh_roster(h)
         refresh_leaderboard(h)
     journal = read_jsonl(h / "journal.jsonl")
