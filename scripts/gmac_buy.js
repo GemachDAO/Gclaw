@@ -94,17 +94,22 @@ async function main() {
   if (mode === 'buy') {
     if (!plan.safe) throw new Error('refusing to buy: token failed safety gate');
     if (usd <= 0) throw new Error('nothing to spend (treasury empty; --usd 0)');
+    // GMAC liquidity is the Ethereum GMAC/WETH pool, so the managed buy spends
+    // native ETH. Convert the USD budget to an ETH amount; buyToken routes EVM +
+    // sessionPrivateKey through the session-signed purchase_v2 flow.
+    const ethPrice = await skill.getHlMarkPrice('ETH').catch(() => 0);
+    if (!ethPrice) throw new Error('could not fetch ETH price for USD→ETH conversion');
+    const ethAmount = (usd / ethPrice).toFixed(8);
     const creds = await signIn(skill, wallet);
-    // amount semantics are venue-specific; managed buy spends `amount` of quote into the token.
     const res = await skill.buyToken({
       chain: ETH_CHAIN,
       tokenAddress: GMAC,
-      amount: String(usd),
+      amount: ethAmount,
       slippage: SLIPPAGE,
       dex: info.dex,
       ...creds,
     });
-    console.log(JSON.stringify({ ok: res?.isSuccess !== false, result: res, ...plan }));
+    console.log(JSON.stringify({ ok: res?.isSuccess !== false, spendEth: ethAmount, ethPrice, result: res, ...plan }));
     return;
   }
   throw new Error('usage: gmac_buy.js <plan|buy> [--usd N]');
