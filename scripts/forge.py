@@ -46,6 +46,16 @@ LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
 RISK_PCT = {"thrive": 5, "survive": 2, "hibernate": 0}
 MIN_NOTIONAL = 11
 
+# Default markets each adopted technique is scanned across every run: majors on
+# the default dex plus the deepest HIP-3 stock/commodity perps on the `xyz`
+# builder dex (USDC-collateralized, 24h). A technique auto-executes only on the
+# market it was proven on; signals on the rest are surfaced as exploration for
+# the heartbeat's judgment (and as candidates to prove next). Override --coins.
+SCAN_UNIVERSE = (
+    "BTC", "ETH", "SOL",
+    "xyz:NVDA", "xyz:TSLA", "xyz:SPCX", "xyz:AAPL", "xyz:AMZN", "xyz:GOLD",
+)
+
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
 IS_FRACTION = 0.6
@@ -876,7 +886,10 @@ def _worklist(adopted: list[dict[str, Any]], args: argparse.Namespace) -> list[t
     if args.coins:
         coins = [c.strip() for c in args.coins.split(",") if c.strip()]
         return [(e["id"], coin, args.interval) for e in adopted for coin in coins]
-    return [(e["id"], e["coin"], e["interval"]) for e in adopted]
+    # Scan each technique across its proven market first, then the wider universe.
+    return [(e["id"], coin, e["interval"])
+            for e in adopted
+            for coin in dict.fromkeys([e["coin"], *SCAN_UNIVERSE])]
 
 
 def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
@@ -890,6 +903,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
                 "note": "no adopted techniques"}
     # Each adopted technique runs on its own proven (coin, interval) unless overridden.
     worklist = _worklist(style["adopted"], args)
+    proven_coin = {e["id"]: e["coin"] for e in style["adopted"]}
     coins = sorted({coin for _, coin, _ in worklist})
     live = get_live_features(coins)
     cache: dict[tuple[str, str], list[dict[str, float]]] = {}
@@ -906,12 +920,17 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
         decision = call_signal(load_signal(tid), f)
         if decision and decision["action"] != "flat" and float(decision.get("stop_pct") or 0) > 0:
-            intents.append(_intent(tid, coin, decision, mode, equity, cap, buying_power))
+            intent = _intent(tid, coin, decision, mode, equity, cap, buying_power)
+            intent["proven"] = coin == proven_coin.get(tid)
+            intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity,
               "buying_power": round(buying_power, 2), "intents": intents}
-    if args.execute and intents and mode != "hibernate" and intents[0]["notional"] >= MIN_NOTIONAL:
-        top = intents[0]
+    # Auto-execute only a signal on its proven market; cross-market signals are
+    # surfaced as exploration for the heartbeat to act on (or prove next).
+    proven = [i for i in intents if i["proven"] and i["notional"] >= MIN_NOTIONAL]
+    if args.execute and proven and mode != "hibernate":
+        top = proven[0]
         result["executed"] = _execute(top)
         if result["executed"].get("ok"):
             ref, _ = royalty_ref(load_technique(top["technique"]))
@@ -920,7 +939,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute:
-        result["executed"] = {"skipped": "hibernate, no intent, or below min notional"}
+        result["executed"] = {"skipped": "no proven-market signal (exploration intents not auto-traded)"}
     return result
 
 

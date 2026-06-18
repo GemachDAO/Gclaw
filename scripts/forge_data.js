@@ -59,10 +59,26 @@ async function candles(coin, interval, limit) {
   }));
 }
 
-async function features(coins) {
-  const [meta, ctxs] = await info({ type: 'metaAndAssetCtxs' });
+// Coins are bare on the default dex (BTC) and dex-prefixed on builder dexes
+// (xyz:SPCX). Builder-dex contexts live under a per-dex metaAndAssetCtxs query,
+// so fetch the default plus every referenced dex and merge by name.
+async function loadContexts(coins) {
+  const dexes = new Set(['']);
+  for (const coin of coins) {
+    const i = coin.indexOf(':');
+    if (i !== -1) dexes.add(coin.slice(0, i));
+  }
   const byName = new Map();
-  meta.universe.forEach((u, i) => byName.set(u.name, ctxs[i]));
+  for (const dex of dexes) {
+    const body = dex ? { type: 'metaAndAssetCtxs', dex } : { type: 'metaAndAssetCtxs' };
+    const [meta, ctxs] = await info(body);
+    meta.universe.forEach((u, i) => byName.set(u.name, ctxs[i]));
+  }
+  return byName;
+}
+
+async function features(coins) {
+  const byName = await loadContexts(coins);
   const out = {};
   for (const coin of coins) {
     const c = byName.get(coin);

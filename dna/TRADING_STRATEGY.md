@@ -16,6 +16,12 @@ GMAC with real realized profit, then grow it without ever risking extinction.
 
 No memecoins. No unlisted low-liquidity tokens. Liquidity and a legible thesis gate every name.
 
+The technique forge scans this whole universe every heartbeat — majors plus the deepest
+`xyz` stock/commodity perps (SpaceX `xyz:SPCX`, `xyz:NVDA`, `xyz:TSLA`, `xyz:AAPL`, gold, …).
+It auto-trades a technique only on the market it was *proven* on; signals on other markets are
+surfaced as **exploration** — act on the strongest with judgment, or draft+prove a technique
+there to earn the right to auto-trade it. Don't tunnel on BTC/ETH/SOL: stocks move too.
+
 ## Risk controls (hard limits)
 - **Max risk per trade:** 5% of current GMAC balance. In SURVIVE mode, 2%.
 - **Max leverage is EARNED, gated by goodwill** (won from profitable trades). The cap rises as the
