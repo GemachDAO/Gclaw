@@ -292,6 +292,54 @@ def techniques_html() -> str:
     return f'<ul class="events">{"".join(items)}</ul>'
 
 
+def refresh_qr(h: Path) -> None:
+    """Generate funding QR SVGs (idempotent) for the trading + gas wallets."""
+    pos = load_json(h / "positions.json", {})
+    gas = load_json(h / "gas.json", {})
+    targets = []
+    if pos.get("managed"):
+        targets.append((pos["managed"], "42161", h / "qr" / "topup.svg"))
+    if gas.get("control"):
+        targets.append((gas["control"], "8453", h / "qr" / "gas.svg"))
+    for addr, chain, out in targets:
+        if out.exists() and out.stat().st_size > 0:
+            continue  # fixed address → fixed QR; generate once
+        try:
+            subprocess.run(["uv", "run", "--no-project", "--with", "qrcode", "python3",
+                            str(SCRIPT_DIR / "qr.py"), addr, chain, str(out)],
+                           capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def _svg_inline(p: Path) -> str:
+    try:
+        s = p.read_text(encoding="utf-8")
+        return s[s.index("<svg"):]  # drop the xml declaration for inline embedding
+    except (OSError, ValueError):
+        return ""
+
+
+def topup_html(h: Path) -> str:
+    pos = load_json(h / "positions.json", {})
+    gas = load_json(h / "gas.json", {})
+    rows = [
+        (pos.get("managed"), h / "qr" / "topup.svg", "Fund trading · Arbitrum",
+         "Scan &amp; send ETH — auto-swaps to USDC and trades."),
+        (gas.get("control"), h / "qr" / "gas.svg", "Top up gas · Base",
+         "Scan &amp; send a little ETH for onchain beacons."),
+    ]
+    blocks = []
+    for addr, svg, label, note in rows:
+        if not addr:
+            continue
+        blocks.append(f'<div class="qrcard"><div class="qr">{_svg_inline(svg)}</div>'
+                      f'<div><div class="qlabel">{label}</div>'
+                      f'<div class="addr">{addr}</div>'
+                      f'<div class="muted">{note}</div></div></div>')
+    return "".join(blocks) or '<p class="muted">Wallet addresses unavailable.</p>'
+
+
 def refresh_roster(h: Path) -> None:
     """Best-effort: cache the onchain family roster (peers.js) for the page."""
     try:
@@ -388,6 +436,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         positions=positions_html(home()),
         roster=roster_html(home()),
         leaderboard=leaderboard_html(home()),
+        topup=topup_html(home()),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -415,6 +464,7 @@ def cmd_render(args: argparse.Namespace) -> None:
         except (OSError, subprocess.SubprocessError):
             pass
         refresh_roster(h)
+        refresh_qr(h)
         refresh_leaderboard(h)
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
@@ -461,6 +511,11 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:#7CFFB2;font-size:15px}}.lev.locked{{opacity:.5}}
 .link{{display:inline-block;margin-top:10px;color:#9db4ff;text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
 .decent h2{{color:#7CFFB2}}
+.topup{{display:flex;gap:22px;flex-wrap:wrap}}
+.qrcard{{display:flex;gap:14px;align-items:center}}
+.qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
+.qlabel{{color:#7CFFB2;font-size:13px;margin-bottom:4px}}
+.addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
 @media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}}}
 </style></head><body><div class="wrap">
 <div class="card hero">
@@ -488,6 +543,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card decent"><h2>👥 Family roster · onchain (Base)</h2>{roster}</div>
     <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
   </div>
+  <div class="card decent" style="margin-top:18px"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
     <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
