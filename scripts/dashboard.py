@@ -405,8 +405,11 @@ def leaderboard_html(h: Path) -> str:
 
 
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
-    name = "Gclaw"
-    g = genome(name, state.get("born_at", "genesis"))
+    # Lead with the creature's own name (defaults to its unique species, not the
+    # generic 'Gclaw' template). Genome stays seeded from a stable value so the
+    # name never mutates the species/traits.
+    g = genome("Gclaw", state.get("born_at", "genesis"))
+    name = state.get("name") or g["species"]
     mode = state.get("mode", "unknown").upper()
     mode_hue = {"THRIVE": 140, "SURVIVE": 40, "HIBERNATE": 220}.get(mode, 200)
     gmac = state.get("gmac_balance", 0)

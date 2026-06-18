@@ -126,10 +126,12 @@ function agentCard(state, managed, child) {
   // main creature, the child's name for offspring) + born_at, so renaming a
   // creature never mutates its species/traits — and existing genomes are
   // unchanged (they were always seeded from 'Gclaw' + born_at).
-  const name = child ? child.name : (state.name || 'Gclaw');
   const bornAt = child ? child.born_at : state.born_at || 'genesis';
   const genomeSeed = child ? child.name : 'Gclaw';
   const g = genome(genomeSeed, bornAt);
+  // Lead with the creature's own name: a custom `name` if set, else its unique
+  // species (Zephlith, Lyxmire, …) — never the generic 'Gclaw' template.
+  const name = child ? child.name : (state.name || g.species);
   const lineage = child
     ? { parentAgentId: state.onchain_identity?.agentId ?? null, role: child.role, mutation: child.mutation }
     : {};
