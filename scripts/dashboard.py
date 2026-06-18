@@ -109,6 +109,32 @@ def gauge(label: str, value: float, maximum: float, hue: int) -> str:
     )
 
 
+def identity_svg(g: dict[str, Any], name: str, mode: str) -> str:
+    """Standalone DNA identity card — the deterministic avatar pinned to IPFS."""
+    c1 = f"hsl({g['hue1']},75%,60%)"
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 470" width="400" height="470">'
+        '<rect width="400" height="470" rx="24" fill="#0a0e14"/>'
+        f'<text x="200" y="46" text-anchor="middle" fill="{c1}" font-family="monospace" '
+        f'font-size="13" letter-spacing="3">{g["species"].upper()}</text>'
+        f'<text x="200" y="82" text-anchor="middle" fill="#e8eef6" font-family="monospace" '
+        f'font-size="26">{g["sigil"]} {name}</text>'
+        f'<g transform="translate(90,108)">{helix_svg(g)}</g>'
+        f'<text x="200" y="446" text-anchor="middle" fill="#5b6b7f" font-family="monospace" '
+        f'font-size="11">genome {g["fingerprint"]} · {mode}</text></svg>'
+    )
+
+
+def pin_dna_image(h: Path, g: dict[str, Any], name: str, mode: str) -> None:
+    """Write the standalone DNA avatar and pin it to IPFS (idempotent)."""
+    try:
+        (h / "identity.svg").write_text(identity_svg(g, name, mode), encoding="utf-8")
+        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "pin-image"],
+                       capture_output=True, text=True, timeout=40)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def trait_bars(g: dict[str, Any]) -> str:
     rows = []
     for name, val in g["stats"].items():
@@ -370,6 +396,8 @@ def cmd_render(args: argparse.Namespace) -> None:
     if not getattr(args, "no_live", False):
         refresh_positions(h)
         refresh_roster(h)
+        g = genome("Gclaw", state.get("born_at", "genesis"))
+        pin_dna_image(h, g, "Gclaw", state.get("mode", "unknown").upper())
         subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "publish"],
                        capture_output=True, text=True, timeout=80)
         refresh_leaderboard(h)

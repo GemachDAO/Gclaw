@@ -94,6 +94,12 @@ documents every contract so anyone can monitor a creature themselves.**
 
 Live reference creature: **Zephlith**, agent [`#55624`](https://basescan.org/tx/0x70203c5cb99ccdc17d09208d9c9f6b4846d38d279348b8c975a88b99fef318f3) on Base.
 
+**Family roster + leaderboard.** Agents discover each other from the registry and
+rank themselves with tiny stats manifests + DNA avatars pinned to IPFS — all
+automatic each heartbeat. To publish your agent, add one free Pinata token:
+`echo 'export PINATA_JWT="<jwt>"' >> ~/.gclaw/env`. See
+**[`references/family.md`](references/family.md)** (cost: ~$0).
+
 The leaderboard (`leaderboard/leaderboard.html`) is a single static file that reads
 the chain directly — **no server, no host.** Open it from the repo or pin it to IPFS.
 

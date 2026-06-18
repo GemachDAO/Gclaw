@@ -21,9 +21,11 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const STATS_DIR = path.join(GCLAW_HOME, 'stats');
+const IMAGE_PATH = path.join(GCLAW_HOME, 'identity_image.json');
 const PEERS_PATH = path.join(GCLAW_HOME, 'peers.json');
 const SKILL_DIR = path.join(os.homedir(), '.claude', 'skills', 'gclaw', 'scripts');
 const GATEWAY = process.env.IPFS_GATEWAY || 'https://ipfs.io/ipfs/';
@@ -46,10 +48,12 @@ function buildManifest() {
   const status = nodeRun('hl_perp.js', ['status']) || {};
   const loadout = readJson(path.join(GCLAW_HOME, 'forge', 'style.json'), {});
   const techniques = (loadout.adopted || []).map((a) => `${a.id}@${a.coin}`);
+  const img = readJson(IMAGE_PATH, {});
   return {
     agentId: id,
     name: me.name || meta.onchain_identity?.name || 'Gclaw',
     owner: me.owner || null,
+    image: img.ipfs || me.image || null,
     mode: meta.mode || 'unknown',
     gmac: round(meta.gmac_balance),
     goodwill: meta.goodwill || 0,
@@ -91,6 +95,29 @@ async function cmdPublish() {
   return { ok: true, manifest, cid, gateway: cid ? GATEWAY + cid : null };
 }
 
+// Pin the agent's deterministic DNA image to IPFS once (idempotent by content
+// hash) so its onchain-style identity has a real, decentralized avatar.
+async function cmdPinImage() {
+  const svgPath = path.join(GCLAW_HOME, 'identity.svg');
+  if (!fs.existsSync(svgPath)) return { ok: false, error: 'no identity.svg (render the dashboard first)' };
+  const svg = fs.readFileSync(svgPath);
+  const fingerprint = crypto.createHash('sha256').update(svg).digest('hex').slice(0, 16);
+  const cached = readJson(IMAGE_PATH, null);
+  if (cached && cached.fingerprint === fingerprint && cached.cid) return { ok: true, ...cached, cached: true };
+  const jwt = process.env.PINATA_JWT;
+  if (!jwt) return { ok: false, error: 'PINATA_JWT not set' };
+  const form = new FormData();
+  form.append('file', new Blob([svg], { type: 'image/svg+xml' }), 'identity.svg');
+  const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    method: 'POST', headers: { authorization: `Bearer ${jwt}` }, body: form,
+  });
+  if (!res.ok) return { ok: false, error: `pin failed: ${res.status} ${(await res.text()).slice(0, 120)}` };
+  const cid = (await res.json()).IpfsHash;
+  const out = { cid, ipfs: `ipfs://${cid}`, gateway: GATEWAY + cid, fingerprint };
+  fs.writeFileSync(IMAGE_PATH, JSON.stringify(out, null, 2) + '\n');
+  return { ok: true, ...out };
+}
+
 async function cmdFetch() {
   fs.mkdirSync(STATS_DIR, { recursive: true });
   const peers = readJson(PEERS_PATH, {});
@@ -127,9 +154,10 @@ async function main() {
   const cmd = process.argv[2] || 'leaderboard';
   let out;
   if (cmd === 'publish') out = await cmdPublish();
+  else if (cmd === 'pin-image') out = await cmdPinImage();
   else if (cmd === 'fetch') out = await cmdFetch();
   else if (cmd === 'leaderboard') out = cmdLeaderboard();
-  else out = { ok: false, error: `unknown command '${cmd}'. Use: publish | fetch | leaderboard` };
+  else out = { ok: false, error: `unknown command '${cmd}'. Use: publish | pin-image | fetch | leaderboard` };
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
 
