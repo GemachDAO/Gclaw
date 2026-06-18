@@ -15,7 +15,10 @@ the family only when balance and edge justify it.
    USDC balance; buyingPower = spot `total − hold`). The MCP clearinghouse `accountValue` /
    `withdrawable` is only margin already committed — it reads ~$0 even when fully funded, so
    NEVER treat it as free capital. If `buyingPower` ≥ the min notional, you have money to trade.
-3. **Read the tape**: `get_hl_meta_and_asset_ctxs` (mark, funding, OI). For events: `hl_outcomes`.
+3. **Read the tape**: `get_hl_meta_and_asset_ctxs` (mark, funding, OI) — but this covers only the
+   DEFAULT dex. For the 24/7 `xyz` stock/commodity perps use `node scripts/forge_data.js features
+   --coins xyz:SPCX,xyz:NVDA,xyz:TSLA` — a 0 from the default tools is NOT a closed market. For
+   events: `hl_outcomes`.
 4. **Act** only on a clear thesis, sized by the risk limit and free `buyingPower`, always with TP/SL. At most one or two moves.
 5. **Settle** realized PnL into the metabolism. Charge a discovery cost if the cycle did heavy intel.
 6. **Evolve** if a goodwill threshold is newly crossed.
