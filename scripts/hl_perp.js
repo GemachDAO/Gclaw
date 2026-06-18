@@ -292,11 +292,24 @@ async function cmdClose(wallet, args) {
   return { ok: true, action: 'close', coin, closedSize: Math.abs(szi), mark: px };
 }
 
+async function cmdCancel(wallet, args) {
+  // Cancel ONE resting order by id — the SDK managed cancel works where the MCP
+  // cancel_perp_order returns Unauthorized. Deliberately requires an explicit
+  // --oid: cancelling by any heuristic risks removing the stop and leaving the
+  // position naked (learned the hard way). Read oids from `status`/open orders.
+  const coin = normalizeCoin(args.coin || 'ETH');
+  if (!args.oid) die('cancel requires --oid <orderId> (never cancel by heuristic — it can drop your stop)');
+  const { skill, creds } = await signedSkill(wallet);
+  const r = await skill.hlCancelOrder({ coin, orderId: String(args.oid), ...creds });
+  if (r && r.isSuccess === false) die(`cancel rejected: ${JSON.stringify(r)}`);
+  return { ok: true, action: 'cancel', coin, oid: String(args.oid) };
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
   const wallet = loadWallet();
-  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose };
+  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel };
   const handler = handlers[cmd];
   if (!handler) die(`unknown command '${cmd}'. Use: status | open | close`);
   const result = await handler(wallet, args);
