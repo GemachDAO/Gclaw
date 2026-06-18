@@ -52,6 +52,18 @@ async function fetchFills(address) {
   return Array.isArray(h) ? h : h.data || h.fills || h.history || [];
 }
 
+// Perp funding (longs pay shorts hourly) is realized PnL too, but never appears
+// as a fill — pull it from HL's public ledger so the books don't drift.
+async function fetchFunding(address, startTime) {
+  const res = await fetch('https://api.hyperliquid.xyz/info', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'userFunding', user: address, startTime: Math.max(0, startTime || 0) }),
+  });
+  if (!res.ok) return [];
+  const rows = await res.json();
+  return (Array.isArray(rows) ? rows : []).map((x) => ({ time: x.time, usdc: Number(x.delta?.usdc || 0) }));
+}
+
 function selectNew(fills, cursor) {
   const seen = new Set(cursor.lastTids);
   return fills.filter((f) => f.time > cursor.lastTime || (f.time === cursor.lastTime && !seen.has(f.tid)));
@@ -73,23 +85,29 @@ async function main() {
   if (!['run', 'peek'].includes(mode)) throw new Error('usage: autosettle.js <run|peek>');
   const firstRun = !fs.existsSync(CURSOR_PATH);
   const cursor = loadCursor();
-  const fills = await fetchFills(managedAddress());
+  const address = managedAddress();
+  const fills = await fetchFills(address);
+  const funding = await fetchFunding(address, firstRun ? 0 : cursor.lastFundingTime || 0);
 
-  // First ever run: baseline the cursor to the latest existing fill and settle
-  // nothing — pre-baseline history (other sessions, old test trades) must not count.
+  // First ever run: baseline the cursors to the latest existing fill/funding and
+  // settle nothing — pre-baseline history must not count.
   if (firstRun && mode === 'run' && fills.length) {
     const maxTime = Math.max(...fills.map((f) => f.time));
-    saveCursor({ lastTime: maxTime, lastTids: fills.filter((f) => f.time === maxTime).map((f) => f.tid), residual: 0 });
+    const maxFunding = funding.length ? Math.max(...funding.map((x) => x.time)) : 0;
+    saveCursor({ lastTime: maxTime, lastTids: fills.filter((f) => f.time === maxTime).map((f) => f.tid), residual: 0, lastFundingTime: maxFunding });
     process.stdout.write(JSON.stringify({ ok: true, initialized: true, baselineFills: fills.length, settled: false }) + '\n');
     return;
   }
 
   const fresh = selectNew(fills, cursor);
+  const freshFunding = funding.filter((x) => x.time > (cursor.lastFundingTime || 0));
 
   const closedPnl = fresh.reduce((s, f) => s + Number(f.closedPnl || 0), 0);
   const fees = fresh.reduce((s, f) => s + Number(f.fee || 0), 0);
-  const net = Math.round((closedPnl - fees + (cursor.residual || 0)) * 1e6) / 1e6;
+  const fundingPnl = freshFunding.reduce((s, x) => s + x.usdc, 0);
+  const net = Math.round((closedPnl - fees + fundingPnl + (cursor.residual || 0)) * 1e6) / 1e6;
   const closes = fresh.filter((f) => Number(f.closedPnl || 0) !== 0).length;
+  const maxFundingTime = freshFunding.reduce((m, x) => Math.max(m, x.time), cursor.lastFundingTime || 0);
 
   const summary = {
     ok: true,
@@ -97,26 +115,27 @@ async function main() {
     closes,
     closedPnl: Math.round(closedPnl * 1e6) / 1e6,
     fees: Math.round(fees * 1e6) / 1e6,
+    fundingPnl: Math.round(fundingPnl * 1e6) / 1e6,
     netRealizedUsd: net,
   };
 
-  if (mode === 'peek' || fresh.length === 0) {
+  if (mode === 'peek' || (fresh.length === 0 && freshFunding.length === 0)) {
     summary.settled = false;
     process.stdout.write(JSON.stringify(summary) + '\n');
     return;
   }
 
-  // advance time cursor over all consumed fills
-  const maxTime = Math.max(cursor.lastTime, ...fresh.map((f) => f.time));
+  // advance time cursors over all consumed fills + funding
+  const maxTime = Math.max(cursor.lastTime, ...(fresh.length ? fresh.map((f) => f.time) : [cursor.lastTime]));
   const tidsAtMax = fills.filter((f) => f.time === maxTime).map((f) => f.tid);
   let residual = net;
   let settled = false;
   if (Math.abs(net) >= DUST) {
-    settle(net, `auto-settle: ${fresh.length} fills, ${closes} closes`);
+    settle(net, `auto-settle: ${fresh.length} fills, ${closes} closes, funding ${summary.fundingPnl}`);
     residual = 0;
     settled = true;
   }
-  saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual });
+  saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual, lastFundingTime: maxFundingTime });
   summary.settled = settled;
   summary.carriedResidual = residual;
   process.stdout.write(JSON.stringify(summary) + '\n');

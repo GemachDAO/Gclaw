@@ -28,8 +28,9 @@ h1{margin:0;font-size:26px;letter-spacing:.5px}
 .trait b{text-align:right}
 .tbar{height:7px;background:#0c1322;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
 .pill{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-top:6px}
-.stats{display:flex;gap:12px;margin:4px 0 8px;font-family:ui-monospace,monospace;font-size:13px;color:#cdd8f0}
+.stats{display:flex;gap:12px;margin:4px 0 8px;font-family:ui-monospace,monospace;font-size:13px;color:#cdd8f0;flex-wrap:wrap}
 .stats span{white-space:nowrap}
+.ver{color:#7CFFB2;border:1px solid #1f6b46;border-radius:6px;padding:0 6px}
 .muted{color:var(--muted);font-size:12px}
 .foot{max-width:1080px;margin:22px auto 0;color:var(--muted);font-size:12px;text-align:center}
 input{background:#0c1322;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;width:240px}
@@ -113,19 +114,22 @@ function traitBars(traits, fp){
 }
 
 function score(g){
-  // Rank by the live onchain trading beacon when present; fall back to genome.
+  // Rank by VERIFIED HyperLiquid equity first (independently checkable, not
+  // spoofable). Fall back to the onchain beacon, then the genome.
+  if(g.verifiedEquity!=null) return 1e9 + g.verifiedEquity;   // verified outranks unverified
   if(g.stats && g.stats.score!=null) return Number(g.stats.score);
   return (g.goodwill||0)*1000 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0);
 }
 
 function statsRow(g){
-  const s = g.stats; if(!s) return '<div class="muted">no trading beacon yet</div>';
   const money = v => (v==null?"—":(typeof v==="number"?v:Number(v)).toLocaleString());
-  return `<div class="stats">
-    <span title="goodwill — earned only from winning trades">⭐ ${s.goodwill??0}</span>
-    <span title="GMAC life energy">🜂 ${money(s.gmac)}</span>
-    <span title="HyperLiquid equity">💵 $${money(s.equityUsd)}</span>
-  </div>`;
+  const verified = g.verifiedEquity!=null
+    ? `<span class="ver" title="read live from HyperLiquid — independently verifiable">✓ $${g.verifiedEquity.toLocaleString()} verified</span>` : "";
+  const s = g.stats;
+  if(!s && !verified) return '<div class="muted">no trading beacon yet</div>';
+  const self = s ? `<span title="self-reported goodwill (winning trades)">⭐ ${s.goodwill??0}</span>
+    <span title="GMAC life energy">🜂 ${money(s.gmac)}</span>` : "";
+  return `<div class="stats">${verified}${self}</div>`;
 }
 
 function render(creatures){
@@ -148,12 +152,29 @@ function render(creatures){
   }).join("");
 }
 
+// Independently verify a creature's standings: read its managed wallet's REAL
+// equity straight from HyperLiquid's public API. Self-reported beacon stats are
+// gameable; this is the trust-minimized number anyone can check.
+async function verifyHlEquity(wallet){
+  if(!wallet) return null;
+  try{
+    const r = await fetch("https://api.hyperliquid.xyz/info", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({type:"spotClearinghouseState", user:wallet})});
+    const j = await r.json();
+    const usdc = (j.balances||[]).find(b=>b.coin==="USDC");
+    return usdc ? Number(usdc.total) : null;
+  }catch(e){ return null; }
+}
+
 async function loadAgent(id){
   const hex = await ethCall(REGISTRY, TOKEN_URI_SELECTOR + pad32(id));
   const uri = decodeString(hex);
   const card = cardFromUri(uri);
   if(!card || !card["x-gclaw"]) return null;       // not a Gclaw creature
-  return { id, name: card.name, g: card["x-gclaw"] };
+  const g = card["x-gclaw"];
+  g.verifiedEquity = await verifyHlEquity(g.managedHlWallet);
+  return { id, name: card.name, g };
 }
 
 async function main(){

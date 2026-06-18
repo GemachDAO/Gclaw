@@ -110,7 +110,9 @@ function statsForCard(state) {
 }
 
 function agentCard(state, managed, child) {
-  const name = child ? child.name : 'Gclaw';
+  // A stable display name (set once in metabolism.json `name`) is preserved
+  // across every beacon — beaconing must never clobber a custom identity.
+  const name = child ? child.name : (state.name || 'Gclaw');
   const bornAt = child ? child.born_at : state.born_at || 'genesis';
   const g = genome(name, bornAt);
   const lineage = child
