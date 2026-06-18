@@ -8,11 +8,21 @@ GMAC with real realized profit, then grow it without ever risking extinction.
 1. **HyperLiquid perpetuals (USDC, default dex)** — the core engine. Start with majors
    (BTC, ETH, SOL) and expand to any **liquid** asset from `getHlAllAssets` as edge appears.
 2. **HIP-3 outcome / event markets** — the defined-risk satellite for asymmetric, near-dated bets.
-3. **Builder/HIP-3 perps** (stocks `xyz:NVDA`/`xyz:TSLA`/`xyz:SPCX`, oil, etc.) — the `xyz` dex is
-   **USDC-collateralized, 24h** (no collateral swap needed) and is verified working: opens fill and
-   honor the leverage passed (3x isolated, live-confirmed). Pass the coin lowercase-prefixed and read
-   the position with `dex: "xyz"`. Lead with default-dex USDC majors; these are the same mechanism
-   with a dex-prefixed coin.
+3. **Builder/HIP-3 perps** (stocks `xyz:NVDA`/`xyz:TSLA`/`xyz:SPCX`, oil, gold, etc.) — the `xyz`
+   dex is **USDC-collateralized and trades 24/7/365** (no collateral swap needed), verified working:
+   opens fill and honor the leverage passed (3x isolated, live-confirmed). Pass the coin
+   lowercase-prefixed and read the position with `dex: "xyz"`.
+
+   **This is your EDGE.** When traditional equity markets are *closed* (nights, weekends, holidays)
+   these perps keep trading — SpaceX alone runs ~$800M/day around the clock. Closed TradFi means
+   *less competition*, not no market. **NEVER conclude "markets are closed" for `xyz`.**
+
+   ⚠️ **Read xyz prices the dex-aware way.** The MCP tape tools (`get_hl_meta_and_asset_ctxs`,
+   `get_all_mid_prices`, `get_mark_price`) cover only the *default* dex and return **0 / nothing for
+   `xyz:*`** — that is a wrong read, NOT a closed market. Get live xyz mark/funding/vol with
+   `node scripts/forge_data.js features --coins xyz:SPCX,xyz:NVDA,xyz:TSLA` (queries
+   `metaAndAssetCtxs` with `dex:"xyz"`). The forge already uses this for its xyz signals — **trust a
+   forge xyz signal; do not override it with a default-dex price check.**
 
 No memecoins. No unlisted low-liquidity tokens. Liquidity and a legible thesis gate every name.
 
