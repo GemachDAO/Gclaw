@@ -60,9 +60,13 @@ cd "$HOME"
 # could carry a prompt-injection payload. Deny every tool that can move funds to
 # an arbitrary destination — legit funding is done by deterministic scripts
 # (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
-DENY="mcp__gdex__transfer_native,mcp__gdex__transfer_token,mcp__gdex__execute_bridge,mcp__gdex__perp_withdraw,mcp__gdex__hl_swap_collateral,mcp__gdex__managed_sell,mcp__gdex__sell_token"
-if timeout 600 claude --print --permission-mode bypassPermissions --model "$MODEL" \
-    --disallowedTools "$DENY" "$PROMPT" >>"$LOG" 2>&1; then
+# --disallowedTools is variadic (space-separated) and would consume a positional
+# prompt — so the deny-list goes LAST (unquoted for word-split) and the prompt is
+# piped via stdin.
+# shellcheck disable=SC2086  # intentional word-split: --disallowedTools is variadic
+DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token"
+if printf '%s' "$PROMPT" | timeout 600 claude --print --permission-mode bypassPermissions \
+    --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
   echo "===== $(ts) heartbeat ok =====" >>"$LOG"
 else
   echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
