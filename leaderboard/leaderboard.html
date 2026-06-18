@@ -28,6 +28,8 @@ h1{margin:0;font-size:26px;letter-spacing:.5px}
 .trait b{text-align:right}
 .tbar{height:7px;background:#0c1322;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
 .pill{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-top:6px}
+.stats{display:flex;gap:12px;margin:4px 0 8px;font-family:ui-monospace,monospace;font-size:13px;color:#cdd8f0}
+.stats span{white-space:nowrap}
 .muted{color:var(--muted);font-size:12px}
 .foot{max-width:1080px;margin:22px auto 0;color:var(--muted);font-size:12px;text-align:center}
 input{background:#0c1322;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;width:240px}
@@ -110,7 +112,21 @@ function traitBars(traits, fp){
   ).join("");
 }
 
-function score(g){ return (g.goodwill||0)*10 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0); }
+function score(g){
+  // Rank by the live onchain trading beacon when present; fall back to genome.
+  if(g.stats && g.stats.score!=null) return Number(g.stats.score);
+  return (g.goodwill||0)*1000 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0);
+}
+
+function statsRow(g){
+  const s = g.stats; if(!s) return '<div class="muted">no trading beacon yet</div>';
+  const money = v => (v==null?"—":(typeof v==="number"?v:Number(v)).toLocaleString());
+  return `<div class="stats">
+    <span title="goodwill — earned only from winning trades">⭐ ${s.goodwill??0}</span>
+    <span title="GMAC life energy">🜂 ${money(s.gmac)}</span>
+    <span title="HyperLiquid equity">💵 $${money(s.equityUsd)}</span>
+  </div>`;
+}
 
 function render(creatures){
   creatures.sort((a,b)=>score(b.g)-score(a.g));
@@ -124,6 +140,7 @@ function render(creatures){
       <div style="flex:1">
         ${soul}
         <h2>${c.name||"Gclaw"} <span class="muted">#${c.id}</span></h2>
+        ${statsRow(g)}
         ${traitBars(g.traits,g.genomeFingerprint||"000000")}
         ${lineage}
         <div class="fp">genome ${g.genomeFingerprint||"—"} · goodwill ${g.goodwill??0}</div>
@@ -141,18 +158,26 @@ async function loadAgent(id){
 
 async function main(){
   const params = new URLSearchParams(location.search);
-  let ids = (params.get("agents")||"").split(",").map(s=>s.trim()).filter(Boolean).map(Number);
-  if(!ids.length){
-    try{ const r = await fetch("agents.json"); ids = (await r.json()).agents; }
-    catch(e){ ids = [55624]; }                     // fallback to the genesis creature
+  let seed = (params.get("agents")||"").split(",").map(s=>s.trim()).filter(Boolean).map(Number);
+  if(!seed.length){
+    try{ const r = await fetch("agents.json"); seed = (await r.json()).agents; }
+    catch(e){ seed = [55624]; }                     // fallback to the genesis creature
   }
+  // Gossip-crawl: start from the seed, then follow each card's onchain peer list.
+  // No registry index, no server — the family graph is discovered entirely from chain.
   const st = document.getElementById("status");
-  const out = [];
-  for(const id of ids){
-    st.textContent = `Reading agent #${id} from Base…`;
-    try{ const c = await loadAgent(id); if(c) out.push(c); }catch(e){ /* skip unreadable */ }
+  const queue = [...new Set(seed)], seen = new Set(), out = [];
+  while(queue.length){
+    const id = queue.shift();
+    if(seen.has(id)) continue; seen.add(id);
+    st.textContent = `Reading agent #${id} from Base… (${out.length} found)`;
+    try{
+      const c = await loadAgent(id);
+      if(c){ out.push(c); for(const p of (c.g.peers||[])) if(!seen.has(Number(p))) queue.push(Number(p)); }
+    }catch(e){ /* skip unreadable */ }
+    render(out);
   }
-  st.textContent = out.length ? `${out.length} living creature(s) onchain` : "No Gclaw creatures found for those IDs.";
+  st.textContent = out.length ? `${out.length} living creature(s) discovered onchain` : "No Gclaw creatures found.";
   render(out);
 }
 
