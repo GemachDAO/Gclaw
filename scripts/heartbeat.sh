@@ -62,9 +62,16 @@ if timeout 600 claude --print --permission-mode bypassPermissions --model "$MODE
   echo "===== $(ts) heartbeat ok =====" >>"$LOG"
 else
   echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
+  [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+    node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
 fi
 
 # Always refresh the dashboard — this also publishes stats + the DNA avatar to
 # IPFS and recomputes the family leaderboard (no-ops cleanly without PINATA_JWT).
 [[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
   "$SKILL_DIR/scripts/dashboard.py" render >>"$LOG" 2>&1 || true
+
+# Health alerts (best-effort): notify on red conditions (hibernate, low gas,
+# tripped breaker, low funds) when GCLAW_ALERT_WEBHOOK is set. No-ops otherwise.
+[[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+  echo "$(ts) alerts: $(node "$SKILL_DIR/scripts/notify.js" check 2>&1)" >>"$LOG" || true

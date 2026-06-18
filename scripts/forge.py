@@ -883,9 +883,41 @@ def _account() -> dict[str, float]:
                               capture_output=True, text=True, timeout=90)
         st = json.loads(proc.stdout.strip().splitlines()[-1])
         equity = float(st.get("equity") or st.get("spotUsdc") or st.get("accountValue") or 0)
-        return {"equity": equity, "buying_power": float(st.get("buyingPower") or equity)}
+        return {"equity": equity, "buying_power": float(st.get("buyingPower") or equity),
+                "positions": len(st.get("positions") or [])}
     except Exception:
-        return {"equity": 0.0, "buying_power": 0.0}
+        return {"equity": 0.0, "buying_power": 0.0, "positions": 0}
+
+
+# Portfolio circuit breaker — halts NEW entries (never closes/blocks risk-reduction)
+# when the account is in trouble, independent of the GMAC life-energy mode.
+MAX_DRAWDOWN_PCT = 25  # halt new entries if equity falls this far below its high-water mark
+MAX_OPEN_POSITIONS = 3  # cap concurrent positions to bound concentration
+
+
+def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
+    """Update the equity high-water mark and decide whether new entries are allowed."""
+    path = gclaw_home() / "breaker.json"
+    state = {}
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    hwm = max(float(state.get("hwm", 0) or 0), equity)
+    drawdown_pct = round((1 - equity / hwm) * 100, 2) if hwm > 0 else 0.0
+    reason = None
+    if drawdown_pct >= MAX_DRAWDOWN_PCT:
+        reason = f"drawdown {drawdown_pct}% ≥ {MAX_DRAWDOWN_PCT}% from high-water ${hwm:.2f}"
+    elif n_positions >= MAX_OPEN_POSITIONS:
+        reason = f"{n_positions} open positions ≥ {MAX_OPEN_POSITIONS} cap"
+    state.update({"hwm": round(hwm, 2), "equity": round(equity, 2),
+                  "drawdown_pct": drawdown_pct, "positions": n_positions,
+                  "tripped": bool(reason), "reason": reason, "at": now_iso()})
+    try:
+        path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return {"allow_entry": not reason, "reason": reason, "drawdown_pct": drawdown_pct, "hwm": round(hwm, 2)}
 
 
 def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float,
@@ -956,12 +988,14 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             intent["proven"] = coin == proven_coin.get(tid)
             intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
+    breaker = circuit_breaker(equity, acct.get("positions", 0))
     result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity,
-              "buying_power": round(buying_power, 2), "intents": intents}
+              "buying_power": round(buying_power, 2), "breaker": breaker, "intents": intents}
     # Auto-execute only a signal on its proven market; cross-market signals are
-    # surfaced as exploration for the heartbeat to act on (or prove next).
+    # surfaced as exploration for the heartbeat to act on (or prove next). The
+    # circuit breaker can halt new entries (it never blocks closing risk).
     proven = [i for i in intents if i["proven"] and i["notional"] >= MIN_NOTIONAL]
-    if args.execute and proven and mode != "hibernate":
+    if args.execute and proven and mode != "hibernate" and breaker["allow_entry"]:
         top = proven[0]
         result["executed"] = _execute(top)
         if result["executed"].get("ok"):
@@ -970,6 +1004,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso()}
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
+    elif args.execute and not breaker["allow_entry"]:
+        result["executed"] = {"skipped": f"circuit breaker: {breaker['reason']}"}
     elif args.execute:
         result["executed"] = {"skipped": "no proven-market signal (exploration intents not auto-traded)"}
     return result
