@@ -83,6 +83,14 @@ function genome(name, bornAt) {
   };
 }
 
+function knownPeers() {
+  // Peer agent ids this creature knows — published in its card so a chain-only
+  // dashboard can gossip-crawl the family without any registry index.
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'peers.json'), 'utf8')).ids || []).slice(0, 64);
+  } catch { return []; }
+}
+
 function statsForCard(state) {
   const id = state.onchain_identity?.agentId;
   if (!id) return null;
@@ -124,7 +132,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
-      ...(child ? {} : { stats: statsForCard(state) }),
+      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers() }),
       ...lineage,
     },
   };
