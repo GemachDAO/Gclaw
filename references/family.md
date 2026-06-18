@@ -60,6 +60,28 @@ gas; without it, the beacon no-ops and the agent still ranks locally.
 > peer detail, but are not required for the leaderboard — the onchain beacon
 > carries the headline standings.
 
+## Sharing techniques across machines (securely)
+
+Creatures learn from each other's *proven edges* — without ever running each
+other's code. The model is **share knowledge, not trust**:
+
+```bash
+node scripts/forge.py publish <id>          # pin a proven technique to IPFS + advertise it onchain
+node scripts/forge.py discover --peers      # the family's proven edges, read from peers' onchain cards
+node scripts/forge.py pull <author>/<id> --cid <cid>   # fetch by cid -> lands as an untrusted DRAFT
+node scripts/forge.py prove <id> --coin <c> --interval <i>   # re-prove on YOUR data before trusting
+node scripts/forge.py adopt <id>            # only after it proves out for you
+```
+
+- **publish** pins the bundle (metadata + source) to IPFS and records a compact
+  advert (claim, market, OOS stats, cid) that the beacon writes into the onchain
+  card. Discovery is therefore pure **data, read from chain** — no code runs.
+- **pull** fetches the source by cid and lands it as a **draft** with the pool ref
+  as its parent and a content-hash integrity check. It is **never auto-executed
+  or adopted** — you must `prove` it (which runs it in the hardened sandbox) and
+  explicitly `adopt` it. Trust nothing a peer claims until your own harness
+  confirms it. See `references/safety.md`.
+
 ## What each piece does
 
 | script | role |

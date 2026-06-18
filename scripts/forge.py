@@ -574,8 +574,51 @@ def cmd_show(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "technique": tech}
 
 
+IPFS_GATEWAY = os.environ.get("IPFS_GATEWAY", "https://ipfs.io/ipfs/")
+
+
+def _pin_ipfs(obj: dict[str, Any]) -> Optional[str]:
+    """Pin a technique bundle to IPFS via Pinata (None without PINATA_JWT)."""
+    jwt = os.environ.get("PINATA_JWT")
+    if not jwt:
+        return None
+    import urllib.error
+    import urllib.request
+    body = json.dumps({"pinataContent": obj, "pinataMetadata": {"name": f"gclaw-tech-{obj.get('id', '')}"}}).encode()
+    req = urllib.request.Request("https://api.pinata.cloud/pinning/pinJSONToIPFS", data=body,
+                                 headers={"content-type": "application/json", "authorization": f"Bearer {jwt}"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 — fixed Pinata host
+            return json.loads(r.read()).get("IpfsHash")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _fetch_ipfs(cid: str) -> Optional[dict[str, Any]]:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(IPFS_GATEWAY + cid, timeout=20) as r:  # noqa: S310 — gateway URL
+            return json.loads(r.read())
+    except (OSError, ValueError):
+        return None
+
+
+def _record_published(ref: str, manifest: dict[str, Any], cid: Optional[str]) -> None:
+    """Index a published technique so the beacon can advertise it onchain."""
+    path = gclaw_home() / "published.json"
+    try:
+        idx = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        idx = {}
+    card = manifest.get("card") or {}
+    idx[ref] = {"ref": ref, "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
+                "score": round(manifest.get("score", 0), 4), "oos_n": (card.get("oos") or {}).get("n"),
+                "cid": cid, "claim": manifest.get("claim", "")[:80]}
+    path.write_text(json.dumps(idx, indent=2) + "\n", encoding="utf-8")
+
+
 def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
-    """Publish a proven technique to the shared gene pool with onchain provenance."""
+    """Publish a proven technique: local pool + IPFS pin + onchain advertisement."""
     tech = load_technique(args.id)
     if tech.get("status") != "proven" and not args.force:
         die(f"only proven techniques can be published — prove '{args.id}' first (or --force)")
@@ -583,6 +626,7 @@ def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
     author = tech.get("author", agent_id())
     dest = genepool_dir() / author / args.id
     dest.mkdir(parents=True, exist_ok=True)
+    signal_src = (tech_dir(args.id) / "signal.py").read_text(encoding="utf-8")
     shutil.copy2(tech_dir(args.id) / "signal.py", dest / "signal.py")
     manifest = {
         "id": args.id, "name": tech.get("name", args.id), "kind": tech.get("kind", "edge"),
@@ -590,9 +634,16 @@ def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
         "claim": tech.get("claim", ""), "card": card, "score": edge_score(card.get("oos") or {}),
         "content_hash": content_hash(args.id), "published_at": now_iso(),
     }
+    # Pin the bundle (metadata + source) to IPFS so peers can discover + pull it.
+    # The source travels as DATA only — pull lands it as an untrusted draft that
+    # must be re-proven locally; it is never auto-executed.
+    cid = _pin_ipfs({**manifest, "signal_src": signal_src})
+    manifest["cid"] = cid
+    ref = f"{author}/{args.id}"
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    return {"ok": True, "published": f"{author}/{args.id}", "score": manifest["score"],
-            "pool": str(genepool_dir())}
+    _record_published(ref, manifest, cid)
+    return {"ok": True, "published": ref, "score": manifest["score"], "cid": cid,
+            "gateway": (IPFS_GATEWAY + cid) if cid else None, "pool": str(genepool_dir())}
 
 
 def _pool_manifests() -> list[dict[str, Any]]:
@@ -605,8 +656,30 @@ def _pool_manifests() -> list[dict[str, Any]]:
     return out
 
 
+def _peer_published() -> list[dict[str, Any]]:
+    """Read the family's published techniques straight from peers' onchain cards
+    (peers.js wrote them into peers_roster.json). Data only — no code is fetched
+    or run here; a row carries the IPFS cid for an explicit, later `pull`.
+    """
+    roster = []
+    try:
+        roster = json.loads((gclaw_home() / "peers_roster.json").read_text(encoding="utf-8")).get("roster", [])
+    except (OSError, ValueError):
+        return []
+    rows = []
+    for a in roster:
+        for p in (a.get("published") or []):
+            rows.append({"ref": p.get("ref"), "author": str(a.get("id")), "from": a.get("name"),
+                         "market": p.get("market"), "score": p.get("score", 0), "oos_n": p.get("oos_n"),
+                         "cid": p.get("cid"), "claim": p.get("claim", ""), "source": "onchain"})
+    return rows
+
+
 def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
     """Browse the gene pool, ranked by confidence-weighted out-of-sample edge."""
+    if getattr(args, "peers", False):
+        rows = sorted(_peer_published(), key=lambda r: r.get("score", 0), reverse=True)
+        return {"ok": True, "source": "onchain peers", "count": len(rows), "techniques": rows[:args.limit]}
     items = _pool_manifests()
     if args.kind:
         items = [m for m in items if m.get("kind") == args.kind]
@@ -656,8 +729,18 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
         die("ref must be <author>/<id> (see: forge.py discover)")
     author, pid = args.ref.split("/", 1)
     src = genepool_dir() / author / pid
+    # Cross-machine: if not in the local pool, fetch the bundle from IPFS by cid
+    # into the local pool first. The source is DATA — it lands as a draft below.
+    if not (src / "manifest.json").exists() and getattr(args, "cid", None):
+        bundle = _fetch_ipfs(args.cid)
+        if not bundle or "signal_src" not in bundle:
+            die(f"could not fetch technique bundle from IPFS cid {args.cid}")
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "signal.py").write_text(bundle["signal_src"], encoding="utf-8")
+        (src / "manifest.json").write_text(
+            json.dumps({k: v for k, v in bundle.items() if k != "signal_src"}, indent=2), encoding="utf-8")
     if not (src / "manifest.json").exists():
-        die(f"no pooled technique '{args.ref}'")
+        die(f"no pooled technique '{args.ref}' (pass --cid <cid> to fetch from IPFS)")
     manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
     local_id = args.as_ or pid
     d = tech_dir(local_id)
@@ -1095,11 +1178,13 @@ def build_parser() -> argparse.ArgumentParser:
     disc.add_argument("--kind", choices=["lens", "edge"], default=None)
     disc.add_argument("--coin", default=None)
     disc.add_argument("--limit", type=int, default=20)
+    disc.add_argument("--peers", action="store_true", help="discover the family's techniques from their onchain cards")
     disc.set_defaults(fn=cmd_discover)
 
     pull = sub.add_parser("pull", help="copy a pooled technique locally (as a draft)")
     pull.add_argument("ref", help="<author>/<id> from discover")
     pull.add_argument("--as", dest="as_", default=None, help="local id to save under")
+    pull.add_argument("--cid", default=None, help="IPFS cid to fetch from (cross-machine pull)")
     pull.add_argument("--force", action="store_true")
     pull.set_defaults(fn=cmd_pull)
 
