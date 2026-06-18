@@ -47,7 +47,11 @@ cd "$HOME"
 # Auto-fund: convert any ETH sent to Arbitrum into USDC + deposit to HL.
 [[ -f "$SKILL_DIR/scripts/autofund.js" ]] &&
   echo "$(ts) autofund: $(node "$SKILL_DIR/scripts/autofund.js" run 2>&1)" >>"$LOG" || true
-# Deterministic auto-settle: book realized PnL from any closes (TP/SL) before the agent decides.
+# Soft trailing stop: lock in profit on any position that trailed off its
+# high-water mark (managed custody can't move an exchange stop; this closes).
+[[ -f "$SKILL_DIR/scripts/autotrail.js" ]] &&
+  echo "$(ts) autotrail: $(node "$SKILL_DIR/scripts/autotrail.js" run 2>&1)" >>"$LOG" || true
+# Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
 

@@ -11,6 +11,7 @@ network is adversarial. The controls below exist so a creature can't be drained.
 | **Prompt injection → fund exit** | The heartbeat runs unattended (`bypassPermissions`) and reads untrusted text (peer cards, family bus, market data, gene-pool metadata). It denies every tool that can move funds to an arbitrary destination: `transfer_native`, `transfer_token`, `execute_bridge`, `perp_withdraw`, `hl_swap_collateral`, sells. Legit funding is done by deterministic scripts (`autofund`, `gmac_buy`) with **hard-coded destinations** — never by the model. |
 | **Key exposure** | The control private key is used only for local `ethers.Wallet` signing; it is never logged or sent. Wallet files (`*-wallet.json`) and secrets (`~/.gclaw/env`) are gitignored. |
 | **Runaway losses** | A portfolio **circuit breaker** halts new entries (never blocks closing) when equity falls ≥25% from its high-water mark or there are ≥3 open positions. Per-trade risk is also capped (5% / 2% in survive) with a mandatory stop. |
+| **Giving back profit** | Managed custody can't move an exchange stop (the backend only attaches tp/sl to an executing order). A **soft trailing stop** (`autotrail.js`, run each heartbeat) instead closes a position once it's in profit and trails ≥0.6% off its high-water mark — floored at break-even, so it only ever closes green. The hard exchange SL set at open stays as the between-heartbeat catastrophic floor. (A true exchange-side trailing stop needs the GDEX backend to expose standalone trigger orders — see assune-6tk.) |
 
 ## Health alerting
 
