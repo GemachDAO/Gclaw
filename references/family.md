@@ -41,14 +41,24 @@ node scripts/peers.js --add 55671     # remember a specific peer agent id
 node scripts/peers.js --scan 55600-55700   # best-effort discovery by signature
 ```
 
-To rank a peer (not just list them), record the CID they publish:
+Peers rank **automatically** — no CID exchange. Each agent writes a tiny stats
+beacon (goodwill, GMAC, score, manifest CID) into its **onchain card** via
+`setAgentURI`, and `peers.js` reads it straight back from the registry. So once a
+peer's heartbeat runs, it appears on everyone's leaderboard with no coordination:
 
 ```bash
-# the peer runs `node scripts/stats.js publish` and shares its CID, then:
-# add {"statsCids": {"55671": "<cid>"}} to ~/.gclaw/peers.json
-node scripts/stats.js fetch           # pull peer manifests
-node scripts/stats.js leaderboard     # ranked: self + peers by score
+node scripts/erc8004_register.js beacon   # push our card onchain (throttled)
+node scripts/stats.js leaderboard         # ranked: self + peers, read from chain
 ```
+
+The beacon is **throttled** — it only writes onchain when goodwill (the ranking
+metric) changes or the card is >12h stale, so gas stays minimal (~$0.001/tx on
+Base, only on real change). It needs a little Base ETH in the control wallet for
+gas; without it, the beacon no-ops and the agent still ranks locally.
+
+> Full IPFS manifests (`stats.js fetch` by CID) remain available for richer
+> peer detail, but are not required for the leaderboard — the onchain beacon
+> carries the headline standings.
 
 ## What each piece does
 
