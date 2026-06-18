@@ -260,6 +260,70 @@ def techniques_html() -> str:
     return f'<ul class="events">{"".join(items)}</ul>'
 
 
+def refresh_roster(h: Path) -> None:
+    """Best-effort: cache the onchain family roster (peers.js) for the page."""
+    try:
+        proc = subprocess.run(["node", str(SCRIPT_DIR / "peers.js")],
+                              capture_output=True, text=True, timeout=60)
+        data = json.loads(proc.stdout.strip())
+        if data.get("ok"):
+            (h / "peers_roster.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass  # keep the last good cache; the page renders offline regardless
+
+
+def roster_html(h: Path) -> str:
+    data = load_json(h / "peers_roster.json", {})
+    roster = data.get("roster", [])
+    if not roster:
+        return '<p class="muted">No peers discovered yet — scanning the Base registry.</p>'
+    rows = []
+    for a in roster:
+        you = ' <span class="tag">you</span>' if a.get("self") else ""
+        avatar = ' 🖼' if a.get("image") else ""
+        scan = f'https://basescan.org/nft/{data.get("registry", "")}/{a["id"]}'
+        rows.append(
+            f'<li><a href="{scan}" target="_blank">#{a["id"]}</a> '
+            f'<b>{a.get("name") or "?"}</b>{avatar}{you} '
+            f'<span class="muted">{(a.get("owner") or "?")[:10]}…</span></li>')
+    return f'<ul class="family">{"".join(rows)}</ul>'
+
+
+def refresh_leaderboard(h: Path) -> None:
+    """Best-effort: pull peer stats and recompute the family leaderboard."""
+    try:
+        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "fetch"],
+                       capture_output=True, text=True, timeout=40)
+        proc = subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "leaderboard"],
+                              capture_output=True, text=True, timeout=20)
+        data = json.loads(proc.stdout.strip())
+        if data.get("ok"):
+            (h / "leaderboard.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+
+
+def leaderboard_html(h: Path) -> str:
+    data = load_json(h / "leaderboard.json", {})
+    ranked = data.get("ranked", [])
+    pending = data.get("pending", [])
+    if not ranked and not pending:
+        return '<p class="muted">No published stats yet — agents publish each heartbeat.</p>'
+    rows = []
+    for e in ranked:
+        you = ' <span class="tag">you</span>' if e.get("self") else ""
+        rows.append(
+            f'<tr><td>{e.get("rank")}</td><td><b>{e.get("name") or "?"}</b>{you}</td>'
+            f'<td>{e.get("goodwill", 0)}</td><td>{e.get("gmac", 0)}</td>'
+            f'<td>${e.get("equityUsd", 0)}</td></tr>')
+    for e in pending:
+        you = ' <span class="tag">you</span>' if e.get("self") else ""
+        rows.append(f'<tr><td>·</td><td>{e.get("name") or "?"}{you}</td>'
+                    f'<td colspan="3" class="muted">awaiting published stats</td></tr>')
+    return ('<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
+            f'<th>GMAC</th><th>equity</th></tr>{"".join(rows)}</table>')
+
+
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
     name = "Gclaw"
     g = genome(name, state.get("born_at", "genesis"))
@@ -290,6 +354,8 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         leverage=leverage_html(state),
         techniques=techniques_html(),
         positions=positions_html(home()),
+        roster=roster_html(home()),
+        leaderboard=leaderboard_html(home()),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -303,6 +369,10 @@ def cmd_render(args: argparse.Namespace) -> None:
         raise SystemExit(f"No metabolism state at {h}. Run metabolism.py init first.")
     if not getattr(args, "no_live", False):
         refresh_positions(h)
+        refresh_roster(h)
+        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "publish"],
+                       capture_output=True, text=True, timeout=80)
+        refresh_leaderboard(h)
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
     identity = (h / "dna" / "IDENTITY.md").read_text(encoding="utf-8") if (h / "dna" / "IDENTITY.md").exists() else ""
@@ -370,6 +440,10 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   <div class="grid2" style="margin-top:18px">
     <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
     <div class="card decent"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
+  </div>
+  <div class="grid2" style="margin-top:18px">
+    <div class="card decent"><h2>👥 Family roster · onchain (Base)</h2>{roster}</div>
+    <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
   </div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
