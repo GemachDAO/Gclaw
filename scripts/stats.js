@@ -141,9 +141,19 @@ function cmdLeaderboard() {
   const ranked = [];
   const pending = [];
   for (const a of roster) {
-    const m = readJson(path.join(STATS_DIR, `${a.id}.json`), null);
-    if (m) ranked.push({ ...m, self: a.id === selfId });
-    else pending.push({ agentId: a.id, name: a.name, self: a.id === selfId });
+    // Prefer a fully-fetched IPFS manifest; otherwise use the onchain beacon the
+    // peer wrote into its card (read by peers.js) — no manual CID exchange needed.
+    const local = readJson(path.join(STATS_DIR, `${a.id}.json`), null);
+    const src = local || (a.stats && a.stats.score != null ? { agentId: a.id, name: a.name, ...a.stats } : null);
+    if (src && src.score != null) {
+      ranked.push({
+        agentId: a.id, name: a.name || src.name, goodwill: src.goodwill, gmac: src.gmac,
+        equityUsd: src.equityUsd, score: src.score, image: a.image || src.image,
+        source: local ? 'ipfs' : 'onchain', self: a.id === selfId,
+      });
+    } else {
+      pending.push({ agentId: a.id, name: a.name, self: a.id === selfId });
+    }
   }
   ranked.sort((x, y) => y.score - x.score);
   ranked.forEach((e, i) => { e.rank = i + 1; });

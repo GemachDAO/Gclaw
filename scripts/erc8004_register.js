@@ -83,6 +83,24 @@ function genome(name, bornAt) {
   };
 }
 
+function statsForCard(state) {
+  const id = state.onchain_identity?.agentId;
+  if (!id) return null;
+  let manifest = {};
+  try { manifest = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'stats', `${id}.json`), 'utf8')); } catch { /* no manifest yet */ }
+  let cids = {};
+  try { cids = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'peers.json'), 'utf8')).statsCids || {}; } catch { /* none */ }
+  return {
+    cid: cids[id] || null,
+    goodwill: manifest.goodwill ?? state.goodwill ?? 0,
+    gmac: manifest.gmac ?? state.gmac_balance ?? null,
+    equityUsd: manifest.equityUsd ?? null,
+    score: manifest.score ?? null,
+    techniques: manifest.techniques || [],
+    updatedAt: manifest.updatedAt || new Date().toISOString(),
+  };
+}
+
 function agentCard(state, managed, child) {
   const name = child ? child.name : 'Gclaw';
   const bornAt = child ? child.born_at : state.born_at || 'genesis';
@@ -106,6 +124,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
+      ...(child ? {} : { stats: statsForCard(state) }),
       ...lineage,
     },
   };
@@ -134,8 +153,8 @@ function registerInLeaderboard(agentId) {
 
 async function main() {
   const mode = process.argv[2];
-  if (!['dry-run', 'broadcast', 'update'].includes(mode)) {
-    throw new Error('usage: erc8004_register.js <dry-run|broadcast|update> [--child <name>]');
+  if (!['dry-run', 'broadcast', 'update', 'beacon'].includes(mode)) {
+    throw new Error('usage: erc8004_register.js <dry-run|broadcast|update|beacon> [--child <name>]');
   }
   const childName = process.argv.includes('--child') ? process.argv[process.argv.indexOf('--child') + 1] : null;
   const state = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'metabolism.json'), 'utf8'));
@@ -165,6 +184,33 @@ async function main() {
     }
     console.log(`DRY-RUN OK — would mint agentId=${agentId.toString()} | gas≈${gas}`);
     console.log(`card: ${JSON.stringify(card)}`);
+    return;
+  }
+
+  if (mode === 'beacon') {
+    // Push the live stats card onchain so peers read our standings directly — but
+    // only when it matters: goodwill changed (the ranking metric) or it's stale,
+    // so gas stays minimal. No-ops cleanly when not registered or gas is too low.
+    const idRecord = state.onchain_identity;
+    if (!idRecord?.agentId) { console.log(JSON.stringify({ ok: false, skip: 'not registered' })); return; }
+    const beaconPath = path.join(GCLAW_HOME, 'beacon.json');
+    let last = {};
+    try { last = JSON.parse(fs.readFileSync(beaconPath, 'utf8')); } catch { /* first push */ }
+    const goodwill = card['x-gclaw'].stats?.goodwill ?? 0;
+    const hours = last.ts ? (Date.now() - new Date(last.ts).getTime()) / 3.6e6 : Infinity;
+    if (goodwill === last.goodwill && hours < 12) {
+      console.log(JSON.stringify({ ok: true, skipped: 'no goodwill change, fresh', goodwill }));
+      return;
+    }
+    if (bal < ethers.parseEther('0.00002')) {
+      console.log(JSON.stringify({ ok: false, skip: 'low Base ETH for gas', bal: ethers.formatEther(bal) }));
+      return;
+    }
+    const tx = await registry.setAgentURI(BigInt(idRecord.agentId), uri);
+    const receipt = await tx.wait();
+    const rec = { goodwill, score: card['x-gclaw'].stats?.score ?? null, ts: new Date().toISOString(), tx: tx.hash, block: receipt.blockNumber };
+    fs.writeFileSync(beaconPath, JSON.stringify(rec, null, 2) + '\n');
+    console.log(JSON.stringify({ ok: true, pushed: true, ...rec }));
     return;
   }
 

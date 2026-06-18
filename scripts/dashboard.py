@@ -395,11 +395,14 @@ def cmd_render(args: argparse.Namespace) -> None:
         raise SystemExit(f"No metabolism state at {h}. Run metabolism.py init first.")
     if not getattr(args, "no_live", False):
         refresh_positions(h)
-        refresh_roster(h)
         g = genome("Gclaw", state.get("born_at", "genesis"))
         pin_dna_image(h, g, "Gclaw", state.get("mode", "unknown").upper())
-        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "publish"],
-                       capture_output=True, text=True, timeout=80)
+        # Publish to IPFS, then beacon the card onchain (throttled) so peers read
+        # our standings, then read the roster (incl. peer beacons) and rank.
+        for step in (["stats.js", "publish"], ["erc8004_register.js", "beacon"]):
+            subprocess.run(["node", str(SCRIPT_DIR / step[0]), *step[1:]],
+                           capture_output=True, text=True, timeout=80)
+        refresh_roster(h)
         refresh_leaderboard(h)
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
