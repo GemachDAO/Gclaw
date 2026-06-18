@@ -51,7 +51,14 @@ cd "$HOME"
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
 
-if timeout 600 claude --print --permission-mode bypassPermissions --model "$MODEL" "$PROMPT" >>"$LOG" 2>&1; then
+# Anti-drain: the heartbeat runs unattended with bypassPermissions, and reads
+# untrusted text (peer cards, family bus, market data, gene-pool metadata) that
+# could carry a prompt-injection payload. Deny every tool that can move funds to
+# an arbitrary destination — legit funding is done by deterministic scripts
+# (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
+DENY="mcp__gdex__transfer_native,mcp__gdex__transfer_token,mcp__gdex__execute_bridge,mcp__gdex__perp_withdraw,mcp__gdex__hl_swap_collateral,mcp__gdex__managed_sell,mcp__gdex__sell_token"
+if timeout 600 claude --print --permission-mode bypassPermissions --model "$MODEL" \
+    --disallowedTools "$DENY" "$PROMPT" >>"$LOG" 2>&1; then
   echo "===== $(ts) heartbeat ok =====" >>"$LOG"
 else
   echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
