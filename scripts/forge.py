@@ -68,8 +68,38 @@ ALLOWED_IMPORTS = {"math", "statistics"}
 BANNED_NAMES = {
     "eval", "exec", "open", "__import__", "compile", "input", "globals",
     "locals", "getattr", "setattr", "vars", "delattr", "memoryview",
+    "__builtins__", "breakpoint", "help", "object", "type", "super",
+    "classmethod", "staticmethod", "property",
 }
+# Attribute access that can pivot to builtins/globals even without a dunder name.
+BANNED_ATTRS = {"format", "format_map", "mro", "__class__", "__globals__", "__subclasses__"}
 SIGNAL_TIMEOUT_S = 2
+
+
+def _safe_import(name: str, *_a: Any, **_k: Any) -> Any:
+    """The only import a signal may perform — the allow-listed math libs."""
+    import math
+    import statistics
+    allowed = {"math": math, "statistics": statistics}
+    if name in allowed:
+        return allowed[name]
+    raise ImportError(f"import '{name}' is not allowed in a technique signal")
+
+
+def _safe_builtins() -> dict[str, Any]:
+    """A minimal builtins set with NO code-exec / introspection / io escape hatches.
+
+    Restricting `__builtins__` in the exec namespace is the load-bearing control:
+    it removes the `__builtins__['__import__']('os')` subscript escape that the AST
+    validator alone cannot see. The validator is defense-in-depth on top.
+    """
+    safe = ("abs", "min", "max", "round", "sum", "len", "range", "sorted", "enumerate",
+            "zip", "map", "filter", "any", "all", "pow", "divmod", "float", "int",
+            "bool", "str", "list", "dict", "tuple", "set", "abs", "isinstance")
+    import builtins
+    out: dict[str, Any] = {k: getattr(builtins, k) for k in safe}
+    out["__import__"] = _safe_import
+    return out
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -289,10 +319,10 @@ def validate_signal_src(src: str) -> list[str]:
         elif isinstance(node, ast.ImportFrom):
             if (node.module or "").split(".")[0] not in ALLOWED_IMPORTS:
                 violations.append(f"import not allowed: from {node.module}")
-        elif isinstance(node, ast.Name) and node.id in BANNED_NAMES:
+        elif isinstance(node, ast.Name) and (node.id in BANNED_NAMES or node.id.startswith("__")):
             violations.append(f"banned name: {node.id}")
-        elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-            violations.append(f"dunder access not allowed: {node.attr}")
+        elif isinstance(node, ast.Attribute) and (node.attr.startswith("__") or node.attr in BANNED_ATTRS):
+            violations.append(f"banned attribute access: {node.attr}")
     if not any(isinstance(n, ast.FunctionDef) and n.name == "signal"
                for n in ast.walk(tree)):
         violations.append("missing required function: signal(features)")
@@ -304,8 +334,10 @@ def _compile_signal(src: str, where: str) -> Callable[[dict[str, Any]], Any]:
     violations = validate_signal_src(src)
     if violations:
         raise ValueError("; ".join(violations))
-    namespace: dict[str, Any] = {}
-    exec(compile(src, where, "exec"), namespace)  # noqa: S102 — AST-validated above
+    # Restricted builtins are the real boundary; the AST validation is defence in
+    # depth. Together they close the __builtins__/__import__ subscript escape.
+    namespace: dict[str, Any] = {"__builtins__": _safe_builtins()}
+    exec(compile(src, where, "exec"), namespace)  # noqa: S102 — sandboxed builtins + AST-validated
     return namespace["signal"]
 
 
