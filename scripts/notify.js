@@ -35,15 +35,83 @@ async function post(url, body, headers) {
   });
 }
 
-async function send(level, message) {
-  const text = `🜃 Gclaw #${agentId()} [${level.toUpperCase()}] ${message}`;
-  const out = { ok: true, sent: [] };
+const readJsonl = (p) => { try { return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+
+// The creature's own voice — so it texts you in character, not as a robot.
+function soul() {
+  const p = readJson(path.join(GCLAW_HOME, 'dna', 'persona.json'), {});
+  const m = readJson(path.join(GCLAW_HOME, 'metabolism.json'), {});
+  return { name: m.name || p.species || p.name || 'Gclaw', sigil: p.sigil || '🜂',
+    catchphrase: p.catchphrase || '', archetype: p.archetype || '' };
+}
+function voiced(msg, big) {
+  const s = soul();
+  return `${s.sigil} ${s.name}: ${msg}` + (big && s.catchphrase ? `  —  “${s.catchphrase}”` : '');
+}
+
+async function deliver(text) {
+  const sent = [];
   const webhook = process.env.GCLAW_ALERT_WEBHOOK;
-  if (webhook) { await post(webhook, { text, content: text, level, message }); out.sent.push('webhook'); }
+  if (webhook) { await post(webhook, { text, content: text }); sent.push('webhook'); }
   const tg = process.env.GCLAW_TELEGRAM_TOKEN, chat = process.env.GCLAW_TELEGRAM_CHAT;
-  if (tg && chat) { await post(`https://api.telegram.org/bot${tg}/sendMessage`, { chat_id: chat, text }); out.sent.push('telegram'); }
-  if (!out.sent.length) out.skip = 'no GCLAW_ALERT_WEBHOOK / telegram configured';
-  return out;
+  if (tg && chat) { await post(`https://api.telegram.org/bot${tg}/sendMessage`, { chat_id: chat, text }); sent.push('telegram'); }
+  return sent;
+}
+
+async function send(level, message) {
+  const sent = await deliver(`🜃 ${soul().name} #${agentId()} [${level.toUpperCase()}] ${message}`);
+  return sent.length ? { ok: true, sent } : { ok: true, sent: [], skip: 'no GCLAW_ALERT_WEBHOOK / telegram configured' };
+}
+
+const GW_TIERS = [[10, ''], [25, ''], [50, ' — ready to REPLICATE 🧬'], [100, ' — can self-recode'],
+  [200, ''], [500, ''], [1000, ' — MAX leverage unlocked ⚡']];
+const HB_TIERS = [100, 250, 500, 1000, 2500, 5000];
+const STREAK_TIERS = [3, 5, 10, 25];
+
+// The dopamine loop: each heartbeat, detect the GOOD moments and text them in the
+// creature's voice — wins, streaks, milestones, records, evolutions, climbs. First
+// run baselines (no retroactive spam); thereafter it fires only on new events.
+async function celebrate() {
+  const meta = readJson(path.join(GCLAW_HOME, 'metabolism.json'), {});
+  const lb = readJson(path.join(GCLAW_HOME, 'leaderboard.json'), {});
+  const rank = (lb.ranked || []).find((e) => e.self)?.rank ?? null;
+  const stPath = path.join(GCLAW_HOME, 'celebrations.json');
+  const first = !fs.existsSync(stPath);
+  const settles = readJsonl(path.join(GCLAW_HOME, 'journal.jsonl')).filter((e) => e.event === 'settle');
+  const lastSettleTs = settles.length ? Math.max(...settles.map((s) => new Date(s.ts).getTime())) : 0;
+  const kids = (meta.children || []).length;
+  const st = readJson(stPath, {});
+  if (first) {  // baseline: remember where we are, celebrate nothing retroactively
+    fs.writeFileSync(stPath, JSON.stringify({ unlocked: {}, lastSettleTs, winStreak: 0,
+      lastGoodwill: meta.goodwill || 0, lastRank: rank, lastHeartbeats: meta.heartbeats || 0,
+      lastChildren: kids, lastRecodes: meta.recodes || 0 }, null, 2));
+    return { ok: true, initialized: true };
+  }
+  const fired = [];
+  const fire = async (key, msg, big) => { if (st.unlocked[key]) return; if (key.startsWith('once:')) st.unlocked[key] = new Date().toISOString(); const v = voiced(msg, big); fired.push(v); await deliver(v); };
+
+  for (const s of settles.filter((e) => new Date(e.ts).getTime() > (st.lastSettleTs || 0))) {
+    if (Number(s.pnl) > 0.01) { st.winStreak = (st.winStreak || 0) + 1; await fire(`win:${s.ts}`, `booked +$${Number(s.pnl).toFixed(2)} 💚  ⭐ goodwill ${s.goodwill}`, false); } else if (Number(s.pnl) < -0.01) { st.winStreak = 0; }
+    if (Number(s.gmac_buyback_usd) > 0.01) await fire(`burn:${s.ts}`, `bought & burned $${Number(s.gmac_buyback_usd).toFixed(2)} of $GMAC 🔥`, false);
+  }
+  st.lastSettleTs = lastSettleTs;
+  for (const n of STREAK_TIERS) if (st.winStreak === n) await fire(`streak:${n}:${Math.floor((meta.heartbeats || 0) / 100)}`, `🔥 ${n} wins in a row`, true);
+  const gw = meta.goodwill || 0;
+  for (const [tier, label] of GW_TIERS) if (gw >= tier && (st.lastGoodwill || 0) < tier) await fire(`once:gw${tier}`, `hit ⭐ goodwill ${tier}${label}`, true);
+  st.lastGoodwill = gw;
+  const seed = meta.seed || 1000;
+  if ((meta.gmac_balance || 0) > seed) await fire('once:seedback', `clawed back above its ${seed} GMAC seed — in the black`, true);
+  const hb = meta.heartbeats || 0;
+  for (const n of HB_TIERS) if (hb >= n && (st.lastHeartbeats || 0) < n) await fire(`once:hb${n}`, `${n} heartbeats and still alive`, true);
+  st.lastHeartbeats = hb;
+  if (kids > (st.lastChildren || 0)) { const c = meta.children[kids - 1] || {}; await fire(`child:${c.name}`, `spawned a child — ${c.name || '?'} 🧬`, true); }
+  st.lastChildren = kids;
+  if ((meta.recodes || 0) > (st.lastRecodes || 0)) await fire(`recode:${meta.recodes}`, `rewrote its own code (recode #${meta.recodes}) 🛠️`, true);
+  st.lastRecodes = meta.recodes || 0;
+  if (rank != null && st.lastRank != null && rank < st.lastRank) { fired.push(voiced(`climbed to #${rank} on the family leaderboard 📈`, false)); await deliver(fired[fired.length - 1]); }
+  if (rank != null) st.lastRank = rank;
+  fs.writeFileSync(stPath, JSON.stringify(st, null, 2) + '\n');
+  return { ok: true, fired };
 }
 
 function conditions() {
@@ -76,7 +144,8 @@ async function main() {
   let out;
   if (cmd === 'send') out = await send(process.argv[3] || 'info', process.argv.slice(4).join(' '));
   else if (cmd === 'check') out = await check();
-  else out = { ok: false, error: 'usage: notify.js <send <level> <msg> | check>' };
+  else if (cmd === 'celebrate') out = await celebrate();
+  else out = { ok: false, error: 'usage: notify.js <send <level> <msg> | check | celebrate>' };
   process.stdout.write(JSON.stringify(out) + '\n');
 }
 
