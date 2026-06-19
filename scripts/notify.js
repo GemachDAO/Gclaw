@@ -63,8 +63,10 @@ async function send(level, message) {
   return sent.length ? { ok: true, sent } : { ok: true, sent: [], skip: 'no GCLAW_ALERT_WEBHOOK / telegram configured' };
 }
 
-const GW_TIERS = [[10, ''], [25, ''], [50, ' — ready to REPLICATE 🧬'], [100, ' — can self-recode'],
-  [200, ''], [500, ''], [1000, ' — MAX leverage unlocked ⚡']];
+const GW_TIERS = [[10, ''], [25, ''], [40, ' — a second heartbeat is forming inside the genome 🧬'],
+  [48, ' — two more good trades and I can split. Ready a name.'],
+  [50, ' — I\'m ready to reproduce. Run `gclaw beat` or reproduce me to meet my child 🧬'],
+  [100, ' — can self-recode'], [200, ''], [500, ''], [1000, ' — MAX leverage unlocked ⚡']];
 const HB_TIERS = [100, 250, 500, 1000, 2500, 5000];
 const STREAK_TIERS = [3, 5, 10, 25];
 
@@ -104,7 +106,13 @@ async function celebrate() {
   const hb = meta.heartbeats || 0;
   for (const n of HB_TIERS) if (hb >= n && (st.lastHeartbeats || 0) < n) await fire(`once:hb${n}`, `${n} heartbeats and still alive`, true);
   st.lastHeartbeats = hb;
-  if (kids > (st.lastChildren || 0)) { const c = meta.children[kids - 1] || {}; await fire(`child:${c.name}`, `spawned a child — ${c.name || '?'} 🧬`, true); }
+  if (kids > (st.lastChildren || 0)) {
+    const c = meta.children[kids - 1] || {};
+    const pj = readJson(path.join(GCLAW_HOME, 'children', c.name || '', 'persona.json'), {});
+    const soul = pj.archetype ? ` — ${pj.archetype}` : '';
+    const diff = c.mutation ? ` Born from my genome with one change: ${c.mutation}.` : '';
+    await fire(`child:${c.name}`, `I have a child. ${c.name || '?'}${soul}.${diff} 🧬`, true);
+  }
   st.lastChildren = kids;
   if ((meta.recodes || 0) > (st.lastRecodes || 0)) await fire(`recode:${meta.recodes}`, `rewrote its own code (recode #${meta.recodes}) 🛠️`, true);
   st.lastRecodes = meta.recodes || 0;

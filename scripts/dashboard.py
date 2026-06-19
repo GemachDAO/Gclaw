@@ -120,6 +120,83 @@ def genome(name: str, born_at: str) -> dict[str, Any]:
     }
 
 
+ROLE_BIAS = {  # the chosen role nudges one trait axis each generation
+    "scout": {"Cunning": 4, "Aggression": 2, "Discipline": -1},
+    "analyst": {"Cunning": 3, "Discipline": 3, "Aggression": -2},
+    "executor": {"Aggression": 4, "Discipline": 1, "Vitality": -1},
+    "leader": {"Vitality": 2, "Discipline": 2, "Cunning": 2, "Aggression": 1, "Fertility": -1},
+}
+
+
+def _byte_stream(seed: bytes):
+    counter = 0
+    while True:
+        yield from hashlib.sha256(seed + counter.to_bytes(4, "big")).digest()
+        counter += 1
+
+
+def breed(parent: dict[str, Any], child_name: str, role: str, parent_goodwill: float) -> dict[str, Any]:
+    """A child genome that INHERITS the parent's and diverges — real heredity, not a
+    fresh random hash. Deterministic from (parent fingerprint, child name, role).
+    Mutation strength scales with fitness: a higher-goodwill (proven) parent breeds
+    more stable offspring; a rare 'hopeful monster' keeps lineages from homogenising.
+    """
+    s = _byte_stream(hashlib.sha256(f'{parent["fingerprint"]}|{child_name}|{role}'.encode()).digest())
+    unit = lambda: next(s) / 255  # noqa: E731
+    signed = lambda: unit() * 2 - 1  # noqa: E731
+    roll = lambda p: next(s) / 256 < p  # noqa: E731
+    fit = max(0.0, min(1.0, (parent_goodwill - 50) / 150))
+    m = 1.30 - 0.80 * fit  # 1.30 (fragile) → 0.50 (elite/stable)
+
+    hue1 = (parent["hue1"] + signed() * 18 * m) % 360                  # inherited backbone, small drift
+    offset = ((parent["hue2"] - parent["hue1"]) % 360 + signed() * 12 * m) % 360
+    hue2 = (hue1 + offset) % 360                                       # inherits the two-tone relationship
+    rungs = parent["rungs"]
+    if roll(0.55 * m):
+        rungs += (1 if roll(0.78) else 2) * (1 if signed() >= 0 else -1)
+    rungs = max(14, min(23, rungs))
+
+    stats, inherited, mutated = {}, [], []
+    for t in TRAITS:
+        base = parent["stats"][t]
+        drift = (signed() + signed()) / 2 * 11 * m + ROLE_BIAS.get(role, {}).get(t, 0) * m
+        if roll(0.12 * m):
+            drift += (1 if signed() >= 0 else -1) * (8 + unit() * 10)
+        stats[t] = max(25, min(94, round(base + drift)))
+        (mutated if abs(stats[t] - base) >= 4 else inherited).append(t)
+
+    monster = roll(max(0.03, 0.06 * m))
+    if monster:
+        for _ in range(1 + (1 if roll(0.4) else 0)):
+            t = TRAITS[next(s) % len(TRAITS)]
+            stats[t] = max(25, min(94, round(stats[t] + (1 if roll(0.62) else -1) * (12 + unit() * 23))))
+            if t not in mutated:
+                mutated.append(t)
+
+    species, sigil = parent["species"], parent["sigil"]
+    prefix_i = next((i for i, p in enumerate(SPECIES_PREFIX) if species.startswith(p)), 0)
+    suffix_i = next((j for j, sfx in enumerate(SPECIES_SUFFIX) if sfx == species[len(SPECIES_PREFIX[prefix_i]):]), 0)
+    sigil_i = SIGILS.index(sigil) if sigil in SIGILS else 0
+    if roll(0.04 * m) or monster:  # rare speciation → a NEIGHBOURING species (still related)
+        if roll(0.5):
+            prefix_i = (prefix_i + (1 if signed() >= 0 else -1)) % len(SPECIES_PREFIX)
+        else:
+            suffix_i = (suffix_i + (1 if signed() >= 0 else -1)) % len(SPECIES_SUFFIX)
+        species = SPECIES_PREFIX[prefix_i] + SPECIES_SUFFIX[suffix_i]
+    if roll(0.03 * m):
+        sigil = SIGILS[(sigil_i + (1 if signed() >= 0 else -1)) % len(SIGILS)]
+
+    hue1, hue2 = round(hue1, 1), round(hue2, 1)
+    fp = hashlib.sha256((f'{parent["fingerprint"]}|{species}|{sigil}|{hue1}|{hue2}|{rungs}|'
+                         + "|".join(f"{t}:{stats[t]}" for t in TRAITS)).encode()).hexdigest()[:12]
+    return {
+        "species": species, "sigil": sigil, "hue1": hue1, "hue2": hue2, "rungs": rungs,
+        "stats": stats, "fingerprint": fp, "inherited": inherited, "mutated": mutated, "monster": monster,
+        "parent_hue1": parent["hue1"], "hue1_delta": round((hue1 - parent["hue1"] + 180) % 360 - 180, 1),
+        "hue2_delta": round((hue2 - parent["hue2"] + 180) % 360 - 180, 1), "rungs_delta": rungs - parent["rungs"],
+    }
+
+
 def helix_svg(g: dict[str, Any]) -> str:
     """Render a double-helix avatar whose base pairs encode the genome."""
     import math
@@ -191,18 +268,39 @@ def trait_bars(g: dict[str, Any]) -> str:
     return "".join(rows)
 
 
+def gene_diff_html(cg: dict[str, Any]) -> str:
+    """Glanceable gene-diff chips: what the child inherited vs mutated from the parent."""
+    chips = [f'<span class="gchip"><span class="gdot" style="background:hsl({cg.get("parent_hue1", cg["hue1"])},72%,60%)">'
+             f'</span>backbone inherited</span>']
+    if abs(cg.get("hue2_delta", 0)) >= 1:
+        chips.append(f'<span class="gchip mut"><span class="gdia" style="border-color:hsl({cg["hue2"]},72%,60%)">'
+                     f'</span>accent {cg["hue2_delta"]:+.0f}°</span>')
+    if cg.get("rungs_delta"):
+        chips.append(f'<span class="gchip mut">rungs {cg["rungs_delta"]:+d}</span>')
+    if cg.get("mutated"):
+        chips.append(f'<span class="gchip mut">{len(cg["mutated"])} trait{"s" if len(cg["mutated"]) != 1 else ""} mutated</span>')
+    if cg.get("monster"):
+        chips.append('<span class="gchip mon">⚡ hopeful monster</span>')
+    return '<div class="gdiff">' + "".join(chips) + "</div>"
+
+
 def family_html(state: dict[str, Any]) -> str:
+    """The lineage — each child shows its OWN bred DNA helix (inherits the parent's
+    backbone hue, diverges in accent/traits) + a gene-diff of what it kept vs changed."""
     children = state.get("children", [])
     if not children:
-        return '<p class="muted">No offspring yet — reach 50 goodwill to replicate.</p>'
-    rows = []
+        return '<p class="muted">No offspring yet — at 50 goodwill the creature can split and pass on its DNA.</p>'
+    cells = []
     for c in children:
-        role = c.get("role", "—")
-        rows.append(
-            f'<li><b>{html.escape(c["name"])}</b> <span class="pill">{html.escape(role)}</span>'
-            f'<div class="muted">{html.escape(c.get("mutation", ""))}</div></li>'
-        )
-    return f'<ul class="family">{"".join(rows)}</ul>'
+        cg = c.get("genome")
+        helix = f'<div class="lhelix">{helix_svg(cg)}</div>' if cg else ""
+        meta = (f'<div class="species">{html.escape(cg["species"])} {cg["sigil"]}</div>' if cg else "")
+        diff = gene_diff_html(cg) if cg else ""
+        cells.append(
+            f'<div class="lcell">{helix}<div class="lmeta">'
+            f'<b>{html.escape(c["name"])}</b> <span class="pill">{html.escape(c.get("role", "—"))}</span>'
+            f'{meta}{diff}<div class="muted">{html.escape(c.get("mutation", ""))[:70]}</div></div></div>')
+    return f'<div class="lineage">{"".join(cells)}</div>'
 
 
 def events_html(journal: list[dict[str, Any]]) -> str:
@@ -944,6 +1042,14 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .gbar,.tbar{{height:9px;background:#0b1424;border-radius:6px;overflow:hidden}}.gfill,.tfill{{height:100%;border-radius:6px}}
 .trait{{display:grid;grid-template-columns:90px 1fr 30px;align-items:center;gap:8px;margin:7px 0;font-size:13px}}.trait b{{text-align:right}}
 ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}}
+.lineage{{display:flex;flex-direction:column;gap:12px}}
+.lcell{{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;background:#10182b}}
+.lhelix{{flex:0 0 auto;width:64px}}.lhelix svg{{width:64px;height:auto;display:block}}
+.lmeta{{flex:1;min-width:0}}.lmeta .species{{color:var(--muted);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin:3px 0 6px}}
+.gdiff{{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px}}
+.gchip{{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--muted);background:#0b1424;border:1px solid var(--line);border-radius:999px;padding:2px 8px}}
+.gchip.mut{{color:var(--silver)}}.gchip.mon{{color:#9affc4;border-color:#2c6e4a}}
+.gdot{{width:9px;height:9px;border-radius:50%}}.gdia{{width:8px;height:8px;border:2px solid;transform:rotate(45deg)}}
 .pill{{display:inline-block;background:#16243f;color:var(--blue);padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
 .callit{{background:#10203a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}}
 .achhdr{{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:10px}}.achhdr .muted{{font-size:13px;font-weight:400}}
