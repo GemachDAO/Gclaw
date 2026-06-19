@@ -61,31 +61,35 @@ cd "$HOME"
   node "$SKILL_DIR/scripts/intel.js" scan >"$GCLAW_HOME/intel.json" 2>>"$LOG" &&
   echo "$(ts) intel: $(uv run --no-project python3 -c 'import json;d=json.load(open("'"$GCLAW_HOME"'/intel.json"));print({k:(v["regime"] if v else None) for k,v in d.get("intel",{}).items()})' 2>/dev/null)" >>"$LOG" || true
 
-# Hybrid model: escalate to Opus only when the cycle needs judgment (a position to
-# manage or a live setup), else Sonnet for the routine quiet cycle. Runs after the
-# intel scan so the setup signal is fresh. An explicit GCLAW_MODEL overrides.
-if [[ -f "$SKILL_DIR/scripts/model_select.js" ]]; then
-  MODEL="$(node "$SKILL_DIR/scripts/model_select.js" 2>>"$LOG" || echo "$MODEL")"
-fi
-echo "$(ts) model: $MODEL" >>"$LOG"
-
-# Anti-drain: the heartbeat runs unattended with bypassPermissions, and reads
-# untrusted text (peer cards, family bus, market data, gene-pool metadata) that
-# could carry a prompt-injection payload. Deny every tool that can move funds to
-# an arbitrary destination — legit funding is done by deterministic scripts
-# (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
-# --disallowedTools is variadic (space-separated) and would consume a positional
-# prompt — so the deny-list goes LAST (unquoted for word-split) and the prompt is
-# piped via stdin.
-# shellcheck disable=SC2086  # intentional word-split: --disallowedTools is variadic
-DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token"
-if printf '%s' "$PROMPT" | timeout 600 claude --print --permission-mode bypassPermissions \
-    --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
-  echo "===== $(ts) heartbeat ok =====" >>"$LOG"
+# Adaptive cadence + hybrid model. "active" = a position to manage or a live setup.
+# When active: run every heartbeat on Opus. When idle (flat + quiet): run the LLM
+# only every GCLAW_FLAT_INTERVAL_H hours (default 4) on Sonnet — the deterministic
+# steps still run hourly, but we don't burn the LLM (and your plan allowance) on
+# "nothing to do" cycles. An explicit GCLAW_MODEL overrides the model, not the cadence.
+ACTIVE="active"; FLAT_INTERVAL_H="${GCLAW_FLAT_INTERVAL_H:-4}"
+[[ -f "$SKILL_DIR/scripts/model_select.js" ]] && ACTIVE="$(node "$SKILL_DIR/scripts/model_select.js" active 2>>"$LOG" || echo active)"
+LAST_CYCLE="$(cat "$GCLAW_HOME/last_cycle" 2>/dev/null || echo 0)"; NOW="$(date +%s)"
+if [[ "$ACTIVE" == "idle" && $((NOW - LAST_CYCLE)) -lt $((FLAT_INTERVAL_H * 3600)) ]]; then
+  echo "$(ts) cycle skipped: idle (flat, no setup) — last LLM cycle $(((NOW - LAST_CYCLE) / 60))m ago < ${FLAT_INTERVAL_H}h" >>"$LOG"
 else
-  echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
-  [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
-    node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
+  [[ -f "$SKILL_DIR/scripts/model_select.js" ]] &&
+    MODEL="$(node "$SKILL_DIR/scripts/model_select.js" model 2>>"$LOG" || echo "$MODEL")"
+  echo "$(ts) model: $MODEL ($ACTIVE)" >>"$LOG"
+  # Anti-drain: the heartbeat runs unattended with bypassPermissions, and reads
+  # untrusted text (peer cards, family bus, market data, gene-pool metadata) that
+  # could carry a prompt-injection payload. Deny every tool that can move funds to
+  # an arbitrary destination — legit funding is done by deterministic scripts
+  # (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
+  # shellcheck disable=SC2086  # intentional word-split: --disallowedTools is variadic
+  DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token"
+  if printf '%s' "$PROMPT" | timeout 600 claude --print --permission-mode bypassPermissions \
+      --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
+    echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
+  else
+    echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
+    [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+      node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
+  fi
 fi
 
 # Risk guardrail: the model bypasses sizing.py, so enforce the per-trade and

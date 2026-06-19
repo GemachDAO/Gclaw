@@ -43,15 +43,23 @@ function liveSetup(intel) {
   ));
 }
 
-function main() {
-  if (process.env.GCLAW_MODEL) { process.stdout.write(process.env.GCLAW_MODEL); return; }
+// "active" = the cycle needs real judgment: a position to manage or a live setup.
+// Drives BOTH the model (Opus when active) and the cadence (run hourly when active,
+// stretch when idle). Ignores GCLAW_MODEL so a forced model doesn't disable cadence.
+function activity() {
   const intel = readJson(path.join(GCLAW_HOME, 'intel.json'), {}).intel || {};
   const positions = positionCount();
-  let model = 'sonnet';
-  let reason = 'flat + no live setup — routine cycle';
-  if (positions > 0) { model = 'opus'; reason = `${positions} open position(s) to manage`; }
-  else if (liveSetup(intel)) { model = 'opus'; reason = 'live non-chop setup to weigh'; }
-  process.stderr.write(`model_select: ${model} (${reason})\n`);
+  if (positions > 0) return { active: true, reason: `${positions} open position(s) to manage` };
+  if (liveSetup(intel)) return { active: true, reason: 'live non-chop setup to weigh' };
+  return { active: false, reason: 'flat + no live setup — routine cycle' };
+}
+
+function main() {
+  const cmd = process.argv[2] || 'model';
+  const a = activity();
+  if (cmd === 'active') { process.stdout.write(a.active ? 'active' : 'idle'); return; }
+  const model = process.env.GCLAW_MODEL || (a.active ? 'opus' : 'sonnet');
+  process.stderr.write(`model_select: ${model} (${a.reason})\n`);
   process.stdout.write(model);
 }
 
