@@ -276,12 +276,15 @@ async function cmdClose(wallet, args) {
   const { skill, creds } = await signedSkill(wallet);
   const szi = await positionSize(skill, wallet.managed, coin);
   if (!szi) return { ok: true, action: 'close', coin, note: 'no open position' };
+  // Optional partial reduce: --size <amount> closes only that much (reduceOnly),
+  // clamped to the open size. Omitted → flatten the whole position.
+  const want = args.size ? Math.min(Math.abs(Number(args.size)), Math.abs(szi)) : Math.abs(szi);
   const px = await markPriceFor(skill, coin);
   const res = await skill.hlCreateOrder({
     coin,
     isLong: szi < 0, // opposite side to flatten
     price: String(px),
-    size: String(Math.abs(szi)),
+    size: String(want),
     reduceOnly: true,
     isMarket: true,
     tpPrice: '0',
@@ -289,7 +292,7 @@ async function cmdClose(wallet, args) {
     ...creds,
   });
   if (res && res.isSuccess === false) die(`close rejected: ${JSON.stringify(res)}`);
-  return { ok: true, action: 'close', coin, closedSize: Math.abs(szi), mark: px };
+  return { ok: true, action: 'close', coin, closedSize: want, partial: want < Math.abs(szi), mark: px };
 }
 
 async function cmdCancel(wallet, args) {
