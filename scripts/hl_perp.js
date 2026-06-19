@@ -200,14 +200,17 @@ async function cmdStatus(wallet) {
   return {
     ok: true,
     managed: wallet.managed,
-    // HL uses ONE unified USDC balance: spot `total` is the whole account, `hold`
-    // is the slice already pledged as perp margin. Free collateral for NEW perps
-    // is total - hold — perp `withdrawable` reads ~0 and is NOT the buying power.
+    // Equity = FREE spot + perp accountValue. The perp margin is double-represented:
+    // it shows as spot `hold` AND inside `accountValue` (margin + unrealized). Adding
+    // spot total + accountValue would count it twice; spot total + unrealized drops
+    // the whole perp wallet (so a perp-funded account with ~$0 spot reads as ~$0).
+    // (total - hold) + accountValue counts each dollar once and works for cross,
+    // isolated, perp-funded, and pure-spot accounts alike.
     spotUsdc: spotTotal,
     spotHold,
     buyingPower: Math.max(0, spotTotal - spotHold),
-    equity: spotTotal + unrealized, // true account equity for risk sizing
-    accountValue: full.accountValue, // perp-committed margin only (legacy field)
+    equity: Math.max(0, spotTotal - spotHold) + Number(full.accountValue || 0),
+    accountValue: full.accountValue, // perp wallet value (margin + unrealized)
     withdrawable: full.withdrawable,
     positions: full.positions, // includes builder-dex (xyz:*) positions
     openOrders: (orders || []).map((o) => ({ coin: o.coin, px: Number(o.limitPx), sz: Number(o.sz), reduceOnly: !!o.reduceOnly })),

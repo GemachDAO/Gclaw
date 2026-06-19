@@ -782,7 +782,8 @@ def live_sync_script(h: Path) -> str:
     positions = [{"coin": p.get("coin"), "szi": float(p.get("size", 0) or 0),
                   "entry": float(p.get("entryPx", 0) or 0), "upnl": float(p.get("unrealizedPnl", 0) or 0)}
                  for p in (snap.get("positions") or [])]
-    spot_base = round(float(snap.get("equity", 0) or 0) - sum(p["upnl"] for p in positions), 4)
+    spot_base = round(max(0.0, float(snap.get("spotUsdc", 0) or 0)
+                          - float(snap.get("spotHold", 0) or 0)), 4)  # free spot, live-fetch fallback
     if not addr:
         return ""  # no managed address embedded → leave the snapshot as-is
     data = json.dumps({"addr": addr, "spotBase": spot_base, "positions": positions})
@@ -797,9 +798,11 @@ def live_sync_script(h: Path) -> str:
             ".then(function(r){var perp=r[0]||{},spot=r[1]||{},live={};"
             "(perp.assetPositions||[]).forEach(function(a){var p=a.position||{};live[p.coin]=Number(p.unrealizedPnl||0);});"
             "var u=(spot.balances||[]).filter(function(b){return b.coin==='USDC';})[0];"
-            "var spotTotal=u?Number(u.total):D.spotBase;var upnl=0;"
+            "var freeSpot=u?Math.max(0,Number(u.total)-Number(u.hold||0)):D.spotBase;var upnl=0;"
             "D.positions.forEach(function(p){upnl+=(p.coin in live)?live[p.coin]:p.upnl;});"
-            "var eq=spotTotal+upnl;set('liveEquity','$'+fmt(eq));"
+            # equity = free spot + perp accountValue (margin is double-counted otherwise)
+            "var acct=Number((perp.marginSummary||{}).accountValue||0);"
+            "var eq=freeSpot+acct;set('liveEquity','$'+fmt(eq));"
             "var el=document.getElementById('liveUpnl');if(el){el.innerHTML=(upnl>=0?'+':'\\u2212')+'$'+fmt(upnl);"
             "el.className='sval '+(upnl>=0?'up':'down');}"
             "var now='live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC';set('liveAsOf',now);"
