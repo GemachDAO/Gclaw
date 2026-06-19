@@ -118,7 +118,7 @@ def gauge(label: str, value: float, maximum: float, hue: int) -> str:
     pct = max(0, min(100, value / maximum * 100)) if maximum else 0
     return (
         f'<div class="gauge"><div class="glabel">{html.escape(label)}'
-        f'<span>{value:g}</span></div><div class="gbar"><div class="gfill" '
+        f'<span>{value:,.0f}</span></div><div class="gbar"><div class="gfill" '
         f'style="width:{pct:.0f}%;background:hsl({hue},70%,55%)"></div></div></div>'
     )
 
@@ -265,7 +265,7 @@ def positions_html(h: Path) -> str:
     snap = load_json(h / "positions.json", {})
     pos = snap.get("positions") or []
     asof = (snap.get("ts") or "")[11:19]
-    equity = float(snap.get("accountValue", 0) or 0)
+    equity = float(snap.get("equity", 0) or 0)  # true account equity, not perp-margin-only
     if not pos:
         tail = f" · as of {asof} UTC" if asof else ""
         return f'<p class="muted">Flat — no open positions · equity ${equity:.2f}{tail}</p>'
@@ -274,12 +274,13 @@ def positions_html(h: Path) -> str:
         size = float(p.get("size", 0) or 0)
         side = "LONG" if size > 0 else "SHORT"
         up = float(p.get("unrealizedPnl", 0) or 0)
-        color = "#7CFFB2" if up >= 0 else "#ff7c8a"
+        color = "var(--emerald)" if up >= 0 else "var(--red)"
+        pnl = f'{"+" if up >= 0 else "−"}${abs(up):,.2f}'
         liq = float(p.get("liquidationPx") or 0)
         rows.append(
             f'<li><span class="pill">{side}</span><b>{html.escape(str(p.get("coin", "?")))}</b> '
             f'{abs(size):g} @ ${float(p.get("entryPx", 0) or 0):,.2f} '
-            f'<span style="color:{color};font-weight:700">{up:+.3f}</span> '
+            f'<span style="color:{color};font-weight:700">{pnl}</span> '
             f'<span class="muted">liq ${liq:,.0f}</span></li>')
     head = (f'<div class="muted" style="margin-bottom:8px">equity '
             f'<b style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · as of {asof} UTC</div>')
@@ -518,6 +519,28 @@ def predictions_html(h: Path) -> str:
     return "".join(parts)
 
 
+def vitals_html(state: dict[str, Any], h: Path) -> str:
+    """The at-a-glance vitals — the numbers a human actually opens this to see:
+    equity, live P&L (colour-coded), open risk, and the progression metrics."""
+    snap = load_json(h / "positions.json", {})
+    equity = float(snap.get("equity", 0) or 0)
+    upnl = sum(float(p.get("unrealizedPnl", 0) or 0) for p in (snap.get("positions") or []))
+    npos = len(snap.get("positions") or [])
+    pnl_cls = "up" if upnl >= 0 else "down"
+    pnl_str = f'{"+" if upnl >= 0 else "−"}${abs(upnl):,.2f}'
+
+    def stat(label: str, val: str, cls: str = "") -> str:
+        return f'<div class="stat"><div class="slabel">{label}</div><div class="sval {cls}">{val}</div></div>'
+
+    return (
+        stat("Equity", f"${equity:,.2f}", "lead")
+        + stat("Unrealized", pnl_str, pnl_cls)
+        + stat("Open", str(npos))
+        + stat("Goodwill", str(int(state.get("goodwill", 0) or 0)), "em")
+        + stat("Heartbeats", str(int(state.get("heartbeats", 0) or 0)))
+    )
+
+
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
     # Lead with the creature's own name (defaults to its unique species, not the
     # generic 'Gclaw' template). Genome stays seeded from a stable value so the
@@ -541,6 +564,8 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         helix=helix_svg(g),
         lion=lion("26px"),
         lion_sm=lion("15px"),
+        lion_lg=lion("34px"),
+        vitals=vitals_html(state, home()),
         mode=mode,
         mode_hue=mode_hue,
         born=state.get("born_at", "—"),
@@ -679,14 +704,26 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
 .qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
 .addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
-@media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}}}
-</style></head><body><div class="wrap">
+.topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}}
+.ident{{display:flex;align-items:center;gap:14px}}.ident .lionmark{{color:var(--emerald);display:inline-flex}}
+.bigname{{font-size:26px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1}}
+.vitals{{display:flex;gap:30px;flex-wrap:wrap}}.stat{{min-width:64px}}
+.slabel{{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px}}
+.sval{{font-size:21px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}}
+.sval.lead{{font-size:32px;letter-spacing:-.5px}}.sval.up{{color:var(--emerald)}}.sval.down{{color:var(--red)}}.sval.em{{color:var(--emerald)}}
+@media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}}}
+</style></head><body>
+<div class="topbar">
+  <div class="ident"><span class="lionmark">{lion_lg}</span>
+    <div><div class="eyebrow">// GEMACH · {species}</div><div class="bigname">{sigil} {name}</div></div>
+    <span class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</span>
+  </div>
+  <div class="vitals">{vitals}</div>
+</div>
+<div class="wrap">
 <div class="card hero">
-  <div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// GEMACH ECOSYSTEM</span></div>
-  <div class="species">{species}</div>
-  <h1>{sigil} {name}</h1>
+  <div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div>
   {helix}
-  <div class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</div>
   <div class="fp">genome {fingerprint} · born {born}</div>
 </div>
 <div>
