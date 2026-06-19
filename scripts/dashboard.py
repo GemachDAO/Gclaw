@@ -568,8 +568,22 @@ def leaderboard_html(h: Path) -> str:
         you = ' <span class="tag">you</span>' if e.get("self") else ""
         rows.append(f'<tr><td>·</td><td>{e.get("name") or "?"}{you}</td>'
                     f'<td colspan="3" class="muted">awaiting published stats</td></tr>')
+    link = ('<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
+            'every creature, live from Base ↗</a>')
     return ('<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
-            f'<th>GMAC</th><th>equity</th></tr>{"".join(rows)}</table>')
+            f'<th>GMAC</th><th>equity</th></tr>{"".join(rows)}</table>{link}')
+
+
+def deploy_leaderboard(h: Path) -> None:
+    """Co-locate the decentralized leaderboard next to the dashboard so the main page
+    links to it with a relative href that resolves wherever it's served (http, file://,
+    or a pinned IPFS directory). The board itself reads all creatures from Base."""
+    src = SCRIPT_DIR.parent / "leaderboard" / "leaderboard.html"
+    try:
+        if src.exists():
+            (h / "leaderboard.html").write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def achievements_html(state: dict[str, Any]) -> str:
@@ -894,6 +908,7 @@ def cmd_render(args: argparse.Namespace) -> None:
         refresh_roster(h)
         refresh_qr(h)
         refresh_leaderboard(h)
+    deploy_leaderboard(h)  # co-locate the leaderboard so the header link resolves
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
     identity = (h / "dna" / "IDENTITY.md").read_text(encoding="utf-8") if (h / "dna" / "IDENTITY.md").exists() else ""
@@ -1142,6 +1157,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .lev{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}}
 .lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:var(--emerald);font-size:15px}}.lev.locked{{opacity:.5}}
 .link{{display:inline-block;margin-top:10px;color:var(--blue);text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
+.lb-full{{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);color:var(--emerald);font-weight:600}}.lb-full:hover{{color:var(--ink)}}
 .decent h2{{color:var(--emerald)}}
 .topup{{display:flex;flex-direction:column;gap:14px}}
 .gasline{{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;line-height:1.7}}.gasline b{{color:var(--silver)}}
@@ -1155,6 +1171,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .ident{{display:flex;align-items:center;gap:14px}}.ident .lionmark{{color:var(--emerald);display:inline-flex}}
 .sharebtn{{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--line);color:var(--silver);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:600;text-decoration:none;letter-spacing:.3px;transition:border-color .12s,color .12s}}
 .sharebtn:hover{{border-color:var(--silver);color:var(--ink)}}
+.sharebtn.lb-link{{border-color:#2c6e4a;color:var(--emerald)}}
+.sharebtn.lb-link:hover{{background:rgba(73,184,117,.12);color:var(--emerald);border-color:var(--emerald)}}
 .bigname{{font-size:26px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1}}
 .vitals{{display:flex;gap:30px;flex-wrap:wrap}}.stat{{min-width:64px}}
 .slabel{{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px}}
@@ -1177,6 +1195,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
       <div><div class="eyebrow">// GEMACH · {species}</div><div class="bigname">{sigil} {name}</div></div>
       <span class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</span>
       <a class="sharebtn" href="{share}" target="_blank" rel="noopener" title="Share on X">𝕏 Share</a>
+      <a class="sharebtn lb-link" href="leaderboard.html" title="Family leaderboard — every creature, live from Base">Leaderboard ↗</a>
     </div>
     <div class="vitals">{vitals}</div>
   </div>
