@@ -74,8 +74,15 @@ else
     node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
 fi
 
+# "Call it" prediction game: score any round whose trade just closed, then open a
+# round for any new trade — BEFORE the dashboard render anchors the root onchain.
+[[ -f "$SKILL_DIR/scripts/predict.js" ]] && {
+  echo "$(ts) predict-resolve: $(node "$SKILL_DIR/scripts/predict.js" resolve --announce 2>&1)" >>"$LOG"
+  echo "$(ts) predict-open: $(node "$SKILL_DIR/scripts/predict.js" open --announce 2>&1)" >>"$LOG"
+} || true
+
 # Always refresh the dashboard — this also publishes stats + the DNA avatar to
-# IPFS and recomputes the family leaderboard (no-ops cleanly without PINATA_JWT).
+# IPFS, anchors the predictions root onchain, and recomputes the leaderboards.
 [[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
   "$SKILL_DIR/scripts/dashboard.py" render >>"$LOG" 2>&1 || true
 

@@ -91,6 +91,15 @@ function knownPeers() {
   } catch { return []; }
 }
 
+function predictionsRoot() {
+  // keccak of open prediction rounds + their calls, anchored onchain so a "Call
+  // it" prediction can't be backdated and the operator can't fudge a round.
+  try {
+    const r = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'predictions', 'root.json'), 'utf8'));
+    return { root: r.root, open: (r.openRounds || []).length };
+  } catch { return null; }
+}
+
 function publishedTechniques() {
   // Compact advert of this creature's proven, IPFS-pinned techniques so peers
   // discover the family's edges straight from chain. Metadata only (+ a cid);
@@ -151,7 +160,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
-      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques() }),
+      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques(), predictions: predictionsRoot() }),
       ...lineage,
     },
   };
@@ -224,9 +233,12 @@ async function main() {
     let last = {};
     try { last = JSON.parse(fs.readFileSync(beaconPath, 'utf8')); } catch { /* first push */ }
     const goodwill = card['x-gclaw'].stats?.goodwill ?? 0;
+    const predRoot = card['x-gclaw'].predictions?.root ?? null;
     const hours = last.ts ? (Date.now() - new Date(last.ts).getTime()) / 3.6e6 : Infinity;
-    if (goodwill === last.goodwill && hours < 12) {
-      console.log(JSON.stringify({ ok: true, skipped: 'no goodwill change, fresh', goodwill }));
+    // Push on a goodwill change OR a new prediction root (so open rounds anchor
+    // BEFORE they resolve — the anti-cheat) OR staleness.
+    if (goodwill === last.goodwill && predRoot === last.predRoot && hours < 12) {
+      console.log(JSON.stringify({ ok: true, skipped: 'no goodwill/predictions change, fresh', goodwill }));
       return;
     }
     if (bal < ethers.parseEther('0.00002')) {
@@ -235,7 +247,7 @@ async function main() {
     }
     const tx = await registry.setAgentURI(BigInt(idRecord.agentId), uri);
     const receipt = await tx.wait();
-    const rec = { goodwill, score: card['x-gclaw'].stats?.score ?? null, ts: new Date().toISOString(), tx: tx.hash, block: receipt.blockNumber };
+    const rec = { goodwill, predRoot, score: card['x-gclaw'].stats?.score ?? null, ts: new Date().toISOString(), tx: tx.hash, block: receipt.blockNumber };
     fs.writeFileSync(beaconPath, JSON.stringify(rec, null, 2) + '\n');
     console.log(JSON.stringify({ ok: true, pushed: true, ...rec }));
     return;
