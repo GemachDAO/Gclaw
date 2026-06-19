@@ -434,13 +434,27 @@ def achievements_html(state: dict[str, Any]) -> str:
         items.append(("⭐", f"GW {t}{tag}", gw >= t))
     for t in (100, 250, 500, 1000):
         items.append(("🫀", f"{t} beats", hb >= t))
-    items += [("🜂", "Above seed", gmac > seed), ("🧬", "First child", kids > 0),
+    items += [("🌱", "Above seed", gmac > seed), ("🧬", "First child", kids > 0),
               ("🔥", f"{streak}-win streak" if streak >= 3 else "Win streak", streak >= 3)]
-    badges = "".join(
-        f'<span class="badge {"on" if u else "off"}">{e} {html.escape(lbl)}</span>' for e, lbl, u in items)
+    earned = [(e, lbl) for e, lbl, u in items if u]
+    total = len(items)
+    # Celebrate what's won (bright) + the single next target as a progress bar —
+    # not a wall of greyed-out locks.
+    if earned:
+        badges = "".join(f'<span class="badge on">{e} {html.escape(lbl)}</span>' for e, lbl in earned)
+    else:
+        badges = '<p class="muted">No badges yet — the first ones come fast.</p>'
+    header = f'<div class="achhdr"><b>{len(earned)}</b> <span class="muted">of {total} unlocked</span></div>'
     nxt = next((t for t in (10, 25, 50, 100, 200, 500, 1000) if gw < t), None)
-    prog = f'<div class="muted" style="margin-top:10px">Next badge → ⭐ goodwill {gw:g}/{nxt}</div>' if nxt else ""
-    return f'<div class="badges">{badges}</div>{prog}'
+    progress = ""
+    if nxt:
+        prev = max([t for t in (0, 10, 25, 50, 100, 200, 500) if t <= gw], default=0)
+        pct = (gw - prev) / (nxt - prev) * 100 if nxt > prev else 0
+        unlock = {50: " · unlocks Replicate", 100: " · unlocks Recode", 1000: " · unlocks Max leverage"}.get(nxt, "")
+        progress = (f'<div class="nextup"><div class="nblabel">Next → ⭐ goodwill '
+                    f'<b>{int(gw)}</b>/{nxt}{unlock}</div>'
+                    f'<div class="gbar"><div class="gfill" style="width:{pct:.0f}%;background:var(--emerald)"></div></div></div>')
+    return f'{header}<div class="badges">{badges}</div>{progress}'
 
 
 def global_predictors(h: Path) -> list[dict]:
@@ -742,6 +756,8 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}}
 .pill{{display:inline-block;background:#16243f;color:var(--blue);padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
 .callit{{background:#10203a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}}
+.achhdr{{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:10px}}.achhdr .muted{{font-size:13px;font-weight:400}}
+.nextup{{margin-top:12px}}.nblabel{{font-size:12px;color:var(--muted);margin-bottom:6px}}.nblabel b{{color:var(--silver)}}
 .badges{{display:flex;flex-wrap:wrap;gap:8px}}
 .badge{{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}}
 .badge.on{{background:rgba(73,184,117,.12);border-color:#2c6e4a;color:var(--emerald)}}
