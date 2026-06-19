@@ -26,9 +26,22 @@ import html
 import json
 import os
 import subprocess
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"  # ERC-8004 on Base
+
+
+def share_url(state: dict[str, Any], name: str, equity: float) -> str:
+    """A Twitter/X intent link to flex the creature — links to its verifiable
+    onchain identity (or the repo) so the share proves it's real."""
+    aid = (state.get("onchain_identity") or {}).get("agentId")
+    link = f"https://basescan.org/nft/{IDENTITY_REGISTRY}/{aid}" if aid else "https://github.com/GemachDAO/Gclaw"
+    text = (f"Meet {name} 🦁🧬 — my living, onchain trading agent. Equity ${equity:,.0f}, "
+            f"fully verifiable on @base. A creature that must trade to survive, built with @GemachDAO.")
+    return "https://twitter.com/intent/tweet?" + urllib.parse.urlencode({"text": text, "url": link})
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -584,6 +597,14 @@ def performance_html(journal: list) -> str:
             f'<div class="trendcap"><b class="{cls}">{net}</b> · {wins}/{total} wins ({wr}%)</div></div>')
 
 
+def _live_positions(h: Path) -> tuple[bool, float, float]:
+    """(has an open position, total unrealized PnL, account equity) from the snapshot."""
+    snap = load_json(h / "positions.json", {})
+    positions = snap.get("positions") or []
+    pnl = sum(float(p.get("unrealizedPnl", 0) or 0) for p in positions)
+    return len(positions) > 0, pnl, float(snap.get("equity", 0) or 0)
+
+
 def vitals_html(state: dict[str, Any], h: Path) -> str:
     """The at-a-glance vitals — the numbers a human actually opens this to see:
     equity, live P&L (colour-coded), open risk, and the progression metrics."""
@@ -621,6 +642,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         gauge("Goodwill", state.get("goodwill", 0), 200, 280),
         gauge("Heartbeats", state.get("heartbeats", 0), max(50, state.get("heartbeats", 0)), 190),
     ])
+    live = _live_positions(home())  # (active, unrealized_pnl, equity) — for the DNA pulse + share
     return _PAGE.format(
         name=name,
         species=g["species"],
@@ -654,7 +676,8 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         script=TABS_JS,
-        dna_script=dna_script(g),
+        dna_script=dna_script(g, live[0], live[1]),
+        share=share_url(state, name, live[2]),
     )
 
 
@@ -755,14 +778,18 @@ DNA3D_INIT = r"""<script>
   var host=document.getElementById('dna3d'); if(!host) return;
   var W=host.clientWidth||230, H=300;
   host.textContent='';
-  var d=window.GCLAW_DNA||{hue1:150,hue2:210,rungs:16};
+  var d=window.GCLAW_DNA||{hue1:150,hue2:210,rungs:16,active:false,pnl:0};
   var scene=new THREE.Scene();
   var cam=new THREE.PerspectiveCamera(36,W/H,0.1,100); cam.position.set(0,0,15.5);
   var rnd=new THREE.WebGLRenderer({alpha:true,antialias:true});
   rnd.setSize(W,H); rnd.setPixelRatio(Math.min(window.devicePixelRatio||1,2)); host.appendChild(rnd.domElement);
   function col(h){return new THREE.Color('hsl('+Math.round(h)+',72%,60%)');}
-  function node(x,y,z,c){var m=new THREE.Mesh(new THREE.SphereGeometry(0.30,18,18),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.55,roughness:0.3,metalness:0.1}));m.position.set(x,y,z);return m;}
-  function rung(a,b,c){var len=a.distanceTo(b);var m=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,len,8),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.4,roughness:0.45,transparent:true,opacity:0.85}));m.position.copy(a.clone().add(b).multiplyScalar(0.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.clone().sub(a).normalize());return m;}
+  // soft radial-gradient sprite → additive "bloom" glow without a postprocess pass
+  function glowTex(){var c=document.createElement('canvas');c.width=c.height=64;var x=c.getContext('2d');var gr=x.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(0.3,'rgba(255,255,255,0.55)');gr.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=gr;x.fillRect(0,0,64,64);var t=new THREE.Texture(c);t.needsUpdate=true;return t;}
+  var GT=glowTex(), glows=[];
+  function node(x,y,z,c){var m=new THREE.Mesh(new THREE.SphereGeometry(0.30,18,18),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.6,roughness:0.3,metalness:0.1}));m.position.set(x,y,z);return m;}
+  function glow(x,y,z,c){var s=new THREE.Sprite(new THREE.SpriteMaterial({map:GT,color:c,blending:THREE.AdditiveBlending,transparent:true,opacity:0.5,depthWrite:false}));s.position.set(x,y,z);s.scale.set(1.6,1.6,1.6);glows.push(s);return s;}
+  function rung(a,b,c){var len=a.distanceTo(b);var m=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,len,8),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.45,roughness:0.45,transparent:true,opacity:0.85}));m.position.copy(a.clone().add(b).multiplyScalar(0.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.clone().sub(a).normalize());return m;}
   var g=new THREE.Group(), c1=col(d.hue1), c2=col(d.hue2);
   var N=Math.max(10,Math.min(30,d.rungs||16)), turns=2.7, R=2.2, span=8.0;
   for(var i=0;i<N;i++){
@@ -770,26 +797,39 @@ DNA3D_INIT = r"""<script>
     var a=new THREE.Vector3(Math.cos(ang)*R,y,Math.sin(ang)*R);
     var b=new THREE.Vector3(Math.cos(ang+Math.PI)*R,y,Math.sin(ang+Math.PI)*R);
     g.add(node(a.x,a.y,a.z,c1)); g.add(node(b.x,b.y,b.z,c2)); g.add(rung(a,b,i%2?c1:c2));
+    g.add(glow(a.x,a.y,a.z,c1)); g.add(glow(b.x,b.y,b.z,c2));
   }
   scene.add(g);
-  scene.add(new THREE.AmbientLight(0xffffff,0.55));
+  scene.add(new THREE.AmbientLight(0xffffff,0.5));
   var l1=new THREE.PointLight(0x9affc4,0.9); l1.position.set(6,5,10); scene.add(l1);
   var l2=new THREE.PointLight(0x61b8ff,0.6); l2.position.set(-6,-4,7); scene.add(l2);
+  // while a trade is live, a pulsing light tinted by P&L: emerald = up, red = down
+  var pulseLight=null;
+  if(d.active){pulseLight=new THREE.PointLight(d.pnl<0?0xff5a6a:0x49ff9a,0); pulseLight.position.set(0,0,8); scene.add(pulseLight);}
   window.addEventListener('resize',function(){var w=host.clientWidth||W; rnd.setSize(w,H); cam.aspect=w/H; cam.updateProjectionMatrix();});
   (function loop(){
     requestAnimationFrame(loop);
     if(host.offsetParent===null) return;
-    g.rotation.y+=0.012; g.rotation.x=Math.sin(Date.now()/2600)*0.13; rnd.render(scene,cam);
+    var now=Date.now();
+    g.rotation.y += d.active?0.024:0.011;            // pulse faster when actively trading
+    g.rotation.x = Math.sin(now/2600)*0.13;
+    var pulse = 0.5 + 0.5*Math.sin(now/(d.active?420:950));
+    var sc = 1.45 + pulse*(d.active?0.85:0.35);
+    for(var k=0;k<glows.length;k++){ glows[k].scale.set(sc,sc,sc); glows[k].material.opacity = 0.32 + pulse*(d.active?0.55:0.28); }
+    if(pulseLight) pulseLight.intensity = 0.4 + pulse*1.2;
+    rnd.render(scene,cam);
   })();
 })();
 </script>"""
 
 
-def dna_script(g: dict[str, Any]) -> str:
-    """Three.js (CDN, UMD global) + this creature's genome params for the 3D helix."""
+def dna_script(g: dict[str, Any], active: bool, pnl: float) -> str:
+    """Three.js (CDN, UMD global) + this creature's genome + live trade state for
+    the 3D helix (it pulses faster, tinted by P&L, while a trade is open)."""
+    flag = "true" if active else "false"
     return ('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
-            f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]}}};</script>'
-            + DNA3D_INIT)
+            f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]},'
+            f'active:{flag},pnl:{pnl:.2f}}};</script>' + DNA3D_INIT)
 
 
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -843,6 +883,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;flex-direction:column;gap:15px}}
 .toprow{{display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}}
 .ident{{display:flex;align-items:center;gap:14px}}.ident .lionmark{{color:var(--emerald);display:inline-flex}}
+.sharebtn{{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--line);color:var(--silver);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:600;text-decoration:none;letter-spacing:.3px;transition:border-color .12s,color .12s}}
+.sharebtn:hover{{border-color:var(--silver);color:var(--ink)}}
 .bigname{{font-size:26px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1}}
 .vitals{{display:flex;gap:30px;flex-wrap:wrap}}.stat{{min-width:64px}}
 .slabel{{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px}}
@@ -864,6 +906,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="ident"><span class="lionmark">{lion_lg}</span>
       <div><div class="eyebrow">// GEMACH · {species}</div><div class="bigname">{sigil} {name}</div></div>
       <span class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</span>
+      <a class="sharebtn" href="{share}" target="_blank" rel="noopener" title="Share on X">𝕏 Share</a>
     </div>
     <div class="vitals">{vitals}</div>
   </div>
