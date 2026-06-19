@@ -427,6 +427,35 @@ def achievements_html(state: dict[str, Any]) -> str:
     return f'<div class="badges">{badges}</div>{prog}'
 
 
+def predictions_html(h: Path) -> str:
+    """The free 'Call it' game — the open round + the predictors leaderboard."""
+    rounds = load_json(h / "predictions" / "rounds.json", {})
+    preds = load_json(h / "predictions" / "predictors.json", {})
+    parts = []
+    open_r = [r for r in rounds.values() if r.get("status") == "open"]
+    if open_r:
+        for r in open_r:
+            parts.append(f'<div class="callit">🎯 <b>Call it:</b> {html.escape(str(r["coin"]))} '
+                         f'{r["side"]} @ ${r["entry"]:g} — <b>TP</b> or <b>SL</b>? '
+                         f'<span class="muted">round {r["id"]}</span></div>')
+    else:
+        parts.append('<p class="muted">No open round — one opens when the creature opens a trade.</p>')
+    board = sorted(
+        ({"by": k, "acc": round(v["correct"] / v["total"] * 100) if v.get("total") else 0, **v} for k, v in preds.items()),
+        key=lambda e: (-e["acc"], -e.get("correct", 0)))
+    if board:
+        rows = "".join(
+            f'<tr><td>{i + 1}</td><td>{html.escape(e["by"])}</td><td>{e["acc"]}%</td>'
+            f'<td>{e.get("correct", 0)}/{e.get("total", 0)}</td><td>{e.get("streak", 0)}🔥</td></tr>'
+            for i, e in enumerate(board[:8]))
+        parts.append(f'<table class="lb" style="margin-top:10px"><tr><th>#</th><th>predictor</th>'
+                     f'<th>acc</th><th>record</th><th>streak</th></tr>{rows}</table>')
+    else:
+        parts.append('<p class="muted" style="margin-top:8px">No predictors yet — be the first to call it. '
+                     'Free, no stakes; calls are anchored onchain so nobody can cheat.</p>')
+    return "".join(parts)
+
+
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
     # Lead with the creature's own name (defaults to its unique species, not the
     # generic 'Gclaw' template). Genome stays seeded from a stable value so the
@@ -463,6 +492,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         roster=roster_html(home()),
         leaderboard=leaderboard_html(home()),
         achievements=achievements_html(state),
+        predictions=predictions_html(home()),
         topup=topup_html(home()),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
@@ -533,6 +563,7 @@ h1{{margin:0;font-size:26px;letter-spacing:.5px}}h2{{font-size:13px;text-transfo
 .trait{{display:grid;grid-template-columns:90px 1fr 30px;align-items:center;gap:8px;margin:7px 0;font-size:13px}}.trait b{{text-align:right}}
 ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}}
 .pill{{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
+.callit{{background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:10px 12px;font-size:14px}}
 .badges{{display:flex;flex-wrap:wrap;gap:8px}}
 .badge{{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}}
 .badge.on{{background:#13351f;border-color:#1f6b46;color:#7CFFB2}}
@@ -575,6 +606,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
   </div>
   <div class="card" style="margin-top:18px"><h2>🏅 Achievements</h2>{achievements}</div>
+  <div class="card decent" style="margin-top:18px"><h2>🎯 Call it · predictions (free · onchain-anchored)</h2>{predictions}</div>
   <div class="card decent" style="margin-top:18px"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
   <div class="grid2" style="margin-top:18px">
     <div class="card"><h2>Life events</h2>{events}</div>
