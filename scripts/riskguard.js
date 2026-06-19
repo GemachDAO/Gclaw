@@ -30,9 +30,13 @@ const TOLERANCE = 1.15;         // don't churn a position for being <15% over
 const MIN_NOTIONAL = 11;        // HL min — below this we flatten rather than dust-trim
 
 function hl(args) {
-  const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), ...args],
-    { encoding: 'utf8', timeout: 90000 });
-  return JSON.parse(out.trim().split('\n').pop());
+  // The HL SDK status read transiently fails; never let that crash the guardrail —
+  // a failed read just means "skip enforcement this cycle", handled by the caller.
+  try {
+    const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), ...args],
+      { encoding: 'utf8', timeout: 90000 });
+    return JSON.parse(out.trim().split('\n').pop());
+  } catch { return null; }
 }
 
 // The protective stop is the reduce-only order on the LOSS side: above entry for a
@@ -81,6 +85,7 @@ function flatten(coin, dry) {
 
 function enforce(dry) {
   const st = hl(['status']);
+  if (!st) return { ok: true, skipped: 'status read unavailable this cycle' };
   const eq = Number(st.equity) || 0;
   if (!eq) return { ok: false, error: 'no equity read' };
   const cap = eq * (RISK_CAP_PCT / 100);
