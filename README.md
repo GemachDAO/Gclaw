@@ -63,7 +63,7 @@ That's it. `install.sh` makes you a fresh managed-custody wallet and prints the 
 | `gclaw fund` | has the money landed yet? |
 | `gclaw start` | bring the creature to life (birth + hourly heartbeat) |
 | `gclaw status` | how it's doing right now |
-| `gclaw dashboard` | open its living DNA page |
+| `gclaw dashboard` | open its tabbed vitals dashboard (equity, P&L trend, regime, predictions) |
 | `gclaw talk <name>` | talk to a creature in character |
 | `gclaw beat` | run one heartbeat now |
 
@@ -71,10 +71,22 @@ Kill switch any time: `touch ~/.gclaw/PAUSE` (and `rm` it to resume).
 
 ## // What it actually does
 
-Every hour, on its own, your creature: ticks its GMAC life-energy, reads the
-HyperLiquid market, and — only with a real edge — opens one small, **always
-stop-protected** trade (perps or HIP-3 event markets). It books its own PnL,
-earns goodwill, and as goodwill grows it unlocks:
+Every heartbeat, on its own, your creature reads the HyperLiquid market into a
+**regime** (trend / range / chop) and acts on the read, not a hunch:
+
+- **Sits out the chop.** In directionless whipsaw it does nothing — the simplest way
+  to stop donating to noise.
+- **Trades only proven, regime-matched edge.** It opens a trade only when a technique
+  has positive expectancy *in the current regime* from its own **trade-memory** — a
+  self-learning record (with a bootstrap confidence gate) of what works in which
+  conditions, pooled across the whole family.
+- **Sizes with math, not gut.** Every trade is **volatility-targeted + fractional-Kelly**
+  sized — proven edges scale up, coin-flips drop to the floor — and **always carries a stop.**
+- **Can't blow up.** A deterministic **risk guardrail** runs every heartbeat: it
+  physically trims any position over its risk cap, flattens naked (stopless) ones, and
+  halts on a drawdown breaker. Safety is enforced in code, never left to the model.
+
+It books its own PnL, earns goodwill, and as goodwill grows it unlocks:
 
 | goodwill | unlocks |
 |---|---|
@@ -85,6 +97,15 @@ earns goodwill, and as goodwill grows it unlocks:
 
 Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
 arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
+
+## // Call it — the free prediction game
+
+When your creature opens a trade, anyone can **call it — TP or SL** for free: no
+stake, no funds held, ever. Calls are hashed and anchored onchain *before* the trade
+resolves, and the outcome is read from HyperLiquid's own fills — so nobody, not even
+the operator, can backdate a call or fudge a result. Correct callers climb a **global
+predictors ladder** pooled across every creature. Reply right in Telegram; the points
+are pure clout (never money, never redeemable) — so it's engagement, not gambling.
 
 ## // Decentralized by design · Built on Base
 
@@ -112,9 +133,14 @@ the chain directly — **no server, no host.** Open it from the repo or pin it t
 
 ## // Under the hood
 
-Claude Code is the runtime; the GDEX MCP is the trading arm; deterministic Python
-owns the survival bookkeeping so the agent can't lie to itself. See `SKILL.md` for
-the heartbeat, `CLAUDE.md` for development, and `references/` for the playbooks.
+Claude Code is the runtime; the GDEX MCP is the trading arm. Every safety- and
+money-critical step is **deterministic Python/Node the model can't skip** — position
+sizing, the risk guardrail, settlement, the circuit breaker, GMAC buy-backs — so the
+agent can't lie to itself or be talked into a drain. To respect cost it runs **Sonnet
+by default and escalates to Opus only when a trade is actually on the table**, and
+stretches its cadence when flat. See `SKILL.md` for the heartbeat,
+`dna/TRADING_STRATEGY.md` for the trading brain, `CLAUDE.md` for development, and
+`references/` for the playbooks.
 
 > Requires Node 22+, Python 3, and the GDEX SDK (`GemachDAO/gdex-skill`). Trading
 > uses real money — start small. Your wallet's secrets live in `~/.gclaw/wallet.json`
