@@ -643,6 +643,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         gauge("Heartbeats", state.get("heartbeats", 0), max(50, state.get("heartbeats", 0)), 190),
     ])
     live = _live_positions(home())  # (active, unrealized_pnl, equity) — for the DNA pulse + share
+    persona = load_json(home() / "dna" / "persona.json", {})  # archetype + catchphrase for the card
     return _PAGE.format(
         name=name,
         species=g["species"],
@@ -676,7 +677,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         script=TABS_JS,
-        dna_script=dna_script(g, live[0], live[1]),
+        dna_script=dna_script(g, live, state, journal, persona),
         share=share_url(state, name, live[2]),
     )
 
@@ -781,7 +782,7 @@ DNA3D_INIT = r"""<script>
   var d=window.GCLAW_DNA||{hue1:150,hue2:210,rungs:16,active:false,pnl:0};
   var scene=new THREE.Scene();
   var cam=new THREE.PerspectiveCamera(36,W/H,0.1,100); cam.position.set(0,0,15.5);
-  var rnd=new THREE.WebGLRenderer({alpha:true,antialias:true});
+  var rnd=new THREE.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});
   rnd.setSize(W,H); rnd.setPixelRatio(Math.min(window.devicePixelRatio||1,2)); host.appendChild(rnd.domElement);
   function col(h){return new THREE.Color('hsl('+Math.round(h)+',72%,60%)');}
   // soft radial-gradient sprite → additive "bloom" glow without a postprocess pass
@@ -823,13 +824,61 @@ DNA3D_INIT = r"""<script>
 </script>"""
 
 
-def dna_script(g: dict[str, Any], active: bool, pnl: float) -> str:
-    """Three.js (CDN, UMD global) + this creature's genome + live trade state for
-    the 3D helix (it pulses faster, tinted by P&L, while a trade is open)."""
+# Compose a branded, shareable DNA card client-side (no OG server — stays
+# decentralized): the live helix snapshot + name + equity + verified badge on the
+# Gemach canvas, downloaded as a PNG to attach to a tweet.
+CARD_JS = r"""<script>
+window.downloadDNACard=function(){
+  var c=window.GCLAW_CARD||{}, W=1200, H=675;
+  function rr(x,X,Y,w,h,r){x.beginPath();x.moveTo(X+r,Y);x.arcTo(X+w,Y,X+w,Y+h,r);x.arcTo(X+w,Y+h,X,Y+h,r);x.arcTo(X,Y+h,X,Y,r);x.arcTo(X,Y,X+w,Y,r);x.closePath();}
+  function draw(){
+    var cv=document.createElement('canvas'); cv.width=W; cv.height=H; var x=cv.getContext('2d');
+    var bg=x.createRadialGradient(W*0.8,-60,60,W*0.8,-60,1150); bg.addColorStop(0,'#18233c'); bg.addColorStop(1,'#060A17');
+    x.fillStyle=bg; x.fillRect(0,0,W,H); x.strokeStyle='#1e2c49'; x.lineWidth=2; x.strokeRect(1,1,W-2,H-2);
+    var src=document.querySelector('#dna3d canvas');
+    if(src){ try{ x.drawImage(src,50,(H-480)/2,370,480); }catch(e){} }
+    var tx=470;
+    x.fillStyle='#697083'; x.font='600 17px Inter'; x.fillText('// GEMACH ECOSYSTEM · LIVING AGENT', tx, 132);
+    x.fillStyle='#FFFFFF'; x.font='800 66px Inter'; x.fillText(c.name||'Gclaw', tx, 200);
+    x.fillStyle='#81899F'; x.font='500 21px Inter'; x.fillText((c.species||'')+(c.archetype?(' · '+c.archetype):''), tx, 234);
+    x.fillStyle='#697083'; x.font='600 15px Inter'; x.fillText('EQUITY', tx, 300);
+    x.fillStyle='#FFFFFF'; x.font='800 58px Inter'; x.fillText('$'+(c.equity||'0'), tx, 358);
+    var lab='✓ VERIFIABLE ON BASE'; x.font='700 14px Inter'; var pw=x.measureText(lab).width+26;
+    x.fillStyle='#49B875'; rr(x,tx,378,pw,30,8); x.fill(); x.fillStyle='#060A17'; x.fillText(lab, tx+13, 398);
+    x.fillStyle='#D5D9E1'; x.font='600 22px Inter'; x.fillText(c.goodwill+' goodwill    ·    '+c.heartbeats+' heartbeats    ·    '+c.record, tx, 466);
+    if(c.catchphrase){ x.fillStyle='#81899F'; x.font='italic 500 21px Inter'; x.fillText('“'+c.catchphrase+'”', tx, 508); }
+    x.fillStyle='#A1A5B3'; x.font='700 18px Inter'; x.fillText('//GEMACH', tx, H-66);
+    x.fillStyle='#4D5972'; x.font='400 14px Inter'; x.fillText('a creature that must trade to survive · genome '+c.fingerprint, tx, H-42);
+    var a=document.createElement('a'); a.download=(c.name||'gclaw').replace(/\s+/g,'-').toLowerCase()+'-dna.png'; a.href=cv.toDataURL('image/png'); a.click();
+  }
+  if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(draw); } else { draw(); }
+};
+</script>"""
+
+
+def dna_script(g: dict[str, Any], live: tuple, state: dict[str, Any],
+               journal: list, persona: dict[str, Any]) -> str:
+    """Three.js + genome + live trade state for the helix, plus the shareable-card
+    data and the client-side card composer."""
+    active, pnl, equity = live
     flag = "true" if active else "false"
+    settles = [e for e in journal if e.get("event") == "settle"]
+    wins = sum(1 for e in settles if float(e.get("pnl", 0) or 0) > 0)
+    card = {
+        "name": state.get("name") or g["species"],
+        "species": g["species"],
+        "archetype": (persona or {}).get("archetype", ""),
+        "catchphrase": (persona or {}).get("catchphrase", ""),
+        "equity": f"{equity:,.2f}",
+        "goodwill": int(state.get("goodwill", 0) or 0),
+        "heartbeats": int(state.get("heartbeats", 0) or 0),
+        "record": f"{wins}/{len(settles)} wins" if settles else "new",
+        "fingerprint": g["fingerprint"],
+    }
     return ('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
             f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]},'
-            f'active:{flag},pnl:{pnl:.2f}}};</script>' + DNA3D_INIT)
+            f'active:{flag},pnl:{pnl:.2f}}};window.GCLAW_CARD={json.dumps(card)};</script>'
+            + DNA3D_INIT + CARD_JS)
 
 
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -850,6 +899,8 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}}
 .hero{{text-align:center}}.species{{color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase}}
 .dna3d{{min-height:300px;display:flex;align-items:center;justify-content:center;overflow:hidden}}.dna3d canvas{{display:block}}
+.cardbtn{{margin-top:14px;background:transparent;border:1px solid var(--line);color:var(--silver);border-radius:999px;padding:8px 16px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:border-color .12s,color .12s}}
+.cardbtn:hover{{border-color:#2c6e4a;color:var(--ink)}}
 .brandrow{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
 .lionmark{{color:var(--emerald);display:inline-flex}}.eyebrow{{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}}
 .lionfoot{{color:var(--muted);display:inline-flex;vertical-align:middle}}.foot b{{color:var(--silver);letter-spacing:1px}}
@@ -941,7 +992,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 </div>
 
 <div class="pane" id="genome">
-  <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div><div id="dna3d" class="dna3d">{helix}</div><div class="fp">genome {fingerprint} · born {born}</div></div>
+  <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div><div id="dna3d" class="dna3d">{helix}</div><div class="fp">genome {fingerprint} · born {born}</div><button class="cardbtn" onclick="window.downloadDNACard&&window.downloadDNACard()">↓ Save shareable DNA card</button></div>
   <div class="card"><h2>Genome traits</h2>{traits}</div>
   <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
   <div class="card decent full"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
