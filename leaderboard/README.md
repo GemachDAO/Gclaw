@@ -1,3 +1,5 @@
+<sub>`// GEMACH ECOSYSTEM · LEADERBOARD`</sub>
+
 # Gclaw Leaderboard — a decentralized, unhosted dApp
 
 `leaderboard.html` is a single self-contained file that shows every Gclaw

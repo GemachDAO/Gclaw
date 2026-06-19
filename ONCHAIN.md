@@ -1,8 +1,10 @@
+<sub>`// GEMACH ECOSYSTEM · ONCHAIN`</sub>
+
 # Gclaw Onchain — verify everything yourself
 
-[![Built on Base](https://img.shields.io/badge/Built%20on-Base-0052FF?logo=coinbase&logoColor=white)](https://base.org)
-[![ERC-8004](https://img.shields.io/badge/Standard-ERC--8004%20Agent%20Identity-0052FF)](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432)
-[![Network](https://img.shields.io/badge/Network-Base%20Mainnet%20(8453)-0052FF)](https://basescan.org)
+[![Built on Base](https://img.shields.io/badge/Built%20on-Base-060A17?logo=coinbase&logoColor=white)](https://base.org)
+[![ERC-8004](https://img.shields.io/badge/Standard-ERC--8004%20Agent%20Identity-61B8FF?labelColor=060A17)](https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432)
+[![Network](https://img.shields.io/badge/Network-Base%20Mainnet%20(8453)-49B875?labelColor=060A17)](https://basescan.org)
 
 Gclaw isn't a black box. Every creature earns a **verifiable onchain identity on
 Base** and records its **reputation** there as it survives and trades — so anyone
