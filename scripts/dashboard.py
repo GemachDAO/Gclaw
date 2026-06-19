@@ -32,6 +32,25 @@ from pathlib import Path
 from typing import Any
 
 IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"  # ERC-8004 on Base
+GITHUB_URL = "https://github.com/GemachDAO/Gclaw"
+
+
+def github_qr_datauri(h: Path) -> str:
+    """A PNG QR of the GitHub repo as a base64 data URI (generated once, cached) —
+    so anyone who scans the dashboard or a shared card can clone it and run their own."""
+    png = h / "qr" / "github.png"
+    if not (png.exists() and png.stat().st_size > 0):
+        try:
+            subprocess.run(["uv", "run", "--no-project", "--with", "qrcode", "--with", "pillow", "python3",
+                            str(SCRIPT_DIR / "qr.py"), GITHUB_URL, "raw", str(png)],
+                           capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    try:
+        import base64
+        return "data:image/png;base64," + base64.b64encode(png.read_bytes()).decode("ascii")
+    except (OSError, ValueError):
+        return ""
 
 
 def share_url(state: dict[str, Any], name: str, equity: float) -> str:
@@ -644,6 +663,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
     ])
     live = _live_positions(home())  # (active, unrealized_pnl, equity) — for the DNA pulse + share
     persona = load_json(home() / "dna" / "persona.json", {})  # archetype + catchphrase for the card
+    gh_qr = github_qr_datauri(home())  # cached PNG QR of the repo, for the card + dashboard
     return _PAGE.format(
         name=name,
         species=g["species"],
@@ -677,8 +697,9 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         script=TABS_JS,
-        dna_script=dna_script(g, live, state, journal, persona),
+        dna_script=dna_script(g, live, state, journal, persona, gh_qr),
         share=share_url(state, name, live[2]),
+        github_qr=gh_qr,
     )
 
 
@@ -828,8 +849,10 @@ DNA3D_INIT = r"""<script>
 # decentralized): the live helix snapshot + name + equity + verified badge on the
 # Gemach canvas, downloaded as a PNG to attach to a tweet.
 CARD_JS = r"""<script>
+window.GCLAW_QRIMG=null;
+if(window.GCLAW_QR){ window.GCLAW_QRIMG=new Image(); window.GCLAW_QRIMG.src=window.GCLAW_QR; }
 window.downloadDNACard=function(){
-  var c=window.GCLAW_CARD||{}, W=1200, H=675;
+  var c=window.GCLAW_CARD||{}, W=1200, H=675, qr=window.GCLAW_QRIMG;
   function rr(x,X,Y,w,h,r){x.beginPath();x.moveTo(X+r,Y);x.arcTo(X+w,Y,X+w,Y+h,r);x.arcTo(X+w,Y+h,X,Y+h,r);x.arcTo(X,Y+h,X,Y,r);x.arcTo(X,Y,X+w,Y,r);x.closePath();}
   function draw(){
     var cv=document.createElement('canvas'); cv.width=W; cv.height=H; var x=cv.getContext('2d');
@@ -849,6 +872,14 @@ window.downloadDNACard=function(){
     if(c.catchphrase){ x.fillStyle='#81899F'; x.font='italic 500 21px Inter'; x.fillText('“'+c.catchphrase+'”', tx, 508); }
     x.fillStyle='#A1A5B3'; x.font='700 18px Inter'; x.fillText('//GEMACH', tx, H-66);
     x.fillStyle='#4D5972'; x.font='400 14px Inter'; x.fillText('a creature that must trade to survive · genome '+c.fingerprint, tx, H-42);
+    // QR to the repo, bottom-right — scan to clone and run your own
+    if(qr&&qr.complete&&qr.naturalWidth){
+      var qs=128, qx=W-qs-44, qy=H-qs-58;
+      x.fillStyle='#FFFFFF'; rr(x,qx-8,qy-8,qs+16,qs+16,10); x.fill();
+      x.drawImage(qr,qx,qy,qs,qs);
+      x.fillStyle='#697083'; x.font='600 13px Inter'; x.textAlign='center';
+      x.fillText('SCAN TO RUN YOUR OWN', qx+qs/2, qy+qs+30); x.textAlign='left';
+    }
     var a=document.createElement('a'); a.download=(c.name||'gclaw').replace(/\s+/g,'-').toLowerCase()+'-dna.png'; a.href=cv.toDataURL('image/png'); a.click();
   }
   if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(draw); } else { draw(); }
@@ -857,7 +888,7 @@ window.downloadDNACard=function(){
 
 
 def dna_script(g: dict[str, Any], live: tuple, state: dict[str, Any],
-               journal: list, persona: dict[str, Any]) -> str:
+               journal: list, persona: dict[str, Any], github_qr: str) -> str:
     """Three.js + genome + live trade state for the helix, plus the shareable-card
     data and the client-side card composer."""
     active, pnl, equity = live
@@ -877,7 +908,8 @@ def dna_script(g: dict[str, Any], live: tuple, state: dict[str, Any],
     }
     return ('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
             f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]},'
-            f'active:{flag},pnl:{pnl:.2f}}};window.GCLAW_CARD={json.dumps(card)};</script>'
+            f'active:{flag},pnl:{pnl:.2f}}};window.GCLAW_CARD={json.dumps(card)};'
+            f'window.GCLAW_QR={json.dumps(github_qr)};</script>'
             + DNA3D_INIT + CARD_JS)
 
 
@@ -929,6 +961,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .gasline{{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;line-height:1.7}}.gasline b{{color:var(--silver)}}
 .qrcard{{display:flex;gap:14px;align-items:center}}
 .qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
+.ghqr{{display:flex;gap:14px;align-items:center}}.ghqr img{{background:#fff;border-radius:8px;padding:6px}}
 .qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
 .addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
 .topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;flex-direction:column;gap:15px}}
@@ -995,6 +1028,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div><div id="dna3d" class="dna3d">{helix}</div><div class="fp">genome {fingerprint} · born {born}</div><button class="cardbtn" onclick="window.downloadDNACard&&window.downloadDNACard()">↓ Save shareable DNA card</button></div>
   <div class="card"><h2>Genome traits</h2>{traits}</div>
   <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
+  <div class="card"><h2>🦁 Run your own</h2><div class="ghqr"><img src="{github_qr}" alt="GitHub QR" width="98" height="98"><div><div class="qlabel">Clone Gclaw</div><div class="addr" style="max-width:none">github.com/GemachDAO/Gclaw</div><div class="muted">Scan or visit — births your own living agent in ~3 commands.</div></div></div></div>
   <div class="card decent full"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
 </div>
 
