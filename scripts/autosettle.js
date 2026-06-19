@@ -181,10 +181,11 @@ async function main() {
         const risk = labelled.risk || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
         const tech = technique || labelled.technique || 'discretionary';
         const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
+        const netPnl = Number(f.closedPnl) - Number(f.fee || 0); // expectancy must be net of fees, not gross
         execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'memory.py'),
           'record', '--coin', String(f.coin), '--technique', String(tech),
           '--regime', regimes[f.coin] || 'unknown', '--side', side,
-          '--pnl', String(f.closedPnl), '--risk', String(risk)],
+          '--pnl', String(netPnl), '--risk', String(risk)],
         { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });
       } catch { /* memory record is best-effort */ }
     }

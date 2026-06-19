@@ -38,6 +38,16 @@ def leverage_cap(goodwill: float) -> int:
     return cap
 
 
+SHRINK_PSEUDO = 20  # pseudo-trades pulling a small-sample win-rate toward 0.5
+
+
+def shrink_win_rate(win_rate: float, trades: int) -> float:
+    """Shrink a small-sample win-rate toward 0.5 so we don't size up on noise: a
+    Beta(k/2, k/2) prior, w_adj = (w*n + 0.5*k) / (n + k). 70% on 5 trades → ~0.54."""
+    n = max(0, int(trades))
+    return (win_rate * n + 0.5 * SHRINK_PSEUDO) / (n + SHRINK_PSEUDO)
+
+
 def kelly_fraction(win_rate: float, payoff: float) -> float:
     """Edge as a fraction of bankroll: f* = W - (1-W)/b, then quarter it."""
     if payoff <= 0:
@@ -47,11 +57,11 @@ def kelly_fraction(win_rate: float, payoff: float) -> float:
 
 
 def size_trade(equity: float, price: float, atr_pct: float, win_rate: float,
-               payoff: float, goodwill: float, confidence: float) -> dict:
+               payoff: float, goodwill: float, confidence: float, trades: int = 0) -> dict:
     """Return the position size, stop, and risk for one trade."""
     stop_pct = max(STOP_ATR_MULT * atr_pct, 0.8) / 100  # never tighter than 0.8%
-    # risk fraction: base, scaled by Kelly edge and the signal's confidence.
-    edge = kelly_fraction(win_rate, payoff)
+    # risk fraction: base, scaled by the (sample-shrunk) Kelly edge and confidence.
+    edge = kelly_fraction(shrink_win_rate(win_rate, trades), payoff)
     # an unknown/zero edge still gets a tiny probe; a real edge scales toward base.
     risk_pct = min(BASE_RISK_PCT, max(0.0015, edge)) * max(0.3, min(1.0, confidence))
     risk_usd = equity * risk_pct
@@ -71,6 +81,7 @@ def size_trade(equity: float, price: float, atr_pct: float, win_rate: float,
         "risk_usd": round(realized_risk, 2),
         "risk_pct_equity": round(realized_risk / equity * 100, 2) if equity else 0,
         "kelly_edge": round(edge, 4),
+        "win_rate_shrunk": round(shrink_win_rate(win_rate, trades), 3),
         "leverage_cap": leverage_cap(goodwill),
         "clamped_to_min": notional <= MIN_NOTIONAL + 1e-9,
         "note": "sized to risk a fixed fraction of equity; size falls out of the ATR stop",
@@ -87,8 +98,9 @@ def main() -> int:
     p.add_argument("--payoff", type=float, default=1.5)
     p.add_argument("--goodwill", type=float, default=0)
     p.add_argument("--confidence", type=float, default=0.6)
+    p.add_argument("--trades", type=int, default=0, help="sample size behind win-rate (for shrinkage)")
     a = p.parse_args()
-    out = size_trade(a.equity, a.price, a.atr_pct, a.win_rate, a.payoff, a.goodwill, a.confidence)
+    out = size_trade(a.equity, a.price, a.atr_pct, a.win_rate, a.payoff, a.goodwill, a.confidence, a.trades)
     print(json.dumps(out, indent=2))
     return 0
 
