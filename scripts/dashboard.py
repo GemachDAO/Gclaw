@@ -37,6 +37,20 @@ SPECIES_SUFFIX = ["dax", "mire", "lith", "phar", "gax", "ven", "tide", "korn", "
 SIGILS = ["🜂", "🜁", "🜃", "🜄", "🝆", "🝛", "☉", "☾", "✶", "⟁", "❄", "🝬"]
 TRAITS = ["Vitality", "Cunning", "Aggression", "Discipline", "Fertility"]
 
+BASE_SYMBOL = (
+    '<svg viewBox="0 0 111 111" fill="none" xmlns="http://www.w3.org/2000/svg" '
+    'style="width:{w};height:{w};display:inline-block;vertical-align:middle">'
+    '<path d="M54.921 110.034C85.359 110.034 110.034 85.402 110.034 55.017C110.034 24.6319 '
+    '85.359 0 54.921 0C26.0432 0 2.35281 22.1714 0 50.3923H72.8467V59.6416H3.9565e-07C2.35281 '
+    '87.8625 26.0432 110.034 54.921 110.034Z" fill="#0052FF"/></svg>'
+)
+
+
+def base_badge() -> str:
+    """Official 'Built on Base' attribution — the agent's ERC-8004 identity is on Base."""
+    return (f'<div class="basebadge">{BASE_SYMBOL.format(w="15px")}'
+            f'<span>BUILT ON BASE</span></div>')
+
 
 def home() -> Path:
     return Path(os.environ.get("GCLAW_HOME", str(Path.home() / ".gclaw")))
@@ -215,7 +229,8 @@ def onchain_html(state: dict[str, Any]) -> str:
     return (f'<div class="idrow"><span class="pill">ERC-8004</span> agent <b>#{aid}</b> '
             f'on {ident.get("chain", "base:8453")}</div>'
             f'<div class="muted" style="margin-top:8px">registry {reg}…</div>{gas_line}'
-            f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>')
+            f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>'
+            f'<div>{base_badge()}</div>')
 
 
 def leverage_html(state: dict[str, Any]) -> str:
@@ -228,7 +243,7 @@ def leverage_html(state: dict[str, Any]) -> str:
         need = f"{threshold} goodwill" if threshold > 0 else "base"
         state_word = "◄ you" if lev == cap else ("unlocked" if lev <= cap else need)
         rows.append(f'<div class="{cls}"><b>{lev}×</b><span>{state_word}</span></div>')
-    head = f'<div class="muted" style="margin-bottom:8px">goodwill {int(gw)} → cap <b style="color:#7CFFB2">{cap}×</b></div>'
+    head = f'<div class="muted" style="margin-bottom:8px">goodwill {int(gw)} → cap <b style="color:var(--emerald)">{cap}×</b></div>'
     return head + "".join(rows)
 
 
@@ -616,6 +631,7 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .brandrow{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
 .lionmark{{color:var(--emerald);display:inline-flex}}.eyebrow{{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}}
 .lionfoot{{color:var(--muted);display:inline-flex;vertical-align:middle}}.foot b{{color:var(--silver);letter-spacing:1px}}
+.basebadge{{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;font-size:10px;letter-spacing:1.5px;color:var(--silver);font-weight:600;background:rgba(0,82,255,.06)}}
 .sigil{{font-size:30px}}.mode{{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;font-size:12px;letter-spacing:1px;margin-top:8px}}
 .fp{{font-family:ui-monospace,monospace;color:var(--muted);font-size:11px;margin-top:10px}}
 .grid2{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}
