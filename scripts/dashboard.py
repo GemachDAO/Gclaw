@@ -473,16 +473,20 @@ def intel_html(h: Path) -> str:
     intel = load_json(h / "intel.json", {}).get("intel", {})
     if not intel:
         return '<p class="muted">No market scan yet — the intel engine runs each heartbeat.</p>'
-    color = {"trend_up": "var(--emerald)", "trend_down": "var(--red)",
-             "range": "var(--silver)", "chop": "var(--muted)"}
+    # Filled regime chips — colour the whole pill so the read is instant: emerald up,
+    # red down, blue range (tradeable), muted chop (sit out).
+    chip = {"trend_up": ("#9affc4", "rgba(73,184,117,.16)"), "trend_down": ("#ff9aa6", "rgba(223,46,46,.16)"),
+            "range": ("#a9d6ff", "rgba(97,184,255,.14)"), "chop": ("var(--muted)", "rgba(105,112,131,.14)")}
     rows = []
     for coin, f in intel.items():
         if not f:
             continue
         reg = f.get("regime", "?")
+        fg, bg = chip.get(reg, ("var(--silver)", "transparent"))
         rows.append(
             f'<tr><td><b>{html.escape(coin)}</b></td>'
-            f'<td style="color:{color.get(reg, "var(--silver)")}">{reg}</td>'
+            f'<td><span style="background:{bg};color:{fg};padding:2px 9px;border-radius:999px;'
+            f'font-size:11px;font-weight:600">{reg}</span></td>'
             f'<td>{f.get("rsi", "?")}</td><td>{f.get("atr_pct", "?")}%</td>'
             f'<td>{f.get("funding_z", "?")}</td><td>{"✓" if f.get("tradeable") else "—"}</td></tr>')
     return (f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
@@ -517,6 +521,53 @@ def predictions_html(h: Path) -> str:
         parts.append('<p class="muted" style="margin-top:8px">No predictors yet — be the first to call it. '
                      'Free, no stakes; calls are anchored onchain so nobody can cheat.</p>')
     return "".join(parts)
+
+
+def sparkline_svg(values: list[float], w: int = 150, hgt: int = 40) -> str:
+    """A Stocks-style sparkline of the cumulative realized-PnL path, with a zero
+    baseline — colour emerald if it ends green, red if not."""
+    if len(values) < 2:
+        return ""
+    pad = 4
+    lo, hi = min(values), max(values)
+    rng = (hi - lo) or 1
+    n = len(values)
+
+    def xy(i: float, v: float) -> str:
+        x = pad + (i / (n - 1)) * (w - 2 * pad)
+        y = (hgt - pad) - ((v - lo) / rng) * (hgt - 2 * pad)
+        return f"{x:.1f},{y:.1f}"
+
+    pts = " ".join(xy(i, v) for i, v in enumerate(values))
+    color = "var(--emerald)" if values[-1] >= 0 else "var(--red)"
+    zy = (hgt - pad) - ((0 - lo) / rng) * (hgt - 2 * pad)
+    return (
+        f'<svg viewBox="0 0 {w} {hgt}" width="{w}" height="{hgt}" preserveAspectRatio="none">'
+        f'<line x1="{pad}" y1="{zy:.1f}" x2="{w - pad}" y2="{zy:.1f}" stroke="#2E4164" stroke-width="1" stroke-dasharray="2 3"/>'
+        f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'<circle cx="{w - pad}" cy="{xy(n - 1, values[-1]).split(",")[1]}" r="2.5" fill="{color}"/></svg>'
+    )
+
+
+def performance_html(journal: list) -> str:
+    """The track-record trend — cumulative realized PnL over the agent's life, with
+    the honest win record. Answers 'is it actually trending up?' at a glance."""
+    settles = [e for e in journal if e.get("event") == "settle"]
+    if len(settles) < 2:
+        return '<div class="trend"><div class="slabel">// track record</div>' \
+               '<div class="muted" style="margin-top:6px">building history…</div></div>'
+    cum, curve = 0.0, [0.0]
+    for e in settles:
+        cum += float(e.get("pnl", 0) or 0)
+        curve.append(cum)
+    wins = sum(1 for e in settles if float(e.get("pnl", 0) or 0) > 0)
+    total = len(settles)
+    wr = round(wins / total * 100) if total else 0
+    cls = "up" if cum >= 0 else "down"
+    net = f'{"+" if cum >= 0 else "−"}${abs(cum):,.2f}'
+    return (f'<div class="trend"><div class="slabel">// realized p&l</div>'
+            f'{sparkline_svg(curve, 260, 38)}'
+            f'<div class="trendcap"><b class="{cls}">{net}</b> · {wins}/{total} wins ({wr}%)</div></div>')
 
 
 def vitals_html(state: dict[str, Any], h: Path) -> str:
@@ -566,6 +617,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         lion_sm=lion("15px"),
         lion_lg=lion("34px"),
         vitals=vitals_html(state, home()),
+        performance=performance_html(journal),
         mode=mode,
         mode_hue=mode_hue,
         born=state.get("born_at", "—"),
@@ -704,21 +756,28 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
 .qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
 .addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
-.topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}}
+.topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;flex-direction:column;gap:15px}}
+.toprow{{display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}}
 .ident{{display:flex;align-items:center;gap:14px}}.ident .lionmark{{color:var(--emerald);display:inline-flex}}
 .bigname{{font-size:26px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1}}
 .vitals{{display:flex;gap:30px;flex-wrap:wrap}}.stat{{min-width:64px}}
 .slabel{{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px}}
 .sval{{font-size:21px;font-weight:700;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums}}
 .sval.lead{{font-size:32px;letter-spacing:-.5px}}.sval.up{{color:var(--emerald)}}.sval.down{{color:var(--red)}}.sval.em{{color:var(--emerald)}}
-@media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}}}
+.trend{{display:flex;align-items:center;gap:16px;border-top:1px solid var(--line);padding-top:14px}}
+.trend .slabel{{margin:0}}.trend svg{{display:block}}.trendcap{{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}}
+.trendcap b{{font-weight:700}}.trendcap b.up{{color:var(--emerald)}}.trendcap b.down{{color:var(--red)}}
+@media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}.trend{{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px;width:100%}}}}
 </style></head><body>
 <div class="topbar">
-  <div class="ident"><span class="lionmark">{lion_lg}</span>
-    <div><div class="eyebrow">// GEMACH · {species}</div><div class="bigname">{sigil} {name}</div></div>
-    <span class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</span>
+  <div class="toprow">
+    <div class="ident"><span class="lionmark">{lion_lg}</span>
+      <div><div class="eyebrow">// GEMACH · {species}</div><div class="bigname">{sigil} {name}</div></div>
+      <span class="mode" style="background:hsl({mode_hue},60%,22%);color:hsl({mode_hue},80%,70%)">{mode}</span>
+    </div>
+    <div class="vitals">{vitals}</div>
   </div>
-  <div class="vitals">{vitals}</div>
+  {performance}
 </div>
 <div class="wrap">
 <div class="card hero">
