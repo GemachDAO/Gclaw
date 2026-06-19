@@ -17,8 +17,10 @@ SKILL_DIR="${GCLAW_SKILL_DIR:-$HOME/.claude/skills/gclaw}"
 mkdir -p "$GCLAW_HOME"
 
 # cron has a minimal PATH; ensure node + user bins resolve. Adjust if needed.
-NODE_BIN="$(command -v node 2>/dev/null || true)"
-export PATH="$HOME/.local/bin:${NODE_BIN%/node}:/usr/local/bin:/usr/bin:/bin:$PATH"
+NODE_DIR="$(command -v node 2>/dev/null || true)"; NODE_DIR="${NODE_DIR%/node}"
+# cron's bare env has no nvm on PATH, so fall back to the newest nvm node bin.
+[[ -z "$NODE_DIR" ]] && NODE_DIR="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
+export PATH="$NODE_DIR:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 # Load runtime secrets (PINATA_JWT for IPFS publishing, etc.) — gitignored, never committed.
 if [[ -f "$GCLAW_HOME/env" ]]; then set -a; . "$GCLAW_HOME/env"; set +a; fi
