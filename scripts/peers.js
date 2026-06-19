@@ -59,6 +59,7 @@ async function readAgent(id) {
   return { id: Number(id), name: meta.name || null, owner, image: meta.image || null,
     stats: meta['x-gclaw']?.stats || null,  // live standings beacon, read straight from chain
     predictors: meta['x-gclaw']?.predictors || [],  // who called this creature's trades right — for the global ladder
+    edges: meta['x-gclaw']?.edges || [],  // proven technique x regime edges — for the collective swarm graph
     published: meta['x-gclaw']?.published || [],  // proven techniques advertised for discovery
     isGclaw: typeof meta.description === 'string' && meta.description.includes(SIGNATURE) };
 }

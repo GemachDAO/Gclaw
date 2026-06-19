@@ -44,6 +44,22 @@ def load() -> list[dict]:
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
 
 
+def _read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _write_edges() -> None:
+    """Cache the proven-edge table to edges.json for the onchain card + dashboard."""
+    cells = summary(None)["table"]
+    edges = [{"t": c["technique"], "r": c["regime"], "e": c["expectancy_r"],
+              "n": c["trades"], "real": c["edge_real"]}
+             for c in cells if c["trades"] >= 3][:12]
+    (home() / "edges.json").write_text(json.dumps(edges), encoding="utf-8")
+
+
 def record(args: argparse.Namespace) -> dict:
     """Append one closed-trade outcome. R-multiple normalises pnl by risk taken."""
     risk = abs(args.risk) if args.risk else 0.0
@@ -61,7 +77,35 @@ def record(args: argparse.Namespace) -> dict:
     home().mkdir(parents=True, exist_ok=True)
     with store().open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(row) + "\n")
+    _write_edges()
     return {"ok": True, "recorded": row, "total": len(load())}
+
+
+def swarm(_args: argparse.Namespace) -> dict:
+    """The collective graph: pool technique x regime expectancy across the whole
+    family — self memory + every peer's onchain-published edges — into one table.
+    Trade-weighted, so a result proven across many creatures outranks a lucky one."""
+    cells: dict[tuple[str, str], dict] = {}
+
+    def add(tech: str, regime: str, exp: float, trades: int) -> None:
+        c = cells.setdefault((tech, regime), {"wexp": 0.0, "trades": 0, "creatures": 0})
+        c["wexp"] += exp * trades
+        c["trades"] += trades
+        c["creatures"] += 1 if trades else 0
+
+    for cell in summary(None)["table"]:
+        add(cell["technique"], cell["regime"], cell["expectancy_r"], cell["trades"])
+    for peer in _read_json(home() / "peers_roster.json", {}).get("roster", []):
+        if peer.get("self"):
+            continue
+        for e in peer.get("edges", []):
+            add(e.get("t", "?"), e.get("r", "?"), float(e.get("e", 0)), int(e.get("n", 0)))
+    table = [{"technique": t, "regime": r,
+              "expectancy_r": round(c["wexp"] / c["trades"], 3) if c["trades"] else 0,
+              "trades": c["trades"], "creatures": c["creatures"]}
+             for (t, r), c in cells.items()]
+    table.sort(key=lambda e: e["expectancy_r"], reverse=True)
+    return {"ok": True, "collective": table}
 
 
 def _bootstrap_ci(rs: list[float], iters: int = 2000) -> tuple[float, float]:
@@ -151,8 +195,10 @@ def main() -> int:
     q = sub.add_parser("query")
     q.add_argument("--regime", required=True)
     sub.add_parser("summary")
+    sub.add_parser("swarm")
     args = p.parse_args()
-    fn = {"record": record, "expectancy": expectancy, "query": query, "summary": summary}[args.command]
+    fn = {"record": record, "expectancy": expectancy, "query": query,
+          "summary": summary, "swarm": swarm}[args.command]
     print(json.dumps(fn(args), indent=2))
     return 0
 

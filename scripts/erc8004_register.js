@@ -100,6 +100,14 @@ function predictionsRoot() {
   } catch { return null; }
 }
 
+function tradingEdges() {
+  // This creature's proven technique x regime edges, published onchain so the
+  // family pools them into a collective trading-intelligence graph (memory.py swarm).
+  try {
+    return JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'edges.json'), 'utf8')).slice(0, 12);
+  } catch { return []; }
+}
+
 function predictorTallies() {
   // This creature attests the record of predictors who called on ITS trades
   // (resolved against HyperLiquid's fills). Published onchain so the decentralized
@@ -171,7 +179,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
-      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques(), predictions: predictionsRoot(), predictors: predictorTallies() }),
+      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques(), predictions: predictionsRoot(), predictors: predictorTallies(), edges: tradingEdges() }),
       ...lineage,
     },
   };
