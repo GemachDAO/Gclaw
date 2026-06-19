@@ -155,19 +155,24 @@ async function main() {
     // record the outcome to the trade-memory (technique x regime -> R) so the agent
     // learns which techniques actually work in which conditions.
     for (const f of closers) {
-      let technique = 'unknown';
+      let technique = '';
       try {
         const out = execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'forge.py'),
           'royalty', '--coin', String(f.coin), '--pnl', String(f.closedPnl), '--auto'],
         { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'pipe', 'ignore'] });
-        technique = JSON.parse(out.toString()).technique || 'unknown';
+        technique = JSON.parse(out.toString()).technique || '';
       } catch { /* attribution is best-effort */ }
       try {
+        // open_risk.json entry may be a bare risk number or {risk, technique} the
+        // agent labelled at entry. Fall back to "discretionary" (a learnable bucket).
+        const orec = openRisk[f.coin];
+        const labelled = orec && typeof orec === 'object' ? orec : { risk: orec };
         const notional = Math.abs(Number(f.sz || 0)) * Number(f.px || 0);
-        const risk = openRisk[f.coin] || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
+        const risk = labelled.risk || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
+        const tech = technique || labelled.technique || 'discretionary';
         const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
         execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'memory.py'),
-          'record', '--coin', String(f.coin), '--technique', String(technique),
+          'record', '--coin', String(f.coin), '--technique', String(tech),
           '--regime', regimes[f.coin] || 'unknown', '--side', side,
           '--pnl', String(f.closedPnl), '--risk', String(risk)],
         { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });

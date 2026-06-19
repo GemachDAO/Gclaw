@@ -123,7 +123,7 @@ function cmdCall(args) {
   return { ok: true, called: entry };
 }
 
-async function cmdResolve() {
+async function cmdResolve(args) {
   const rounds = readJson(roundsPath(), {});
   const open = Object.values(rounds).filter((r) => r.status === 'open');
   if (!open.length) return { ok: true, resolved: [] };

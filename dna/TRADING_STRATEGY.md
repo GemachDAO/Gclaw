@@ -83,8 +83,9 @@ You have a perception + risk stack. **Use it; do not trade on a raw price glance
    --payoff <b> --goodwill <g> --confidence <c>` (pull `--win-rate`/`--payoff` from
    `memory.py expectancy --technique <t> --regime <r>`). Open with exactly the returned `notional`,
    `size`, and ATR-based stop. This caps any single trade's risk to a fixed fraction of equity —
-   no trade can dominate the P&L again. Write the intended risk to `~/.gclaw/open_risk.json`
-   (`{"<coin>": <risk_usd>}`) so the close records a true R-multiple.
+   no trade can dominate the P&L again. At entry, write the risk **and a short thesis label**
+   to `~/.gclaw/open_risk.json` (`{"<coin>": {"risk": <usd>, "technique": "<short-label>"}}`) so
+   the close records a true R-multiple under a named, learnable strategy — not "discretionary".
 6. For events: scan `hl_outcomes` for near-dated markets with real volume and a price that diverges
    from your estimate.
 7. On close, settle (auto). Each close is auto-recorded to the trade-memory with its regime, so your
