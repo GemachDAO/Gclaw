@@ -731,17 +731,58 @@ def vitals_html(state: dict[str, Any], h: Path) -> str:
     npos = len(snap.get("positions") or [])
     pnl_cls = "up" if upnl >= 0 else "down"
     pnl_str = f'{"+" if upnl >= 0 else "−"}${abs(upnl):,.2f}'
+    asof = (snap.get("ts") or "")[11:19]
 
-    def stat(label: str, val: str, cls: str = "") -> str:
-        return f'<div class="stat"><div class="slabel">{label}</div><div class="sval {cls}">{val}</div></div>'
+    def stat(label: str, val: str, cls: str = "", sid: str = "") -> str:
+        sid_attr = f' id="{sid}"' if sid else ""
+        return f'<div class="stat"><div class="slabel">{label}</div><div class="sval {cls}"{sid_attr}>{val}</div></div>'
 
+    # Equity + Unrealized carry ids so the page updates them live from HyperLiquid's
+    # public API (the snapshot they render from is only refreshed hourly on heartbeat).
     return (
-        stat("Equity", f"${equity:,.2f}", "lead")
-        + stat("Unrealized", pnl_str, pnl_cls)
-        + stat("Open", str(npos))
+        stat("Equity", f"${equity:,.2f}", "lead", "liveEquity")
+        + stat("Unrealized", pnl_str, pnl_cls, "liveUpnl")
+        + stat("Open", str(npos), "", "liveOpen")
         + stat("Goodwill", str(int(state.get("goodwill", 0) or 0)), "em")
         + stat("Heartbeats", str(int(state.get("heartbeats", 0) or 0)))
+        + stat("P&amp;L feed", f"snapshot {asof}", "feed", "liveAsOf")
     )
+
+
+def live_sync_script(h: Path) -> str:
+    """Client-side live PnL: the rendered page reads an hourly snapshot, so refreshing
+    the browser shows stale numbers. This pulls live mark prices + spot balance from
+    HyperLiquid's public API every 20s and recomputes equity + unrealized in-page —
+    majors update live; builder-dex (xyz:*) positions fall back to the snapshot mark.
+    Degrades silently to the snapshot if the API is unreachable (offline / CORS)."""
+    snap = load_json(h / "positions.json", {})
+    addr = snap.get("managed") or ""
+    positions = [{"coin": p.get("coin"), "szi": float(p.get("size", 0) or 0),
+                  "entry": float(p.get("entryPx", 0) or 0), "upnl": float(p.get("unrealizedPnl", 0) or 0)}
+                 for p in (snap.get("positions") or [])]
+    spot_base = round(float(snap.get("equity", 0) or 0) - sum(p["upnl"] for p in positions), 4)
+    if not addr:
+        return ""  # no managed address embedded → leave the snapshot as-is
+    data = json.dumps({"addr": addr, "spotBase": spot_base, "positions": positions})
+    return ("<script>(function(){\n"
+            f"var D={data},API='https://api.hyperliquid.xyz/info';\n"
+            "function post(b){return fetch(API,{method:'POST',headers:{'content-type':'application/json'},"
+            "body:JSON.stringify(b)}).then(function(r){return r.json();});}\n"
+            "function fmt(v){return Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}\n"
+            "function set(id,h){var e=document.getElementById(id);if(e)e.innerHTML=h;}\n"
+            "function sync(){Promise.all([post({type:'clearinghouseState',user:D.addr}),"
+            "post({type:'spotClearinghouseState',user:D.addr})])"
+            ".then(function(r){var perp=r[0]||{},spot=r[1]||{},live={};"
+            "(perp.assetPositions||[]).forEach(function(a){var p=a.position||{};live[p.coin]=Number(p.unrealizedPnl||0);});"
+            "var u=(spot.balances||[]).filter(function(b){return b.coin==='USDC';})[0];"
+            "var spotTotal=u?Number(u.total):D.spotBase;var upnl=0;"
+            "D.positions.forEach(function(p){upnl+=(p.coin in live)?live[p.coin]:p.upnl;});"
+            "var eq=spotTotal+upnl;set('liveEquity','$'+fmt(eq));"
+            "var el=document.getElementById('liveUpnl');if(el){el.innerHTML=(upnl>=0?'+':'\\u2212')+'$'+fmt(upnl);"
+            "el.className='sval '+(upnl>=0?'up':'down');}"
+            "set('liveAsOf','live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC');})"
+            ".catch(function(){});}\n"
+            "sync();setInterval(sync,20000);})();</script>")
 
 
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
@@ -794,7 +835,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        script=TABS_JS,
+        script=TABS_JS + live_sync_script(home()),
         dna_script=dna_script(g, live, state, journal, persona, gh_qr),
         share=share_url(state, name, live[2]),
         github_qr=gh_qr,
