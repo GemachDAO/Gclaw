@@ -110,15 +110,21 @@ async function fundingZ(coin) {
 }
 
 function classifyRegime(f) {
-  // trend when price moves efficiently; chop when it thrashes at high vol; else range.
-  if (f.atr_pct > 4 && f.efficiency < 0.3) return 'chop';
-  if (f.efficiency >= 0.4) return f.ema_stack >= 0 ? 'trend_up' : 'trend_down';
-  if (f.efficiency < 0.25) return 'range';
-  return f.ema_stack > 0 ? 'trend_up' : (f.ema_stack < 0 ? 'trend_down' : 'range');
+  // Classify on the Kaufman efficiency ratio (net move / total path) — scale- and
+  // timeframe-free, unlike an absolute ATR threshold (1h ATR is ~1%, so the old
+  // atr>4% chop test never fired). High ER = clean trend; very low ER = whipsaw to
+  // sit out; the middle is an orderly range where mean-reversion has an edge.
+  const trendER = Number(process.env.GCLAW_TREND_ER) || 0.40;
+  const chopER = Number(process.env.GCLAW_CHOP_ER) || 0.18;
+  if (f.efficiency >= trendER) return f.ema_stack >= 0 ? 'trend_up' : 'trend_down';
+  if (f.efficiency < chopER) return 'chop';
+  return 'range';
 }
 
 async function coinIntel(coin, ctx, btcReturns) {
-  const c1 = await candles(coin, '1h', 120);
+  // Drop the last (currently-forming) candle — its OHLC mutates intra-hour, so
+  // every indicator built on it would jitter and the "close" isn't a real close.
+  const c1 = (await candles(coin, '1h', 121)).slice(0, -1);
   if (c1.length < 30) return null;
   const closes = c1.map((k) => k.c);
   const e9 = ema(closes.slice(-40), 9); const e21 = ema(closes.slice(-60), 21); const e50 = ema(closes, 50);
@@ -154,7 +160,7 @@ async function scan(coins) {
   const ctxResp = await info({ type: 'metaAndAssetCtxs' });
   const ctxByName = new Map();
   if (Array.isArray(ctxResp) && ctxResp[0]?.universe) ctxResp[0].universe.forEach((u, i) => ctxByName.set(u.name, ctxResp[1][i]));
-  const btc = await candles('BTC', '1h', 48);
+  const btc = (await candles('BTC', '1h', 49)).slice(0, -1); // closed bars only
   const btcReturns = returns(btc.map((k) => k.c).slice(-24));
   const out = {};
   for (const coin of coins) out[coin] = await coinIntel(coin, ctxByName.get(coin), btcReturns);

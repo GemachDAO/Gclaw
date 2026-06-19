@@ -116,13 +116,19 @@ def swarm(_args: argparse.Namespace) -> dict:
 
 
 def _bootstrap_ci(rs: list[float], iters: int = 2000) -> tuple[float, float]:
-    """95% CI on the mean R via bootstrap resampling — is the edge real or luck?"""
+    """95% CI on the mean R via bootstrap resampling — is the edge real or luck?
+
+    Seed the RNG from the data so the CI (and the edge_real gate it drives) is
+    reproducible: the same trade history must always give the same verdict, never
+    a coin-flip between runs for a technique sitting near the significance boundary.
+    """
     if len(rs) < 3:
         return (0.0, 0.0)
+    rng = random.Random(hash(tuple(round(r, 4) for r in rs)) & 0xFFFFFFFF)
     means = []
     n = len(rs)
     for _ in range(iters):
-        means.append(sum(rs[int(random.random() * n)] for _ in range(n)) / n)
+        means.append(sum(rs[int(rng.random() * n)] for _ in range(n)) / n)
     means.sort()
     return (round(means[int(0.025 * iters)], 3), round(means[int(0.975 * iters)], 3))
 

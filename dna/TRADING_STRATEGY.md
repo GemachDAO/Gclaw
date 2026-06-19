@@ -80,8 +80,9 @@ You have a perception + risk stack. **Use it; do not trade on a raw price glance
      the sole reason to enter.
 5. **Size with the risk brain, never by gut** —
    `node scripts/sizing.py size --equity <E> --price <P> --atr-pct <atr_pct> --win-rate <w>
-   --payoff <b> --goodwill <g> --confidence <c>` (pull `--win-rate`/`--payoff` from
-   `memory.py expectancy --technique <t> --regime <r>`). Open with exactly the returned `notional`,
+   --payoff <b> --trades <n> --goodwill <g> --confidence <c>` (pull `--win-rate`/`--payoff`/`--trades`
+   from `memory.py expectancy --technique <t> --regime <r>`; `--trades` lets it shrink a small-sample
+   win-rate toward 0.5 so noise isn't sized up). Open with exactly the returned `notional`,
    `size`, and ATR-based stop. This caps any single trade's risk to a fixed fraction of equity —
    no trade can dominate the P&L again. At entry, write the risk **and a short thesis label**
    to `~/.gclaw/open_risk.json` (`{"<coin>": {"risk": <usd>, "technique": "<short-label>"}}`) so
