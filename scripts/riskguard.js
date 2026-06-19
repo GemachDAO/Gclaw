@@ -17,11 +17,13 @@
  */
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 
 const SKILL_DIR = __dirname;
+const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const RISK_CAP_PCT = 1.5;       // max % of equity at risk on a single trade
 const PORTFOLIO_CAP_PCT = 4.0;  // max total % of equity at risk across all trades
 const TOLERANCE = 1.15;         // don't churn a position for being <15% over
@@ -43,10 +45,19 @@ function stopFor(coin, entry, isShort, orders) {
   return isShort ? Math.min(...pxs) : Math.max(...pxs);
 }
 
+// A specific open position can be grandfathered (left to its own stop) by listing
+// {coin, entry} in riskguard_exempt.json. Matched by coin + entry (0.1% tolerance),
+// so a LATER trade on the same coin at a different entry is still enforced.
+function isExempt(coin, entry) {
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'riskguard_exempt.json'), 'utf8')); } catch { return false; }
+  return list.some((e) => e.coin === coin && Math.abs(Number(e.entry) - entry) / entry < 0.001);
+}
+
 function assess(st) {
   const eq = Number(st.equity) || 0;
   const orders = st.openOrders || [];
-  return (st.positions || []).map((p) => {
+  return (st.positions || []).filter((p) => !isExempt(p.coin, Number(p.entryPx))).map((p) => {
     const size = Math.abs(Number(p.size));
     const entry = Number(p.entryPx);
     const isShort = Number(p.size) < 0;
