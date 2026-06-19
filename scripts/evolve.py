@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -54,8 +55,12 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(state: dict[str, Any]) -> None:
+    # Atomic write — metabolism.json holds GMAC/goodwill/treasury and is shared with
+    # metabolism.py; a crash mid-write must not corrupt it. temp + os.replace.
     path = gclaw_home() / "metabolism.json"
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(f".json.tmp{os.getpid()}")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def append_journal(entry: dict[str, Any]) -> None:

@@ -109,7 +109,21 @@ async function main() {
       dex: info.dex,
       ...creds,
     });
-    console.log(JSON.stringify({ ok: res?.isSuccess !== false, spendEth: ethAmount, ethPrice, result: res, ...plan }));
+    const ok = res?.isSuccess !== false;
+    // Decrement the treasury HERE on a confirmed buy — never rely on the model to
+    // record it later (a forgotten or duplicated manual step double-spends the ETH).
+    let recorded = false;
+    if (ok) {
+      const tx = res?.txHash || res?.hash || res?.transactionHash || '';
+      try {
+        require('node:child_process').execFileSync('uv', ['run', '--no-project', 'python3',
+          path.join(__dirname, 'metabolism.py'), 'gmac', '--spend', String(usd),
+          '--tokens', String(plan.expectedTokens), '--tx', String(tx)],
+        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'inherit'] });
+        recorded = true;
+      } catch (e) { console.error('WARN: buy confirmed but treasury decrement failed —', e.message); }
+    }
+    console.log(JSON.stringify({ ok, recorded, spendEth: ethAmount, ethPrice, result: res, ...plan }));
     return;
   }
   throw new Error('usage: gmac_buy.js <plan|buy> [--usd N]');
