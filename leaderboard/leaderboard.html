@@ -36,9 +36,15 @@ border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px
 .trait b{text-align:right;color:var(--silver)}
 .tbar{height:7px;background:#0b1424;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
 .pill{display:inline-block;background:#16243f;color:var(--blue);padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;margin-top:8px}
-.stats{display:flex;align-items:center;gap:10px;margin:6px 0 8px;font-size:13px;color:var(--silver);flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.equity{display:flex;align-items:baseline;gap:8px;margin:8px 0 2px;flex-wrap:wrap}
+.ev{font-size:25px;font-weight:800;color:var(--ink);letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.ev.unv{font-size:19px;color:var(--silver)}
+.vtag{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#060A17;background:var(--emerald);border-radius:5px;padding:2px 7px}
+.vtag.off{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.stats{display:flex;align-items:center;gap:10px;margin:4px 0 8px;font-size:13px;color:var(--silver);flex-wrap:wrap;font-variant-numeric:tabular-nums}
 .stats span{white-space:nowrap}
-.ver{color:#060A17;background:var(--emerald);font-weight:700;border-radius:6px;padding:2px 9px;font-size:12.5px}
+.card.champion{border-color:#2c6e4a;box-shadow:0 0 0 1px rgba(73,184,117,.28),0 10px 34px rgba(73,184,117,.10)}
+.leadtag{position:absolute;top:-11px;right:14px;background:linear-gradient(180deg,#3a6b4d,#1f4a33);color:#9affc4;border:1px solid #2c6e4a;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:700;letter-spacing:.4px}
 .muted{color:var(--muted);font-size:12px}
 .foot{max-width:1080px;margin:24px auto 0;color:var(--muted);font-size:12px;text-align:center}
 .foot b{color:var(--silver)}
@@ -139,15 +145,21 @@ function score(g){
   return (g.goodwill||0)*1000 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0);
 }
 
-function statsRow(g){
-  const money = v => (v==null?"—":(typeof v==="number"?v:Number(v)).toLocaleString());
-  const verified = g.verifiedEquity!=null
-    ? `<span class="ver" title="read live from HyperLiquid — independently verifiable">✓ $${g.verifiedEquity.toLocaleString()} verified</span>` : "";
-  const s = g.stats;
-  if(!s && !verified) return '<div class="muted">no trading beacon yet</div>';
-  const self = s ? `<span title="goodwill — won from profitable trades">⭐ ${s.goodwill??0} goodwill</span>
-    <span class="muted" title="GMAC life energy">${money(Math.round(s.gmac||0))} GMAC</span>` : "";
-  return `<div class="stats">${verified}${self}</div>`;
+// The hero metric — what creatures are ranked by. Verified HL equity is the real,
+// independently-checkable number, so make it big; fall back to the onchain beacon.
+function equityHero(g){
+  if(g.verifiedEquity!=null)
+    return `<div class="equity"><span class="ev">$${g.verifiedEquity.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`
+      + `<span class="vtag" title="read live from HyperLiquid — independently verifiable">✓ verified</span></div>`;
+  if(g.stats && g.stats.score!=null)
+    return `<div class="equity"><span class="ev unv">${Math.round(g.stats.score).toLocaleString()}</span><span class="vtag off">beacon score</span></div>`;
+  return '<div class="muted" style="margin:6px 0">no trading beacon yet</div>';
+}
+
+function statsLine(g){
+  const s = g.stats; if(!s) return "";
+  return `<div class="stats"><span title="goodwill — won from profitable trades">⭐ ${s.goodwill??0} goodwill</span>`
+    + `<span class="muted" title="GMAC life energy">${Math.round(s.gmac||0).toLocaleString()} GMAC</span></div>`;
 }
 
 function render(creatures){
@@ -157,12 +169,15 @@ function render(creatures){
     const soul = g.soul ? `<div class="species">${g.species||"unknown"} · ${g.soul.archetype}</div>
         <div class="muted" style="font-style:italic;margin:2px 0 6px">“${g.soul.catchphrase}”</div>` :
         `<div class="species">${g.species||"unknown"}</div>`;
-    return `<div class="card"><span class="rank">#${i+1}</span>
+    const champ = i===0 ? " champion" : "";
+    const tag = i===0 ? '<span class="leadtag">👑 Leader</span>' : "";
+    return `<div class="card${champ}"><span class="rank">#${i+1}</span>${tag}
       <div>${helix(g.genomeFingerprint||"000000000000")}</div>
       <div style="flex:1">
         ${soul}
         <h2>${c.name||"Gclaw"} <span class="muted">#${c.id}</span></h2>
-        ${statsRow(g)}
+        ${equityHero(g)}
+        ${statsLine(g)}
         ${traitBars(g.traits,g.genomeFingerprint||"000000")}
         ${lineage}
         <div class="fp">genome ${g.genomeFingerprint||"—"} · goodwill ${g.goodwill??0}</div>
@@ -216,7 +231,7 @@ async function main(){
     }catch(e){ /* skip unreadable */ }
     render(out);
   }
-  st.textContent = out.length ? `${out.length} living creature(s) discovered onchain` : "No Gclaw creatures found.";
+  st.innerHTML = out.length ? `<b style="color:var(--silver)">${out.length}</b> living creature(s) discovered onchain · ranked by <b style="color:var(--emerald)">verified equity</b>` : "No Gclaw creatures found.";
   render(out);
 }
 
