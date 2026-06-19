@@ -81,7 +81,11 @@ else
   # an arbitrary destination — legit funding is done by deterministic scripts
   # (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
   # shellcheck disable=SC2086  # intentional word-split: --disallowedTools is variadic
-  DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token"
+  # Deny every tool that moves funds to an arbitrary destination, buys an arbitrary
+  # token, or hands the wallet to a third party. The legit HL-perp trading tools
+  # (open_perp_position/place_perp_order/limit_*) stay allowed — riskguard caps their
+  # risk deterministically. GMAC + funding moves are deterministic scripts, not the model.
+  DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token mcp__gdex__buy_token mcp__gdex__managed_purchase mcp__gdex__execute_spot mcp__gdex__execute_cross_perp mcp__gdex__execute_isolated_perp mcp__gdex__create_copy_trade mcp__gdex__create_hl_copy_trade"
   if printf '%s' "$PROMPT" | timeout 600 claude --print --permission-mode bypassPermissions \
       --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
