@@ -42,7 +42,14 @@ function tg(method, params, timeoutMs = 15000) {
   });
 }
 
-const predict = (args) => { try { return JSON.parse(execFileSync('node', [SELF, ...args], { encoding: 'utf8', timeout: 90000 }).trim().split('\n').pop()); } catch (e) { return { ok: false, error: e.message }; } };
+// predict.js prints one pretty (multi-line) JSON object — parse the whole blob
+// from its first brace, not the last line (which is just "}").
+const predict = (args) => {
+  try {
+    const out = execFileSync('node', [SELF, ...args], { encoding: 'utf8', timeout: 90000 });
+    return JSON.parse(out.slice(out.indexOf('{')));
+  } catch (e) { return { ok: false, error: e.message }; }
+};
 
 function openRounds() {
   return Object.values(readJson(path.join(DIR, 'rounds.json'), {})).filter((r) => r.status === 'open');
