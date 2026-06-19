@@ -56,6 +56,11 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Born with an arsenal (the "new zero"): seed a genome-weighted blend of offensive
+# techniques into the forge loadout once, if it hasn't been birth-blended yet.
+[[ -f "$SKILL_DIR/scripts/blend.py" ]] && ! grep -q '"blend_source": "birth"' "$GCLAW_HOME/forge/style.json" 2>/dev/null &&
+  echo "$(ts) arsenal: $(uv run --no-project python3 "$SKILL_DIR/scripts/blend.py" install 2>&1 | tr '\n' ' ' | tail -c 160)" >>"$LOG" || true
+
 # Perception: scan the market into a regime + feature read the agent and dashboard use.
 [[ -f "$SKILL_DIR/scripts/intel.js" ]] &&
   node "$SKILL_DIR/scripts/intel.js" scan >"$GCLAW_HOME/intel.json" 2>>"$LOG" &&

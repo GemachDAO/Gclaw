@@ -1,0 +1,22 @@
+{
+  "id": "stop-hunt-revert",
+  "name": "Stop-Hunt Reversion",
+  "kind": "edge",
+  "claim": "Fade a failed liquidity grab at obvious levels.",
+  "coin": "SOL",
+  "interval": "1h",
+  "regimes": {
+    "range": 0.9,
+    "trend_up": 0.3,
+    "trend_down": 0.3,
+    "chop": 0.15
+  },
+  "affinity": {
+    "Aggression": 0.5,
+    "Cunning": 0.8,
+    "Discipline": 0.2,
+    "base": 0.1
+  },
+  "provenance": "seed",
+  "author": "gemach-arsenal"
+}

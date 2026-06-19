@@ -1,0 +1,22 @@
+{
+  "id": "premium-skew",
+  "name": "Premium Skew",
+  "kind": "edge",
+  "claim": "Fade an exhausted premium before the funding tax.",
+  "coin": "ETH",
+  "interval": "1h",
+  "regimes": {
+    "range": 1.0,
+    "trend_up": 0.4,
+    "trend_down": 0.4,
+    "chop": 0.15
+  },
+  "affinity": {
+    "Aggression": 0.2,
+    "Cunning": 0.5,
+    "Discipline": 0.3,
+    "base": 0.12
+  },
+  "provenance": "seed",
+  "author": "gemach-arsenal"
+}

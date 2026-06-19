@@ -1,0 +1,22 @@
+{
+  "id": "momentum-stack",
+  "name": "Momentum Stack",
+  "kind": "edge",
+  "claim": "Ride a high-efficiency trend; late chasers fuel it.",
+  "coin": "BTC",
+  "interval": "1h",
+  "regimes": {
+    "trend_up": 1.0,
+    "trend_down": 1.0,
+    "range": 0.2,
+    "chop": 0.15
+  },
+  "affinity": {
+    "Aggression": 0.3,
+    "Cunning": 0.0,
+    "Discipline": 0.5,
+    "base": 0.2
+  },
+  "provenance": "seed",
+  "author": "gemach-arsenal"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "dislocation-revert",
+  "name": "Dislocation Reversion",
+  "kind": "edge",
+  "claim": "Fade forced liquidation wicks back to the mean.",
+  "coin": "SOL",
+  "interval": "1h",
+  "regimes": {
+    "range": 1.0,
+    "trend_up": 0.2,
+    "trend_down": 0.2,
+    "chop": 0.15
+  },
+  "affinity": {
+    "Aggression": -0.1,
+    "Cunning": 0.2,
+    "Discipline": 0.7,
+    "base": 0.15
+  },
+  "provenance": "seed",
+  "author": "gemach-arsenal"
+}
