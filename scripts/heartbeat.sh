@@ -61,6 +61,14 @@ cd "$HOME"
   node "$SKILL_DIR/scripts/intel.js" scan >"$GCLAW_HOME/intel.json" 2>>"$LOG" &&
   echo "$(ts) intel: $(uv run --no-project python3 -c 'import json;d=json.load(open("'"$GCLAW_HOME"'/intel.json"));print({k:(v["regime"] if v else None) for k,v in d.get("intel",{}).items()})' 2>/dev/null)" >>"$LOG" || true
 
+# Hybrid model: escalate to Opus only when the cycle needs judgment (a position to
+# manage or a live setup), else Sonnet for the routine quiet cycle. Runs after the
+# intel scan so the setup signal is fresh. An explicit GCLAW_MODEL overrides.
+if [[ -f "$SKILL_DIR/scripts/model_select.js" ]]; then
+  MODEL="$(node "$SKILL_DIR/scripts/model_select.js" 2>>"$LOG" || echo "$MODEL")"
+fi
+echo "$(ts) model: $MODEL" >>"$LOG"
+
 # Anti-drain: the heartbeat runs unattended with bypassPermissions, and reads
 # untrusted text (peer cards, family bus, market data, gene-pool metadata) that
 # could carry a prompt-injection payload. Deny every tool that can move funds to
