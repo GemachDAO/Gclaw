@@ -796,10 +796,20 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
              "coin": args.coin, "pnl_usd": round(pnl, 6), "royalty_usd": royalty}
     with royalty_ledger().open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+    # Darwinian feedback: move the contributing technique's loadout weight by its
+    # realized edge and teach the regime router (best-effort; never blocks attribution).
+    fitness = None
+    local_tid = (rec or {}).get("technique") or (ref.split("/", 1)[1] if "/" in ref else ref)
+    if local_tid:
+        try:
+            fitness = _update_fitness(local_tid, pnl, float((rec or {}).get("risk_usd") or 0.0),
+                                      (rec or {}).get("regime", "range"))
+        except Exception as exc:  # noqa: BLE001
+            fitness = {"skipped": str(exc)[:100]}
     if rec:
         pending.pop(args.coin, None)
         save_pending(pending)
-    return {"ok": True, "attributed": entry}
+    return {"ok": True, "attributed": entry, "fitness": fitness}
 
 
 def _sync_reputation(broadcast: bool) -> dict[str, Any]:
@@ -1055,18 +1065,59 @@ def _regime_stats() -> dict[str, Any]:
         return {}
 
 
+FITNESS_ETA = 0.15      # per-trade multiplicative-weights step (Hedge)
+FITNESS_ALPHA = 0.3     # EWMA smoothing for expectancy + regime edge
+FITNESS_PRUNE_W = 0.05  # weight at/below which a technique is dropped …
+FITNESS_PRUNE_N = 12    # … but only after a fair sample (no death on variance)
+ROUTER_MIN_N = 8        # learned regime nudge needs this many trades in the regime
+
+
 def _gate(tid: str, regime: str, rstats: dict[str, Any]) -> float:
     """Eligibility of a technique in this regime ∈ [0.05, 1.2]. Static prior from the
-    technique's declared `regimes`, nudged by its learned edge there when known."""
+    technique's declared `regimes`, nudged by its learned edge once the fitness loop
+    has recorded ≥ROUTER_MIN_N trades there (Meta-1 regime router)."""
     try:
         regimes = load_technique(tid).get("regimes")
     except SystemExit:
         regimes = None
     static = float(regimes.get(regime, 0.15)) if isinstance(regimes, dict) else 1.0
-    r = (rstats.get(tid) or {}).get(regime)
-    if r is not None:  # learned nudge once the fitness loop has tagged ≥8 trades there
-        static *= 1.0 + 0.4 * math.tanh(float(r))
+    learned = (rstats.get(tid) or {}).get(regime)
+    if isinstance(learned, dict) and int(learned.get("n", 0)) >= ROUTER_MIN_N:
+        static *= 1.0 + 0.4 * math.tanh(float(learned.get("e", 0.0)))
     return max(0.05, min(1.2, static))
+
+
+def _update_fitness(tid: str, pnl: float, risk_usd: float, regime: str) -> dict[str, Any]:
+    """Darwinian feedback on a closed trade: move the technique's weight by its realized
+    edge (winners compound, losers decay → pruned), and teach the regime router.
+
+    Normalised return r = pnl / risk_at_entry (clamped); weight *= exp(η·r) bounded to
+    [0.05, 1.0]; a technique below the floor after a fair sample is dropped from the
+    loadout. R[tid][regime] tracks the EWMA edge per regime for the Meta-1 router.
+    """
+    r = pnl / risk_usd if risk_usd and risk_usd > 0 else (1.0 if pnl > 0 else -1.0 if pnl < 0 else 0.0)
+    r = max(-3.0, min(3.0, r))
+    style = load_style()
+    out: dict[str, Any] = {"technique": tid, "r": round(r, 3)}
+    for e in style.get("adopted", []):
+        if e.get("id") != tid:
+            continue
+        e["e"] = round((1 - FITNESS_ALPHA) * float(e.get("e", 0.0)) + FITNESS_ALPHA * r, 4)
+        e["trades"] = int(e.get("trades", 0)) + 1
+        e["weight"] = round(max(FITNESS_PRUNE_W, min(1.0, float(e.get("weight", 1.0)) * math.exp(FITNESS_ETA * r))), 4)
+        out["weight"], out["trades"] = e["weight"], e["trades"]
+        if e["weight"] <= FITNESS_PRUNE_W and e["trades"] >= FITNESS_PRUNE_N:
+            style["adopted"] = [x for x in style["adopted"] if x is not e]
+            out["pruned"] = True
+        break
+    save_style(style)
+    rs = _regime_stats()
+    cell = rs.setdefault(tid, {}).setdefault(regime, {"e": 0.0, "n": 0})
+    cell["e"] = round((1 - FITNESS_ALPHA) * float(cell.get("e", 0.0)) + FITNESS_ALPHA * r, 4)
+    cell["n"] = int(cell.get("n", 0)) + 1
+    (forge_dir() / "regime_stats.json").write_text(json.dumps(rs, indent=2) + "\n", encoding="utf-8")
+    out["regime_edge"] = {regime: cell}
+    return out
 
 
 def _recent_expectancy() -> float:
@@ -1197,6 +1248,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         intent["proven"] = coin in proven_coins or any(
             proven_by_tech.get(t) == coin for t in decision["contributors"])
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
+        intent["regime"] = f.get("regime", "range")
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
@@ -1212,7 +1264,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         if result["executed"].get("ok"):
             ref, _ = royalty_ref(load_technique(top["technique"]))
             pending = load_pending()
-            pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso()}
+            pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso(),
+                                    "regime": top.get("regime", "range"),
+                                    "risk_usd": round(top["notional"] * top["sl_pct"] / 100.0, 4)}
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute and not breaker["allow_entry"]:
