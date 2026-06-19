@@ -1000,6 +1000,10 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
+    # A failed/rate-limited status read passes equity<=0; never trip (or move the
+    # high-water mark) on a bad read — that would falsely flatten / alert at 100%.
+    if equity <= 0:
+        return {**state, "tripped": bool(state.get("tripped")), "skipped": "no equity read"}
     hwm = max(float(state.get("hwm", 0) or 0), equity)
     drawdown_pct = round((1 - equity / hwm) * 100, 2) if hwm > 0 else 0.0
     reason = None
