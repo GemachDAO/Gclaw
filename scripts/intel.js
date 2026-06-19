@@ -164,6 +164,23 @@ async function coinIntel(coin, ctx, btcReturns) {
   return f;
 }
 
+// Open-interest momentum: the hourly %% change in OI. Rising OI into a funding/price
+// extreme = fresh crowded leverage (fragile); falling = the crowd already unwinding.
+// Cached across scans so the delta is heartbeat-over-heartbeat.
+function applyOiDelta(out) {
+  const p = path.join(GCLAW_HOME, 'oi_cache.json');
+  let prev = {};
+  try { prev = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { prev = {}; }
+  const next = {};
+  for (const [coin, f] of Object.entries(out)) {
+    if (!f || f.open_interest == null) continue;
+    next[coin] = f.open_interest;
+    const was = prev[coin];
+    f.oi_delta = was != null && was > 0 ? Math.round(((f.open_interest - was) / was) * 1000) / 1000 : 0;
+  }
+  try { fs.writeFileSync(p, JSON.stringify(next)); } catch { /* cache is best-effort */ }
+}
+
 async function scan(coins) {
   const ctxResp = await info({ type: 'metaAndAssetCtxs' });
   const ctxByName = new Map();
@@ -172,6 +189,7 @@ async function scan(coins) {
   const btcReturns = returns(btc.map((k) => k.c)).slice(-CORR_WINDOW);
   const out = {};
   for (const coin of coins) out[coin] = await coinIntel(coin, ctxByName.get(coin), btcReturns);
+  applyOiDelta(out);
   return out;
 }
 

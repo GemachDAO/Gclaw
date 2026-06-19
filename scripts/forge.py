@@ -268,6 +268,26 @@ def get_live_features(coins: list[str]) -> dict[str, Any]:
     return run_node(["features", "--coins", ",".join(coins)])["features"]
 
 
+_INTEL: Optional[dict[str, Any]] = None
+# The rich senses intel.js scans each heartbeat — the offensive features the arsenal
+# trades on (funding extremes, dislocation, regime, order-flow). Merged into live runs.
+INTEL_KEYS = ("regime", "funding_z", "bb_z", "rsi", "atr_pct", "realized_vol_pct",
+              "ema_stack", "ema_slope_pct", "efficiency", "flow_pressure", "premium",
+              "btc_corr", "oi_delta")
+
+
+def _intel_features() -> dict[str, Any]:
+    """Per-coin feature vector from the latest intel.js scan (cached per process)."""
+    global _INTEL
+    if _INTEL is None:
+        try:
+            d = json.loads((gclaw_home() / "intel.json").read_text(encoding="utf-8"))
+            _INTEL = d.get("intel", d) or {}
+        except (OSError, ValueError):
+            _INTEL = {}
+    return _INTEL
+
+
 # ── Feature engineering ──────────────────────────────────────────────────────
 
 
@@ -302,6 +322,18 @@ def features_at(candles: list[dict[str, float]], i: int, coin: str,
         f["funding"] = live.get("funding")
         f["oi"] = live.get("openInterest")
         f["premium"] = live.get("premium")
+        f["mark"] = live.get("mark") or price
+        f["prevDayPx"] = live.get("prevDayPx")
+        # Live only: inject the intel.js scan's offensive senses so the arsenal can fire.
+        # Backtests stay price-derived (live=None) — never leak the current regime into history.
+        iv = _intel_features().get(coin) or {}
+        for k in INTEL_KEYS:
+            if iv.get(k) is not None:
+                f[k] = iv[k]
+        if f.get("funding") is None and iv.get("funding_now") is not None:
+            f["funding"] = iv["funding_now"]
+        if iv.get("open_interest") is not None:
+            f["oi"] = iv["open_interest"]
     return f
 
 
