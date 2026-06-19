@@ -9,39 +9,54 @@
   directly from the ERC-8004 IdentityRegistry on Base mainnet via a public RPC.
   Open it from the repo (file://) or pin it to IPFS — the data is always onchain.
 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0b1020;--card:#141b2e;--ink:#e7ecf6;--muted:#8a96b3;--line:#243049}
+:root{--bg:#060A17;--card:#152037;--ink:#FFFFFF;--muted:#697083;--line:#1e2c49;
+--emerald:#49B875;--blue:#61B8FF;--red:#DF2E2E;--purple:#704FF6;--silver:#D5D9E1}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#1b2540,#0b1020);color:var(--ink);
-font:15px/1.5 'Segoe UI',system-ui,sans-serif;padding:24px}
-header{max-width:1080px;margin:0 auto 18px;display:flex;justify-content:space-between;align-items:end;flex-wrap:wrap;gap:10px}
-h1{margin:0;font-size:26px;letter-spacing:.5px}
-.sub{color:var(--muted);font-size:13px}
-.chain{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted)}
-.grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;gap:14px}
-.card h2{margin:0;font-size:18px}
+body{margin:0;background:radial-gradient(1100px 560px at 78% -12%,#161D2F,#060A17);color:var(--silver);
+font:15px/1.6 'Inter',-apple-system,system-ui,sans-serif;padding:24px;letter-spacing:.1px;min-height:100vh}
+header{max-width:1080px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand .lion{color:var(--emerald);display:inline-flex}
+.eyebrow{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}
+h1{margin:2px 0 0;font-size:26px;letter-spacing:.3px;color:var(--ink);font-weight:800}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.chain{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-top:6px}
+.grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;gap:14px}
+.card h2{margin:0;font-size:19px;color:var(--ink);font-weight:700}
 .species{color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase}
-.fp{font-family:ui-monospace,monospace;color:var(--muted);font-size:10px;margin-top:6px}
-.rank{position:absolute;margin:-26px 0 0 -8px;background:#1d2a47;color:#9db4ff;border-radius:999px;padding:1px 8px;font-size:11px}
-.trait{display:grid;grid-template-columns:74px 1fr 26px;align-items:center;gap:6px;margin:4px 0;font-size:12px}
-.trait b{text-align:right}
-.tbar{height:7px;background:#0c1322;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
-.pill{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-top:6px}
-.stats{display:flex;gap:12px;margin:4px 0 8px;font-family:ui-monospace,monospace;font-size:13px;color:#cdd8f0;flex-wrap:wrap}
+.fp{font-family:ui-monospace,monospace;color:var(--muted);font-size:10px;margin-top:8px}
+.rank{position:absolute;top:-11px;left:14px;background:linear-gradient(180deg,#2E4164,#192843);color:var(--ink);
+border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;font-weight:700;letter-spacing:.5px}
+.card:first-child .rank{background:linear-gradient(180deg,#3a6b4d,#1f4a33);border-color:#2c6e4a;color:#9affc4}
+.trait{display:grid;grid-template-columns:74px 1fr 28px;align-items:center;gap:7px;margin:5px 0;font-size:12px}
+.trait b{text-align:right;color:var(--silver)}
+.tbar{height:7px;background:#0b1424;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
+.pill{display:inline-block;background:#16243f;color:var(--blue);padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;margin-top:8px}
+.stats{display:flex;align-items:center;gap:10px;margin:6px 0 8px;font-size:13px;color:var(--silver);flex-wrap:wrap;font-variant-numeric:tabular-nums}
 .stats span{white-space:nowrap}
-.ver{color:#7CFFB2;border:1px solid #1f6b46;border-radius:6px;padding:0 6px}
+.ver{color:#060A17;background:var(--emerald);font-weight:700;border-radius:6px;padding:2px 9px;font-size:12.5px}
 .muted{color:var(--muted);font-size:12px}
-.foot{max-width:1080px;margin:22px auto 0;color:var(--muted);font-size:12px;text-align:center}
-input{background:#0c1322;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;width:240px}
-a{color:#9db4ff}
+.foot{max-width:1080px;margin:24px auto 0;color:var(--muted);font-size:12px;text-align:center}
+.foot b{color:var(--silver)}
+input{background:#0b1424;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;width:240px}
+input::placeholder{color:var(--muted)}
+a{color:var(--blue);text-decoration:none}
+.lionfoot{color:var(--muted);display:inline-flex;vertical-align:middle}
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>🜃 Gclaw — Living Agent Leaderboard</h1>
-    <div class="sub">Every creature's DNA, read live from the blockchain. No server.</div>
+  <div class="brand">
+    <span class="lion"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:38px;height:auto" aria-label="Gemach"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
+    <div>
+      <div class="eyebrow">// GEMACH ECOSYSTEM</div>
+      <h1>Living Agent Leaderboard</h1>
+      <div class="sub">Every creature's DNA + equity, read live from the blockchain. No server, no host.</div>
+    </div>
   </div>
   <div>
     <input id="add" placeholder="add agentId(s), comma-separated" />
@@ -52,7 +67,10 @@ a{color:#9db4ff}
 <div id="grid" class="grid"></div>
 <div class="foot">
   Decentralized: open from the repo (<code>file://</code>) or pin to IPFS. Data lives in ERC-8004 onchain.
-  Add an agent with <code>?agents=55624,123</code>.
+  Add an agent with <code>?agents=55624,123</code>.<br>
+  <span style="display:inline-flex;align-items:center;gap:6px;margin-top:10px">
+  <span class="lionfoot"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:14px;height:auto"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
+  <b>//GEMACH</b> · built by Gemach DAO</span>
 </div>
 
 <script>
@@ -127,8 +145,8 @@ function statsRow(g){
     ? `<span class="ver" title="read live from HyperLiquid — independently verifiable">✓ $${g.verifiedEquity.toLocaleString()} verified</span>` : "";
   const s = g.stats;
   if(!s && !verified) return '<div class="muted">no trading beacon yet</div>';
-  const self = s ? `<span title="self-reported goodwill (winning trades)">⭐ ${s.goodwill??0}</span>
-    <span title="GMAC life energy">🜂 ${money(s.gmac)}</span>` : "";
+  const self = s ? `<span title="goodwill — won from profitable trades">⭐ ${s.goodwill??0} goodwill</span>
+    <span class="muted" title="GMAC life energy">${money(Math.round(s.gmac||0))} GMAC</span>` : "";
   return `<div class="stats">${verified}${self}</div>`;
 }
 
