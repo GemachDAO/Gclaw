@@ -103,7 +103,7 @@ async function cmdOpen(args) {
   }
   fs.writeFileSync(roundsPath(), JSON.stringify(rounds, null, 2));
   writeRoot();
-  if (args.announce) for (const r of opened) await announce(`🎯 ${soulName()} just opened ${r.coin} ${r.side} @ $${r.entry}.\nCall it — TP or SL? (round ${r.id})`);
+  if (args.announce) for (const r of opened) await announce(`🎯 ${soulName()} just opened ${r.coin} ${r.side} @ $${r.entry}.\nCall it — reply TP or SL. (round ${r.id})`);
   return { ok: true, opened, openRounds: Object.values(rounds).filter((r) => r.status === 'open').map((r) => ({ id: r.id, coin: r.coin, side: r.side })) };
 }
 
