@@ -83,3 +83,7 @@ fi
 # tripped breaker, low funds) when GCLAW_ALERT_WEBHOOK is set. No-ops otherwise.
 [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
   echo "$(ts) alerts: $(node "$SKILL_DIR/scripts/notify.js" check 2>&1)" >>"$LOG" || true
+# Celebrate the GOOD moments — text wins / milestones / streaks in the creature's
+# own voice so the human keeps coming back. No-ops without a webhook.
+[[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+  echo "$(ts) celebrate: $(node "$SKILL_DIR/scripts/notify.js" celebrate 2>&1)" >>"$LOG" || true
