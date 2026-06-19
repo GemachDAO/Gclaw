@@ -24,6 +24,7 @@ const https = require('node:https');
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const INFO_URL = process.env.HL_INFO_URL || 'https://api.hyperliquid.xyz/info';
 const HOUR = 3600_000;
+const CORR_WINDOW = 48; // hours of returns for the BTC-correlation estimate (2 days)
 
 function info(body) {
   return new Promise((resolve) => {
@@ -37,7 +38,9 @@ function info(body) {
 
 // --- math primitives -------------------------------------------------------
 const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
-const stdev = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(mean(a.map((x) => (x - m) ** 2))); };
+// Sample standard deviation (Bessel's n-1): these are samples of a process, not a
+// full population, so n-1 is the unbiased estimator.
+const stdev = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
 const sma = (a, n) => mean(a.slice(-n));
 
 function ema(values, n) {
@@ -48,27 +51,32 @@ function ema(values, n) {
   return e;
 }
 
+// Canonical Wilder RSI: seed with a simple average of the first n changes, then
+// Wilder-smooth (alpha = 1/n) over the rest — the standard, not a simple-MA variant.
 function rsi(closes, n = 14) {
   if (closes.length <= n) return 50;
-  let gain = 0; let loss = 0;
-  for (let i = closes.length - n; i < closes.length; i += 1) {
+  let avgGain = 0; let avgLoss = 0;
+  for (let i = 1; i <= n; i += 1) { const d = closes[i] - closes[i - 1]; if (d >= 0) avgGain += d; else avgLoss -= d; }
+  avgGain /= n; avgLoss /= n;
+  for (let i = n + 1; i < closes.length; i += 1) {
     const d = closes[i] - closes[i - 1];
-    if (d >= 0) gain += d; else loss -= d;
+    avgGain = (avgGain * (n - 1) + Math.max(d, 0)) / n;
+    avgLoss = (avgLoss * (n - 1) + Math.max(-d, 0)) / n;
   }
-  if (loss === 0) return 100;
-  const rs = (gain / n) / (loss / n);
-  return 100 - 100 / (1 + rs);
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
+// Canonical Wilder ATR: simple-average the first n true ranges, then Wilder-smooth.
 function atrPct(candles, n = 14) {
   if (candles.length <= n) return 0;
-  const trs = [];
-  for (let i = candles.length - n; i < candles.length; i += 1) {
-    const c = candles[i]; const prev = candles[i - 1];
-    trs.push(Math.max(c.h - c.l, Math.abs(c.h - prev.c), Math.abs(c.l - prev.c)));
-  }
+  const tr = (c, prev) => Math.max(c.h - c.l, Math.abs(c.h - prev.c), Math.abs(c.l - prev.c));
+  let atr = 0;
+  for (let i = 1; i <= n; i += 1) atr += tr(candles[i], candles[i - 1]);
+  atr /= n;
+  for (let i = n + 1; i < candles.length; i += 1) atr = (atr * (n - 1) + tr(candles[i], candles[i - 1])) / n;
   const last = candles[candles.length - 1].c;
-  return last ? (mean(trs) / last) * 100 : 0;
+  return last ? (atr / last) * 100 : 0;
 }
 
 // Kaufman efficiency ratio: net move / total path. ~1 = clean trend, ~0 = chop.
@@ -147,7 +155,7 @@ async function coinIntel(coin, ctx, btcReturns) {
     funding_z: Math.round(fz.funding_z * 100) / 100,
     open_interest: ctx ? Number(ctx.openInterest) : null,
     premium: ctx ? Number(ctx.premium) : null,
-    btc_corr: coin === 'BTC' ? 1 : Math.round(correlation(returns(closes.slice(-24)), btcReturns) * 100) / 100,
+    btc_corr: coin === 'BTC' ? 1 : Math.round(correlation(returns(closes).slice(-CORR_WINDOW), btcReturns) * 100) / 100,
     flow_pressure: Math.round(flow_pressure * 100) / 100,
   };
   f.efficiency = Math.round(efficiencyRatio(closes) * 100) / 100;
@@ -160,8 +168,8 @@ async function scan(coins) {
   const ctxResp = await info({ type: 'metaAndAssetCtxs' });
   const ctxByName = new Map();
   if (Array.isArray(ctxResp) && ctxResp[0]?.universe) ctxResp[0].universe.forEach((u, i) => ctxByName.set(u.name, ctxResp[1][i]));
-  const btc = (await candles('BTC', '1h', 49)).slice(0, -1); // closed bars only
-  const btcReturns = returns(btc.map((k) => k.c).slice(-24));
+  const btc = (await candles('BTC', '1h', CORR_WINDOW + 25)).slice(0, -1); // closed bars only
+  const btcReturns = returns(btc.map((k) => k.c)).slice(-CORR_WINDOW);
   const out = {};
   for (const coin of coins) out[coin] = await coinIntel(coin, ctxByName.get(coin), btcReturns);
   return out;
