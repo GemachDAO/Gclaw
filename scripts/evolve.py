@@ -127,8 +127,10 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     strategy.write_text(strategy.read_text(encoding="utf-8") + mutation, encoding="utf-8")
 
     born = now_iso()
+    child_genome = breed_child(state, name, args.role)
     state["children"].append(
-        {"name": name, "born_at": born, "role": args.role, "mutation": args.mutation}
+        {"name": name, "born_at": born, "role": args.role, "mutation": args.mutation,
+         "genome": child_genome}
     )
     save_state(state)
     append_journal(
@@ -140,6 +142,18 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     print(f"  soul: {soul}")
     print(f"  mutation: {args.mutation}")
     print(f"  children: {len(state['children'])}/{MAX_CHILDREN}")
+
+
+def breed_child(state: dict[str, Any], name: str, role: str) -> dict[str, Any] | None:
+    """Breed the child's genome from the parent's via dashboard.breed — real
+    inheritance (resembles the parent, diverges). Best-effort; never blocks a birth."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import dashboard
+        parent_g = state.get("genome") or dashboard.genome("Gclaw", state.get("born_at", "genesis"))
+        return dashboard.breed(parent_g, name, role, state.get("goodwill", 50))
+    except Exception:  # noqa: BLE001 — heredity is a nicety, never block a birth
+        return None
 
 
 def give_soul(child_dir, name: str, born: str) -> str:
