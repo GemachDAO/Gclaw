@@ -337,23 +337,23 @@ def _svg_inline(p: Path) -> str:
 
 
 def topup_html(h: Path) -> str:
+    """One prominent QR for the primary action (fund trading); gas is one-time and
+    optional, so it's a compact secondary line, not a second big code."""
     pos = load_json(h / "positions.json", {})
     gas = load_json(h / "gas.json", {})
-    rows = [
-        (pos.get("managed"), h / "qr" / "topup.svg", "Fund trading · Arbitrum",
-         "Scan &amp; send ETH — auto-swaps to USDC and trades."),
-        (gas.get("control"), h / "qr" / "gas.svg", "Top up gas · Base",
-         "Scan &amp; send a little ETH for onchain beacons."),
-    ]
-    blocks = []
-    for addr, svg, label, note in rows:
-        if not addr:
-            continue
-        blocks.append(f'<div class="qrcard"><div class="qr">{_svg_inline(svg)}</div>'
-                      f'<div><div class="qlabel">{label}</div>'
-                      f'<div class="addr">{addr}</div>'
-                      f'<div class="muted">{note}</div></div></div>')
-    return "".join(blocks) or '<p class="muted">Wallet addresses unavailable.</p>'
+    managed = pos.get("managed")
+    if not managed:
+        return '<p class="muted">Wallet addresses unavailable.</p>'
+    primary = (f'<div class="qrcard"><div class="qr">{_svg_inline(h / "qr" / "topup.svg")}</div>'
+               f'<div><div class="qlabel">Fund trading · Arbitrum</div>'
+               f'<div class="addr">{managed}</div>'
+               f'<div class="muted">Scan &amp; send ETH — it auto-swaps to USDC and trades. '
+               f'No bridging, no manual steps.</div></div></div>')
+    ctrl = gas.get("control")
+    secondary = (f'<div class="gasline"><b>Gas (optional)</b> · send ~0.001 ETH on '
+                 f'<b>Base</b> to <span class="addr" style="display:inline;max-width:none">{ctrl}</span> '
+                 f'for onchain identity beacons.</div>') if ctrl else ""
+    return primary + secondary
 
 
 def refresh_roster(h: Path) -> None:
@@ -653,6 +653,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        script=TABS_JS,
     )
 
 
@@ -726,6 +727,23 @@ def lion(width: str = "30px") -> str:
     return LION_SVG.format(w=width)
 
 
+TABS_JS = """<script>
+(function(){
+  var saved = localStorage.getItem('gclaw_tab') || 'overview';
+  function show(t){
+    var p=document.querySelectorAll('.pane'), b=document.querySelectorAll('.tab'), i, has=false;
+    for(i=0;i<p.length;i++){ if(p[i].id===t) has=true; }
+    if(!has) t='overview';
+    for(i=0;i<p.length;i++) p[i].classList.toggle('active', p[i].id===t);
+    for(i=0;i<b.length;i++) b[i].classList.toggle('active', b[i].getAttribute('data-tab')===t);
+    try{ localStorage.setItem('gclaw_tab', t); }catch(e){}
+  }
+  var btns=document.querySelectorAll('.tab');
+  for(var i=0;i<btns.length;i++) btns[i].addEventListener('click', function(){ show(this.getAttribute('data-tab')); });
+  show(saved);
+})();
+</script>"""
+
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
@@ -767,7 +785,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:var(--emerald);font-size:15px}}.lev.locked{{opacity:.5}}
 .link{{display:inline-block;margin-top:10px;color:var(--blue);text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
 .decent h2{{color:var(--emerald)}}
-.topup{{display:flex;gap:22px;flex-wrap:wrap}}
+.topup{{display:flex;flex-direction:column;gap:14px}}
+.gasline{{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;line-height:1.7}}.gasline b{{color:var(--silver)}}
 .qrcard{{display:flex;gap:14px;align-items:center}}
 .qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
 .qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
@@ -783,7 +802,13 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .trend{{display:flex;align-items:center;gap:16px;border-top:1px solid var(--line);padding-top:14px}}
 .trend .slabel{{margin:0}}.trend svg{{display:block}}.trendcap{{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}}
 .trendcap b{{font-weight:700}}.trendcap b.up{{color:var(--emerald)}}.trendcap b.down{{color:var(--red)}}
-@media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}.trend{{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px;width:100%}}}}
+.tabs{{max-width:1080px;margin:0 auto 18px;display:flex;gap:6px;flex-wrap:wrap}}
+.tab{{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:8px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.3px;transition:color .12s,background .12s}}
+.tab:hover{{color:var(--silver)}}
+.tab.active{{background:var(--card);color:var(--ink);border-color:#2c6e4a;box-shadow:0 0 0 1px rgba(73,184,117,.22)}}
+.pane{{display:none;max-width:1080px;margin:0 auto;grid-template-columns:1fr 1fr;gap:18px;align-items:start}}
+.pane.active{{display:grid}}.pane .full{{grid-column:1/-1}}
+@media(max-width:760px){{.grid2{{grid-template-columns:1fr}}.pane.active{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}.trend{{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px;width:100%}}}}
 </style></head><body>
 <div class="topbar">
   <div class="toprow">
@@ -795,40 +820,43 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   </div>
   {performance}
 </div>
-<div class="wrap">
-<div class="card hero">
-  <div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div>
-  {helix}
-  <div class="fp">genome {fingerprint} · born {born}</div>
+<div class="tabs">
+  <button class="tab" data-tab="overview">Overview</button>
+  <button class="tab" data-tab="trading">Trading</button>
+  <button class="tab" data-tab="social">Social</button>
+  <button class="tab" data-tab="genome">Genome</button>
 </div>
-<div>
+
+<div class="pane" id="overview">
+  <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
+  <div class="card decent"><h2>🧠 Market intelligence · regime</h2>{intel}</div>
   <div class="card"><h2>Life-state</h2>{gauges}</div>
-  <div class="grid2" style="margin-top:18px">
-    <div class="card"><h2>Genome traits</h2>{traits}</div>
-    <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
-  </div>
-  <div class="grid2" style="margin-top:18px">
-    <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
-    <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
-  </div>
-  <div class="grid2" style="margin-top:18px">
-    <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
-    <div class="card decent"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
-  </div>
-  <div class="grid2" style="margin-top:18px">
-    <div class="card decent"><h2>👥 Family roster · onchain (Base)</h2>{roster}</div>
-    <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
-  </div>
-  <div class="card" style="margin-top:18px"><h2>🏅 Achievements</h2>{achievements}</div>
-  <div class="card decent" style="margin-top:18px"><h2>🧠 Market intelligence · regime + risk brain</h2>{intel}</div>
-  <div class="card decent" style="margin-top:18px"><h2>🎯 Call it · predictions (free · onchain-anchored)</h2>{predictions}</div>
-  <div class="card decent" style="margin-top:18px"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
-  <div class="grid2" style="margin-top:18px">
-    <div class="card"><h2>Life events</h2>{events}</div>
-    <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
-  </div>
-</div></div>
+  <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
+</div>
+
+<div class="pane" id="trading">
+  <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
+  <div class="card decent"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
+  <div class="card"><h2>🏅 Achievements</h2>{achievements}</div>
+  <div class="card"><h2>Life events</h2>{events}</div>
+</div>
+
+<div class="pane" id="social">
+  <div class="card decent"><h2>👥 Family roster · onchain (Base)</h2>{roster}</div>
+  <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
+  <div class="card decent full"><h2>🎯 Call it · predictions (free · onchain-anchored)</h2>{predictions}</div>
+  <div class="card full"><h2>The Show · family chatter</h2>{telepathy}</div>
+</div>
+
+<div class="pane" id="genome">
+  <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div>{helix}<div class="fp">genome {fingerprint} · born {born}</div></div>
+  <div class="card"><h2>Genome traits</h2>{traits}</div>
+  <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
+  <div class="card decent full"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
+</div>
+
 <div class="foot"><span class="lionfoot">{lion_sm}</span> <b>//GEMACH</b> · Gclaw the living trading agent · rendered {generated} · auto-refresh 60s</div>
+{script}
 </body></html>"""
 
 
