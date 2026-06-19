@@ -51,14 +51,37 @@ there to earn the right to auto-trade it. Don't tunnel on BTC/ETH/SOL: stocks mo
 - Keep dry powder: never deploy the whole treasury; the survival buffer is sacred.
 - Mind funding: don't pay rich funding to sit on a crowded side.
 
-## Operating loop (per heartbeat)
-1. Check open exposure first (`get_perp_positions`, `get_hl_clearinghouse_state`).
-2. Manage existing positions before opening new ones — move stops to break-even on winners, cut losers at the stop.
-3. Read the tape: `get_hl_meta_and_asset_ctxs` (mark, funding, OI), `get_mark_price`.
-4. Only open when there is a clear thesis and the setup quality is real. Otherwise gather intel and wait.
-5. For events: scan `hl_outcomes` for near-dated markets with real volume and a price that diverges from your estimate.
-6. Size from the risk limit, not conviction. Open with TP/SL. State the thesis first.
-7. On close, settle realized PnL into metabolism.
+## Operating loop (per heartbeat) — intelligence-driven
+
+You have a perception + risk stack. **Use it; do not trade on a raw price glance.**
+
+1. **Exposure first** (`get_perp_positions`, `get_hl_clearinghouse_state`). Manage open
+   positions before opening new ones — stops to break-even on winners, cut losers at the stop.
+   If you hold correlated longs (intel `btc_corr` > 0.8) all the same way as a `trend_down`
+   regime, reduce — never stack correlated risk into the trend.
+2. **Read the regime FIRST** — `node scripts/intel.js scan` (also cached at `~/.gclaw/intel.json`
+   each heartbeat). Per coin you get `regime` (trend_up / trend_down / range / chop),
+   `efficiency`, `rsi`, `atr_pct`, `bb_z`, `funding_z`, `ema_stack`, `btc_corr`, `flow_pressure`,
+   `tradeable`.
+3. **The chop gate — DO NOT open a coin whose `regime` is `chop`** (`tradeable:false`). That is
+   exactly where the historical losses came from. In `range`, fade `bb_z` extremes
+   (mean-reversion). In `trend_up`/`trend_down`, trade WITH `ema_stack` (momentum) — never fight it.
+   Extreme `funding_z` (|z| > 1.5) flags a crowded book → expect a squeeze against the crowd.
+4. **Demand proven, regime-matched edge** — `node scripts/memory.py query --regime <regime>` ranks
+   your techniques by expectancy *in this regime*. Open only if a technique shows `edge_real: true`
+   for the current regime, **or** (cold start, no history) the intel gives a high-conviction,
+   regime-aligned setup. A coin-flip signal (confidence < 0.6) is not a setup — wait.
+5. **Size with the risk brain, never by gut** —
+   `node scripts/sizing.py size --equity <E> --price <P> --atr-pct <atr_pct> --win-rate <w>
+   --payoff <b> --goodwill <g> --confidence <c>` (pull `--win-rate`/`--payoff` from
+   `memory.py expectancy --technique <t> --regime <r>`). Open with exactly the returned `notional`,
+   `size`, and ATR-based stop. This caps any single trade's risk to a fixed fraction of equity —
+   no trade can dominate the P&L again. Write the intended risk to `~/.gclaw/open_risk.json`
+   (`{"<coin>": <risk_usd>}`) so the close records a true R-multiple.
+6. For events: scan `hl_outcomes` for near-dated markets with real volume and a price that diverges
+   from your estimate.
+7. On close, settle (auto). Each close is auto-recorded to the trade-memory with its regime, so your
+   expectancy estimates — and every future sizing decision — sharpen with every trade.
 
 ## Mode behavior
 - **THRIVE:** normal operation; perps + selective outcome bets.
