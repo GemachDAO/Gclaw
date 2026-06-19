@@ -37,16 +37,21 @@ async function post(url, body, headers) {
 
 const readJsonl = (p) => { try { return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
+// Only clean, universally-rendered glyphs reach a message — the old alchemical
+// sigils (🜂🜁🜃…) tofu-box on Telegram and system fonts. Sanitize stale ones.
+const SAFE_SIGILS = new Set(['◆', '◈', '✦', '✧', '❖', '⬡', '⬢', '❂', '✸', '⟡', '◇', '✺', '☉', '☾']);
+const cleanSigil = (s) => (SAFE_SIGILS.has(s) ? s : '◇');
+
 // The creature's own voice — so it texts you in character, not as a robot.
 function soul() {
   const p = readJson(path.join(GCLAW_HOME, 'dna', 'persona.json'), {});
   const m = readJson(path.join(GCLAW_HOME, 'metabolism.json'), {});
-  return { name: m.name || p.species || p.name || 'Gclaw', sigil: p.sigil || '🜂',
+  return { name: m.name || p.species || p.name || 'Gclaw', sigil: cleanSigil(p.sigil),
     catchphrase: p.catchphrase || '', archetype: p.archetype || '' };
 }
 function voiced(msg, big) {
   const s = soul();
-  return `${s.sigil} ${s.name}: ${msg}` + (big && s.catchphrase ? `  —  “${s.catchphrase}”` : '');
+  return `${s.sigil} ${s.name} — ${msg}` + (big && s.catchphrase ? `\n“${s.catchphrase}”` : '');
 }
 
 async function deliver(text) {
@@ -59,7 +64,8 @@ async function deliver(text) {
 }
 
 async function send(level, message) {
-  const sent = await deliver(`🜃 ${soul().name} #${agentId()} [${level.toUpperCase()}] ${message}`);
+  const dot = { critical: '🔴', warning: '🟡' }[level] || '⚪';
+  const sent = await deliver(`${dot} ${soul().name} — ${message}`);
   return sent.length ? { ok: true, sent } : { ok: true, sent: [], skip: 'no GCLAW_ALERT_WEBHOOK / telegram configured' };
 }
 
@@ -93,13 +99,13 @@ async function celebrate() {
   const fire = async (key, msg, big) => { if (st.unlocked[key]) return; if (key.startsWith('once:')) st.unlocked[key] = new Date().toISOString(); const v = voiced(msg, big); fired.push(v); await deliver(v); };
 
   for (const s of settles.filter((e) => new Date(e.ts).getTime() > (st.lastSettleTs || 0))) {
-    if (Number(s.pnl) > 0.01) { st.winStreak = (st.winStreak || 0) + 1; await fire(`win:${s.ts}`, `booked +$${Number(s.pnl).toFixed(2)} 💚  ⭐ goodwill ${s.goodwill}`, false); } else if (Number(s.pnl) < -0.01) { st.winStreak = 0; }
-    if (Number(s.gmac_buyback_usd) > 0.01) await fire(`burn:${s.ts}`, `bought & burned $${Number(s.gmac_buyback_usd).toFixed(2)} of $GMAC 🔥`, false);
+    if (Number(s.pnl) > 0.01) { st.winStreak = (st.winStreak || 0) + 1; await fire(`win:${s.ts}`, `booked +$${Number(s.pnl).toFixed(2)} · goodwill ${s.goodwill}`, false); } else if (Number(s.pnl) < -0.01) { st.winStreak = 0; }
+    if (Number(s.gmac_buyback_usd) > 0.01) await fire(`burn:${s.ts}`, `bought back & burned $${Number(s.gmac_buyback_usd).toFixed(2)} of GMAC 🔥`, false);
   }
   st.lastSettleTs = lastSettleTs;
-  for (const n of STREAK_TIERS) if (st.winStreak === n) await fire(`streak:${n}:${Math.floor((meta.heartbeats || 0) / 100)}`, `🔥 ${n} wins in a row`, true);
+  for (const n of STREAK_TIERS) if (st.winStreak === n) await fire(`streak:${n}:${Math.floor((meta.heartbeats || 0) / 100)}`, `${n} wins in a row 🔥`, true);
   const gw = meta.goodwill || 0;
-  for (const [tier, label] of GW_TIERS) if (gw >= tier && (st.lastGoodwill || 0) < tier) await fire(`once:gw${tier}`, `hit ⭐ goodwill ${tier}${label}`, true);
+  for (const [tier, label] of GW_TIERS) if (gw >= tier && (st.lastGoodwill || 0) < tier) await fire(`once:gw${tier}`, `reached goodwill ${tier}${label}`, true);
   st.lastGoodwill = gw;
   const seed = meta.seed || 1000;
   if ((meta.gmac_balance || 0) > seed) await fire('once:seedback', `clawed back above its ${seed} GMAC seed — in the black`, true);

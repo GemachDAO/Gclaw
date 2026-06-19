@@ -66,7 +66,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 SPECIES_PREFIX = ["Vor", "Kryo", "Zeph", "Mor", "Lyx", "Quel", "Ras", "Thi", "Nyx", "Obol"]
 SPECIES_SUFFIX = ["dax", "mire", "lith", "phar", "gax", "ven", "tide", "korn", "ses", "wraith"]
-SIGILS = ["🜂", "🜁", "🜃", "🜄", "🝆", "🝛", "☉", "☾", "✶", "⟁", "❄", "🝬"]
+# Clean, universally-rendered geometric glyphs (the alchemical set tofu-boxed on
+# most systems — Telegram, system fonts). Sharp + premium, on the Gemach brand.
+SIGILS = ["◆", "◈", "✦", "✧", "❖", "⬡", "⬢", "❂", "✸", "⟡", "◇", "✺"]
 TRAITS = ["Vitality", "Cunning", "Aggression", "Discipline", "Fertility"]
 
 BASE_SYMBOL = (
@@ -418,24 +420,40 @@ def positions_html(h: Path) -> str:
 
 
 def techniques_html() -> str:
-    """The forge loadout — self-authored, proven trading techniques."""
+    """The arsenal — the born offensive loadout, ranked by live weight. Each technique's
+    weight is its genome-given start, adapted by what it actually earns (the fitness loop)."""
     h = home()
     style = load_json(h / "forge" / "style.json", {})
     adopted = style.get("adopted", [])
     if not adopted:
-        return '<p class="muted">No techniques adopted yet — author one with forge.py draft/prove/adopt.</p>'
-    items = []
-    for e in adopted:
+        return '<p class="muted">No techniques yet — the arsenal is installed at birth.</p>'
+    cap = float(style.get("conviction_cap", 0.85) or 0.85)
+    risk = float(style.get("risk_mult", 1.0) or 1.0)
+    role = style.get("role", "")
+    head = (f'<div class="loadhead">{len(adopted)} techniques · conviction cap '
+            f'<b>{cap:.2f}</b> · risk <b>×{risk:.2f}</b>'
+            + (f' · <b>{role}</b>' if role else "") + "</div>")
+    rows = []
+    for e in sorted(adopted, key=lambda x: -float(x.get("weight", 1.0) or 1.0)):
         tid = e.get("id") if isinstance(e, dict) else e
         tech = load_json(h / "forge" / "techniques" / tid / "technique.json", {})
-        card = tech.get("card") or {}
-        oos = card.get("oos") or {}
-        market = f'{card.get("coin", "")}/{card.get("interval", "")}'
-        items.append(
-            f'<li><span class="pill">{tech.get("status", "?")}</span><b>{tid}</b> '
-            f'<span class="muted">{market} · OOS exp {oos.get("expectancy", 0):+.4f} '
-            f'n{oos.get("n", 0)} · by #{tech.get("author", "?")}</span></li>')
-    return f'<ul class="events">{"".join(items)}</ul>'
+        w = float(e.get("weight", 1.0) or 1.0)
+        trades = int(e.get("trades", 0) or 0)
+        edge = float(e.get("e", 0.0) or 0.0)
+        tag = ('<span class="pill born">born</span>' if e.get("born")
+               else '<span class="pill">authored</span>')
+        if trades:
+            fcls = "up" if edge > 0 else "down" if edge < 0 else "muted"
+            fit = f'<span class="{fcls}">{edge:+.2f} edge</span> <span class="muted">· {trades} trades</span>'
+        else:
+            fit = '<span class="muted">no live trades yet</span>'
+        bar_cls = "wbar" + (" lo" if w < 0.4 else "")
+        rows.append(
+            f'<li class="load"><div class="loadtop">{tag}<b>{tid}</b>'
+            f'<span class="wpct">{w:.2f}</span></div>'
+            f'<div class="{bar_cls}"><i style="width:{min(100, w * 100):.0f}%"></i></div>'
+            f'<div class="loadsub muted">{tech.get("claim", "")} · {fit}</div></li>')
+    return head + f'<ul class="loadout">{"".join(rows)}</ul>'
 
 
 def refresh_qr(h: Path) -> None:
@@ -1092,6 +1110,16 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .gchip.mut{{color:var(--silver)}}.gchip.mon{{color:#9affc4;border-color:#2c6e4a}}
 .gdot{{width:9px;height:9px;border-radius:50%}}.gdia{{width:8px;height:8px;border:2px solid;transform:rotate(45deg)}}
 .pill{{display:inline-block;background:#16243f;color:var(--blue);padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
+.pill.born{{background:rgba(73,184,117,.14);color:var(--emerald)}}
+.sval.feed{{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.2px}}
+.loadhead{{font-size:12px;color:var(--muted);margin-bottom:14px;letter-spacing:.2px}}.loadhead b{{color:var(--silver);font-weight:700}}
+.loadout{{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:13px}}
+.load .loadtop{{display:flex;align-items:center;gap:8px}}.load .loadtop b{{color:var(--ink);font-size:14px;font-weight:700}}
+.load .wpct{{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700;color:var(--silver);font-size:13px}}
+.wbar{{height:5px;background:#16243f;border-radius:999px;overflow:hidden;margin:6px 0 5px}}
+.wbar i{{display:block;height:100%;background:var(--emerald);border-radius:999px;transition:width .4s}}
+.wbar.lo i{{background:var(--slate,#4D5972);opacity:.7}}
+.loadsub{{font-size:12px}}.loadsub .up{{color:var(--emerald)}}.loadsub .down{{color:var(--red)}}
 .callit{{background:#10203a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}}
 .achhdr{{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:10px}}.achhdr .muted{{font-size:13px;font-weight:400}}
 .nextup{{margin-top:12px}}.nblabel{{font-size:12px;color:var(--muted);margin-bottom:6px}}.nblabel b{{color:var(--silver)}}
@@ -1159,7 +1187,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 
 <div class="pane" id="trading">
   <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
-  <div class="card decent"><h2>🧬 Techniques · forge loadout</h2>{techniques}</div>
+  <div class="card decent"><h2>⚔ Arsenal · offensive loadout</h2>{techniques}</div>
   <div class="card"><h2>🏅 Achievements</h2>{achievements}</div>
   <div class="card"><h2>Life events</h2>{events}</div>
 </div>

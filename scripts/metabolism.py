@@ -224,23 +224,67 @@ def cmd_settle(args: argparse.Namespace) -> dict[str, Any]:
     return state
 
 
+def _peek(name: str) -> dict[str, Any]:
+    """Best-effort read of a sibling runtime file for the status card."""
+    try:
+        return json.loads((gclaw_home() / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _bar(weight: float, width: int = 10) -> str:
+    fill = max(0, min(width, round(float(weight) * width)))
+    return "▰" * fill + "▱" * (width - fill)
+
+
+def _arsenal_lines() -> list[str]:
+    """The born arsenal as a tidy, weight-ranked loadout."""
+    style = _peek("forge/style.json")
+    adopted = style.get("adopted", [])
+    if not adopted:
+        return []
+    caps = (f"conviction cap {style.get('conviction_cap', 0.85):.2f}"
+            f" · risk ×{style.get('risk_mult', 1.0):.2f}")
+    rows = [f"  {'Arsenal':<12}{len(adopted)} techniques · {caps}"]
+    for e in sorted(adopted, key=lambda x: -float(x.get("weight", 1.0) or 1.0))[:6]:
+        w = float(e.get("weight", 1.0) or 1.0)
+        tag = " ·born" if e.get("born") else ""
+        rows.append(f"       {e.get('id', '?'):<20}{_bar(w)}  {w:.2f}{tag}")
+    return ["", *rows]
+
+
 def render(state: dict[str, Any], as_json: bool) -> str:
     if as_json:
         return json.dumps(state, indent=2, sort_keys=True)
-    lines = [
-        f"  mode:      {state['mode'].upper()}",
-        f"  gmac:      {state['gmac_balance']:.2f}  (seed {state['seed']:.0f}, "
-        f"survival < {state['survival_threshold']:.0f})",
-        f"  goodwill:  {state['goodwill']}",
-        f"  heartbeats:{state['heartbeats']}   recodes: {state['recodes']}   "
-        f"children: {len(state['children'])}",
-        f"  GMAC buy-back: ${state.get('gmac_treasury_usd', 0.0):.2f} earmarked, "
-        f"{state.get('gmac_tokens_held', 0.0):g} GMAC held",
+    persona = _peek("dna/persona.json")
+    pos = _peek("positions.json")
+    name = state.get("name") or persona.get("species") or "Gclaw"
+    subtitle = f" — {persona['archetype']}" if persona.get("archetype") else ""
+    upnl = sum(float(p.get("unrealizedPnl", 0) or 0) for p in (pos.get("positions") or []))
+    npos = len(pos.get("positions") or [])
+    sign = "+" if upnl >= 0 else "−"
+    rule = "  " + "─" * 50
+
+    def row(label: str, value: str) -> str:
+        return f"  {label:<12}{value}"
+
+    lines = [f"  ◇  {name}{subtitle}", rule, row("Mode", state["mode"].upper())]
+    if pos:
+        lines.append(row("Equity", f"${float(pos.get('equity', 0) or 0):,.2f}   ·  "
+                         f"{sign}${abs(upnl):,.2f} unrealized · {npos} open"))
+    lines += [
+        row("Life energy", f"{state['gmac_balance']:.0f} GMAC  ·  seed {state['seed']:.0f}"
+            f" · survive < {state['survival_threshold']:.0f}"),
+        row("Goodwill", f"{state['goodwill']}        ·  {state['heartbeats']} heartbeats"
+            f" · {len(state['children'])} children · {state['recodes']} recodes"),
     ]
+    if state.get("gmac_treasury_usd", 0.0):
+        lines.append(row("Treasury", f"${state['gmac_treasury_usd']:.2f} earmarked for GMAC buy-back"))
+    lines += _arsenal_lines()
     if state["mode"] == "hibernate":
-        lines.append("  ⚠ HIBERNATING — balance depleted. No trading. Awaiting reseed/recovery.")
+        lines += [rule, "  ⚠  Hibernating — life energy depleted. Trading paused; awaiting reseed."]
     elif state["mode"] == "survive":
-        lines.append("  ⚠ SURVIVAL MODE — cut discovery, smallest sizing, prefer GMAC accumulation.")
+        lines += [rule, "  ⚠  Survival mode — smallest sizing, discovery paused, accruing GMAC."]
     return "\n".join(lines)
 
 
