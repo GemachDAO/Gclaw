@@ -52,11 +52,16 @@ function openRounds() {
 // identity on the global ladder, so it must be stable across calls + creatures.
 function identity(from) { return from && from.username ? `@${from.username}` : `tg:${from && from.id}`; }
 
+// Only count a message that IS a call — the whole message must be the pick (with
+// an optional "call" verb and/or a coin), so ordinary chat like "what is up" or
+// "i'm down" is never logged as a prediction.
 function parsePick(text) {
-  const m = String(text || '').trim().match(/\b(tp|sl|take\s*profit|stop\s*loss|up|down|win|lose)\b/i);
+  const s = String(text || '').trim().toLowerCase().replace(/[!.?]+$/, '');
+  const m = s.match(/^(?:(?:i\s+)?call\s+)?(tp|sl|take\s*profit|stop\s*loss|📈|📉)(?:\s+[a-z]{2,6})?$/i)
+    || s.match(/^[a-z]{2,6}\s+(tp|sl|take\s*profit|stop\s*loss|📈|📉)$/i);
   if (!m) return null;
-  const w = m[1].toLowerCase().replace(/\s+/g, '');
-  return ['tp', 'takeprofit', 'up', 'win'].includes(w) ? 'TP' : 'SL';
+  const w = m[1].replace(/\s+/g, '');
+  return ['tp', 'takeprofit', '📈'].includes(w) ? 'TP' : 'SL';
 }
 
 function boardText() {
