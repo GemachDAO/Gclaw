@@ -100,6 +100,17 @@ function predictionsRoot() {
   } catch { return null; }
 }
 
+function predictorTallies() {
+  // This creature attests the record of predictors who called on ITS trades
+  // (resolved against HyperLiquid's fills). Published onchain so the decentralized
+  // site can aggregate every predictor across every creature into ONE global ladder.
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'predictions', 'predictors.json'), 'utf8'));
+    return Object.entries(p).map(([by, v]) => ({ by: String(by).slice(0, 42), c: v.correct || 0, t: v.total || 0 }))
+      .filter((e) => e.t > 0).sort((a, b) => b.c - a.c).slice(0, 20);
+  } catch { return []; }
+}
+
 function publishedTechniques() {
   // Compact advert of this creature's proven, IPFS-pinned techniques so peers
   // discover the family's edges straight from chain. Metadata only (+ a cid);
@@ -160,7 +171,7 @@ function agentCard(state, managed, child) {
       goodwill: child ? 0 : state.goodwill ?? 0,
       controlWallet: JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).control.address,
       managedHlWallet: managed,
-      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques(), predictions: predictionsRoot() }),
+      ...(child ? {} : { stats: statsForCard(state), peers: knownPeers(), published: publishedTechniques(), predictions: predictionsRoot(), predictors: predictorTallies() }),
       ...lineage,
     },
   };

@@ -427,10 +427,34 @@ def achievements_html(state: dict[str, Any]) -> str:
     return f'<div class="badges">{badges}</div>{prog}'
 
 
+def global_predictors(h: Path) -> list[dict]:
+    """Sum every predictor across every creature — peers from their onchain cards,
+    self from the freshest local tallies — into the one global ladder."""
+    agg: dict[str, dict] = {}
+
+    def add(by: str, c: int, t: int) -> None:
+        e = agg.setdefault(str(by), {"correct": 0, "total": 0, "creatures": 0})
+        e["correct"] += c
+        e["total"] += t
+        e["creatures"] += 1 if t > 0 else 0
+
+    for a in load_json(h / "peers_roster.json", {}).get("roster", []):
+        if a.get("self"):
+            continue  # self folded from fresh local tallies below
+        for p in a.get("predictors", []):
+            add(p.get("by", "?"), p.get("c", 0), p.get("t", 0))
+    for by, v in load_json(h / "predictions" / "predictors.json", {}).items():
+        add(by, v.get("correct", 0), v.get("total", 0))
+    board = [
+        {"by": by, "acc": round(e["correct"] / e["total"] * 100) if e["total"] else 0, **e}
+        for by, e in agg.items() if e["total"] > 0
+    ]
+    return sorted(board, key=lambda e: (-e["acc"], -e["correct"]))
+
+
 def predictions_html(h: Path) -> str:
-    """The free 'Call it' game — the open round + the predictors leaderboard."""
+    """The free 'Call it' game — the open round + the GLOBAL predictors ladder."""
     rounds = load_json(h / "predictions" / "rounds.json", {})
-    preds = load_json(h / "predictions" / "predictors.json", {})
     parts = []
     open_r = [r for r in rounds.values() if r.get("status") == "open"]
     if open_r:
@@ -440,16 +464,16 @@ def predictions_html(h: Path) -> str:
                          f'<span class="muted">round {r["id"]}</span></div>')
     else:
         parts.append('<p class="muted">No open round — one opens when the creature opens a trade.</p>')
-    board = sorted(
-        ({"by": k, "acc": round(v["correct"] / v["total"] * 100) if v.get("total") else 0, **v} for k, v in preds.items()),
-        key=lambda e: (-e["acc"], -e.get("correct", 0)))
+    board = global_predictors(h)
     if board:
         rows = "".join(
             f'<tr><td>{i + 1}</td><td>{html.escape(e["by"])}</td><td>{e["acc"]}%</td>'
-            f'<td>{e.get("correct", 0)}/{e.get("total", 0)}</td><td>{e.get("streak", 0)}🔥</td></tr>'
-            for i, e in enumerate(board[:8]))
+            f'<td>{e["correct"]}/{e["total"]}</td><td>{e["creatures"]}</td></tr>'
+            for i, e in enumerate(board[:10]))
         parts.append(f'<table class="lb" style="margin-top:10px"><tr><th>#</th><th>predictor</th>'
-                     f'<th>acc</th><th>record</th><th>streak</th></tr>{rows}</table>')
+                     f'<th>acc</th><th>record</th><th>souls</th></tr>{rows}</table>'
+                     f'<p class="muted" style="margin-top:6px">🌐 Global — every predictor across every creature, '
+                     f'aggregated from onchain cards.</p>')
     else:
         parts.append('<p class="muted" style="margin-top:8px">No predictors yet — be the first to call it. '
                      'Free, no stakes; calls are anchored onchain so nobody can cheat.</p>')
