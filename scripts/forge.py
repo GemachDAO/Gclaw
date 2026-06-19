@@ -73,6 +73,10 @@ BANNED_NAMES = {
 }
 # Attribute access that can pivot to builtins/globals even without a dunder name.
 BANNED_ATTRS = {"format", "format_map", "mro", "__class__", "__globals__", "__subclasses__"}
+# Frame/generator/code/coroutine/traceback introspection attributes have no leading
+# dunder, so they slip past the "__"-prefix check and let a signal walk the call
+# stack (gi_frame.f_back.f_builtins) to the real __import__ → RCE. Block by prefix.
+BANNED_ATTR_PREFIXES = ("__", "gi_", "f_", "co_", "cr_", "tb_", "func_", "ag_")
 SIGNAL_TIMEOUT_S = 2
 
 
@@ -321,7 +325,8 @@ def validate_signal_src(src: str) -> list[str]:
                 violations.append(f"import not allowed: from {node.module}")
         elif isinstance(node, ast.Name) and (node.id in BANNED_NAMES or node.id.startswith("__")):
             violations.append(f"banned name: {node.id}")
-        elif isinstance(node, ast.Attribute) and (node.attr.startswith("__") or node.attr in BANNED_ATTRS):
+        elif isinstance(node, ast.Attribute) and (
+                node.attr in BANNED_ATTRS or node.attr.startswith(BANNED_ATTR_PREFIXES)):
             violations.append(f"banned attribute access: {node.attr}")
     if not any(isinstance(n, ast.FunctionDef) and n.name == "signal"
                for n in ast.walk(tree)):
