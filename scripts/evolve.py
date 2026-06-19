@@ -128,9 +128,10 @@ def cmd_replicate(args: argparse.Namespace) -> None:
 
     born = now_iso()
     child_genome = breed_child(state, name, args.role)
+    blend = seed_child_arsenal(child_dir, state, child_genome, args.role)
     state["children"].append(
         {"name": name, "born_at": born, "role": args.role, "mutation": args.mutation,
-         "genome": child_genome}
+         "genome": child_genome, "blend": blend.get("born_with") if blend else None}
     )
     save_state(state)
     append_journal(
@@ -153,6 +154,34 @@ def breed_child(state: dict[str, Any], name: str, role: str) -> dict[str, Any] |
         parent_g = state.get("genome") or dashboard.genome("Gclaw", state.get("born_at", "genesis"))
         return dashboard.breed(parent_g, name, role, state.get("goodwill", 50))
     except Exception:  # noqa: BLE001 — heredity is a nicety, never block a birth
+        return None
+
+
+def _family_loadouts(state: dict[str, Any]) -> list[set]:
+    """The set of techniques each living family member runs — for the crowding penalty."""
+    rosters: list[set] = []
+    try:
+        parent = json.loads((gclaw_home() / "forge" / "style.json").read_text(encoding="utf-8"))
+        rosters.append({e["id"] for e in parent.get("adopted", [])})
+    except (OSError, ValueError):
+        pass
+    for child in state.get("children", []):
+        if child.get("blend"):
+            rosters.append(set(child["blend"]))
+    return rosters
+
+
+def seed_child_arsenal(child_dir: Path, state: dict[str, Any], child_genome: dict[str, Any] | None,
+                       role: str) -> dict[str, Any] | None:
+    """Born with an arsenal: inherit the parent's proven winners, tilt by the child's
+    bred genome, diversify against the family. Best-effort; never blocks a birth."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import blend
+        parent_style = json.loads((gclaw_home() / "forge" / "style.json").read_text(encoding="utf-8"))
+        traits = (child_genome or {}).get("stats") or {}
+        return blend.seed_child(str(child_dir), parent_style, traits, role, _family_loadouts(state))
+    except Exception:  # noqa: BLE001 — the arsenal is a nicety, never block a birth
         return None
 
 
