@@ -12,7 +12,8 @@
  *   node predict.js call --round <id> --pick TP|SL --by <handle> [--sig <sig>]
  *   node predict.js resolve            # score rounds whose trade has closed
  *   node predict.js root               # keccak root of open rounds+calls (for the beacon)
- *   node predict.js leaderboard        # rank predictors by accuracy + streak
+ *   node predict.js leaderboard        # rank this creature's predictors
+ *   node predict.js global             # GLOBAL ladder — every predictor across every creature
  *
  * Pure clout: points are never money, never redeemable, never purchasable — so
  * it is not gambling and holds no funds. Env: GDEX_SKILL_DIR, GCLAW_WALLET, GCLAW_HOME.
@@ -166,6 +167,25 @@ function cmdLeaderboard() {
   return { ok: true, predictors: board };
 }
 
+// The GLOBAL ladder: sum every predictor's record across EVERY creature — peers
+// read from their onchain cards (peers_roster.json), self from the freshest local
+// tallies. A handle that called on several creatures aggregates into one rank, so
+// the board ranks humans community-wide, not per-creature.
+function cmdGlobal() {
+  const agg = {};
+  const add = (by, c, t) => { const k = String(by); const e = agg[k] || { correct: 0, total: 0, creatures: 0 }; e.correct += c; e.total += t; e.creatures += t > 0 ? 1 : 0; agg[k] = e; };
+  for (const a of readJson(path.join(GCLAW_HOME, 'peers_roster.json'), {}).roster || []) {
+    if (a.self) continue; // self folded from fresh local tallies below (avoids double-count + lag)
+    for (const p of a.predictors || []) add(p.by, p.c || 0, p.t || 0);
+  }
+  for (const [by, v] of Object.entries(readJson(predictorsPath(), {}))) add(by, v.correct || 0, v.total || 0);
+  const board = Object.entries(agg).map(([by, e]) => ({ by, correct: e.correct, total: e.total, creatures: e.creatures,
+    accuracy: e.total ? Math.round((e.correct / e.total) * 100) : 0 }))
+    .filter((e) => e.total > 0).sort((a, b) => b.accuracy - a.accuracy || b.correct - a.correct);
+  board.forEach((e, i) => { e.rank = i + 1; });
+  return { ok: true, global: true, predictors: board };
+}
+
 function parseArgs(a) { const o = {}; for (let i = 0; i < a.length; i += 1) if (a[i].startsWith('--')) { o[a[i].slice(2)] = a[i + 1] && !a[i + 1].startsWith('--') ? a[i += 1] : true; } return o; }
 
 async function main() {
@@ -177,7 +197,8 @@ async function main() {
   else if (cmd === 'resolve') out = await cmdResolve(args);
   else if (cmd === 'root') out = { ok: true, ...readJson(path.join(DIR, 'root.json'), { root: writeRoot() }) };
   else if (cmd === 'leaderboard') out = cmdLeaderboard();
-  else out = { ok: false, error: 'usage: predict.js <open|call|resolve|root|leaderboard>' };
+  else if (cmd === 'global') out = cmdGlobal();
+  else out = { ok: false, error: 'usage: predict.js <open|call|resolve|root|leaderboard|global>' };
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
 

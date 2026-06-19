@@ -58,6 +58,7 @@ async function readAgent(id) {
   const owner = ownerRaw && ownerRaw !== '0x' ? '0x' + ownerRaw.slice(-40) : null;
   return { id: Number(id), name: meta.name || null, owner, image: meta.image || null,
     stats: meta['x-gclaw']?.stats || null,  // live standings beacon, read straight from chain
+    predictors: meta['x-gclaw']?.predictors || [],  // who called this creature's trades right — for the global ladder
     published: meta['x-gclaw']?.published || [],  // proven techniques advertised for discovery
     isGclaw: typeof meta.description === 'string' && meta.description.includes(SIGNATURE) };
 }
