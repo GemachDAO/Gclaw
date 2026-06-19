@@ -114,7 +114,7 @@ def identity_svg(g: dict[str, Any], name: str, mode: str) -> str:
     c1 = f"hsl({g['hue1']},75%,60%)"
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 470" width="400" height="470">'
-        '<rect width="400" height="470" rx="24" fill="#0a0e14"/>'
+        '<rect width="400" height="470" rx="24" fill="#060A17"/>'
         f'<text x="200" y="46" text-anchor="middle" fill="{c1}" font-family="monospace" '
         f'font-size="13" letter-spacing="3">{g["species"].upper()}</text>'
         f'<text x="200" y="82" text-anchor="middle" fill="#e8eef6" font-family="monospace" '
@@ -501,6 +501,8 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         sigil=g["sigil"],
         fingerprint=g["fingerprint"],
         helix=helix_svg(g),
+        lion=lion("26px"),
+        lion_sm=lion("15px"),
         mode=mode,
         mode_hue=mode_hue,
         born=state.get("born_at", "—"),
@@ -567,44 +569,80 @@ def cmd_serve(args: argparse.Namespace) -> None:
         srv.serve_forever()
 
 
+LION_SVG = (
+    '<svg viewBox="0 0 2481 2879" fill="currentColor" role="img" aria-label="Gemach" '
+    'style="width:{w};height:auto;display:inline-block">'
+    '<g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 '
+    '-336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 '
+    '-1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 '
+    '1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 '
+    '-548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 '
+    '1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 '
+    '975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 '
+    '-44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 '
+    '-406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 '
+    '2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/>'
+    '<path d="M7357 18668 l7 -13 509 -655 509 -655 8 -9 8 -8 1044 -228 1043 -228 2 2 1 1 -409 725 -410 725 -8 '
+    '14 -9 15 -1143 162 -1144 163 -8 1 -8 0 8 -12z"/>'
+    '<path d="M16251 18516 l-1133 -162 -9 -15 -8 -14 -409 -725 -410 -725 1 -1 2 -2 1043 228 1044 228 8 8 8 9 '
+    '509 655 509 655 7 13 8 12 -18 -1 -18 -1 -1134 -162z"/>'
+    '<path d="M10545 13577 l50 -35 894 -620 894 -621 13 7 12 7 930 645 929 645 -1 2 -1 2 -940 -163 -940 -164 '
+    '-915 159 -915 159 -30 6 -30 6 50 -35z"/></g></svg>'
+)
+
+
+def lion(width: str = "30px") -> str:
+    """The Gemach geometric lion mark, recolorable via the parent's CSS color."""
+    return LION_SVG.format(w=width)
+
+
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
 <title>{name} · {species}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
-:root{{--bg:#0b1020;--card:#141b2e;--ink:#e7ecf6;--muted:#8a96b3;--line:#243049}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#1b2540,#0b1020);
-color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif;padding:24px}}
-h1{{margin:0;font-size:26px;letter-spacing:.5px}}h2{{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:0 0 10px}}
+:root{{--bg:#060A17;--card:#152037;--ink:#FFFFFF;--muted:#697083;--line:#1e2c49;
+--emerald:#49B875;--blue:#61B8FF;--red:#DF2E2E;--purple:#704FF6;--silver:#D5D9E1}}
+*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(1100px 560px at 78% -12%,#161D2F,#060A17);
+color:var(--silver);font:15px/1.6 'Inter',-apple-system,system-ui,sans-serif;padding:24px;letter-spacing:.1px}}
+h1{{margin:0;font-size:26px;letter-spacing:.5px;color:var(--ink);font-weight:800}}
+h2{{font-size:12px;text-transform:uppercase;letter-spacing:1.8px;color:var(--muted);margin:0 0 10px;font-weight:600}}
+h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .wrap{{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:300px 1fr;gap:18px}}
 .card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}}
 .hero{{text-align:center}}.species{{color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase}}
+.brandrow{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
+.lionmark{{color:var(--emerald);display:inline-flex}}.eyebrow{{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}}
+.lionfoot{{color:var(--muted);display:inline-flex;vertical-align:middle}}.foot b{{color:var(--silver);letter-spacing:1px}}
 .sigil{{font-size:30px}}.mode{{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;font-size:12px;letter-spacing:1px;margin-top:8px}}
 .fp{{font-family:ui-monospace,monospace;color:var(--muted);font-size:11px;margin-top:10px}}
 .grid2{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}
 .gauge{{margin:10px 0}}.glabel{{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:4px}}.glabel span{{color:var(--ink);font-weight:700}}
-.gbar,.tbar{{height:9px;background:#0c1322;border-radius:6px;overflow:hidden}}.gfill,.tfill{{height:100%;border-radius:6px}}
+.gbar,.tbar{{height:9px;background:#0b1424;border-radius:6px;overflow:hidden}}.gfill,.tfill{{height:100%;border-radius:6px}}
 .trait{{display:grid;grid-template-columns:90px 1fr 30px;align-items:center;gap:8px;margin:7px 0;font-size:13px}}.trait b{{text-align:right}}
 ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}}
-.pill{{display:inline-block;background:#1d2a47;color:#9db4ff;padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
-.callit{{background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:10px 12px;font-size:14px}}
+.pill{{display:inline-block;background:#16243f;color:var(--blue);padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}}
+.callit{{background:#10203a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}}
 .badges{{display:flex;flex-wrap:wrap;gap:8px}}
 .badge{{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}}
-.badge.on{{background:#13351f;border-color:#1f6b46;color:#7CFFB2}}
-.badge.off{{background:#0c1322;color:var(--muted);opacity:.55}}
+.badge.on{{background:rgba(73,184,117,.12);border-color:#2c6e4a;color:var(--emerald)}}
+.badge.off{{background:#0c1424;color:var(--muted);opacity:.55}}
 .muted{{color:var(--muted);font-size:12px}}.foot{{text-align:center;color:var(--muted);font-size:11px;margin-top:18px}}
 .lev{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}}
-.lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:#7CFFB2;font-size:15px}}.lev.locked{{opacity:.5}}
-.link{{display:inline-block;margin-top:10px;color:#9db4ff;text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
-.decent h2{{color:#7CFFB2}}
+.lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:var(--emerald);font-size:15px}}.lev.locked{{opacity:.5}}
+.link{{display:inline-block;margin-top:10px;color:var(--blue);text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
+.decent h2{{color:var(--emerald)}}
 .topup{{display:flex;gap:22px;flex-wrap:wrap}}
 .qrcard{{display:flex;gap:14px;align-items:center}}
 .qr{{background:#fff;padding:8px;border-radius:10px;line-height:0}}.qr svg{{width:120px;height:120px;display:block}}
-.qlabel{{color:#7CFFB2;font-size:13px;margin-bottom:4px}}
+.qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
 .addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
 @media(max-width:760px){{.wrap{{grid-template-columns:1fr}}.grid2{{grid-template-columns:1fr}}}}
 </style></head><body><div class="wrap">
 <div class="card hero">
+  <div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// GEMACH ECOSYSTEM</span></div>
   <div class="species">{species}</div>
   <h1>{sigil} {name}</h1>
   {helix}
@@ -637,7 +675,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card"><h2>The Show · family chatter</h2>{telepathy}</div>
   </div>
 </div></div>
-<div class="foot">Gclaw — the living trading agent · rendered {generated} · auto-refresh 60s</div>
+<div class="foot"><span class="lionfoot">{lion_sm}</span> <b>//GEMACH</b> · Gclaw the living trading agent · rendered {generated} · auto-refresh 60s</div>
 </body></html>"""
 
 
