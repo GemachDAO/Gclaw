@@ -33,6 +33,10 @@ const DIR = path.join(GCLAW_HOME, 'predictions');
 const SKILL_DIR = path.join(os.homedir(), '.claude', 'skills', 'gclaw', 'scripts');
 
 const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
+// Atomic write — the 2-min Telegram poll reads these files concurrently; a direct
+// writeFileSync truncates-then-writes, so a concurrent reader can catch a half-file
+// and drop a call. temp + rename is atomic on the same filesystem.
+const writeAtomic = (p, data) => { const t = `${p}.tmp${process.pid}`; fs.writeFileSync(t, data); fs.renameSync(t, p); };
 const readJsonl = (p) => { try { return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 const agentId = () => String(readJson(path.join(GCLAW_HOME, 'metabolism.json'), {}).onchain_identity?.agentId || '0');
 const managed = () => JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).managed?.['Arbitrum (HyperLiquid)']?.address;
@@ -81,7 +85,7 @@ function writeRoot() {
   const payload = open.map((r) => ({ id: r.id, coin: r.coin, side: r.side, entry: r.entry, openedAt: r.openedAt,
     calls: calls.filter((c) => c.roundId === r.id).map((c) => `${c.by}:${c.pick}:${c.ts}`).sort() }));
   const root = ethers.id(JSON.stringify(payload));
-  fs.writeFileSync(path.join(DIR, 'root.json'), JSON.stringify({ root, openRounds: open.map((r) => r.id), updatedAt: new Date().toISOString() }, null, 2) + '\n');
+  writeAtomic(path.join(DIR, 'root.json'), JSON.stringify({ root, openRounds: open.map((r) => r.id), updatedAt: new Date().toISOString() }, null, 2) + '\n');
   return root;
 }
 
@@ -101,7 +105,7 @@ async function cmdOpen(args) {
       openedAt: new Date().toISOString(), status: 'open', outcome: null };
     opened.push(rounds[id]);
   }
-  fs.writeFileSync(roundsPath(), JSON.stringify(rounds, null, 2));
+  writeAtomic(roundsPath(), JSON.stringify(rounds, null, 2));
   writeRoot();
   if (args.announce) for (const r of opened) await announce(`🎯 ${soulName()} just opened ${r.coin} ${r.side} @ $${r.entry}.\nCall it — reply TP or SL. (round ${r.id})`);
   return { ok: true, opened, openRounds: Object.values(rounds).filter((r) => r.status === 'open').map((r) => ({ id: r.id, coin: r.coin, side: r.side })) };
@@ -152,8 +156,8 @@ async function cmdResolve(args) {
       await announce(`🏁 ${soulName()}'s ${r.coin} → ${outcome} (${r.pnl >= 0 ? '+' : ''}$${r.pnl}).\n${who}`);
     }
   }
-  fs.writeFileSync(roundsPath(), JSON.stringify(rounds, null, 2));
-  fs.writeFileSync(predictorsPath(), JSON.stringify(predictors, null, 2));
+  writeAtomic(roundsPath(), JSON.stringify(rounds, null, 2));
+  writeAtomic(predictorsPath(), JSON.stringify(predictors, null, 2));
   writeRoot();
   return { ok: true, resolved };
 }

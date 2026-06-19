@@ -97,14 +97,13 @@ Run this whenever the user invokes the skill or the scheduled loop fires.
    - Close perp: `mcp__gdex__close_perp_position {apiKey, walletAddress, sessionPrivateKey, coin}`.
    - Outcome bet (defined-risk events): `node scripts/hl_outcomes.js list` then `order --outcome <id> --coin <side> --buy --price <p> --size <n>`
      (fund via `mcp__gdex__hl_swap_collateral` first). See `references/trading.md` §B. Prefer these in SURVIVE mode.
-7. **Settle.** On any realized close, record PnL in GMAC terms (1 GMAC ≈ 1 USD realized):
-   `uv run --no-project python3 scripts/metabolism.py settle --pnl <usd_pnl> --note "<what>"`.
-   If the close was a forge-originated trade, also attribute it: `forge.py royalty --coin <coin> --pnl
-   <usd_pnl>` — this credits the technique's author their royalty (and builds your own techniques' track record).
-   This auto-earmarks 10% into the GMAC buy-back treasury. Charge a discovery cost for heavy
-   intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
-   **GMAC buy-back:** if `gmac_treasury_usd` ≥ ~$5, follow `references/gmac.md` — bridge profit to
-   Ethereum and `node scripts/gmac_buy.js buy --usd <treasury>`, then `metabolism.py gmac --spend ...`.
+7. **Settle — automatic, do NOT do by hand.** Realized closes are booked deterministically every
+   heartbeat by `autosettle.js`: it reads HyperLiquid's fills, credits PnL to GMAC, earmarks 10% to
+   the buy-back treasury, attributes the technique royalty, and records the trade to memory. Calling
+   `metabolism.py settle` or `forge.py royalty` yourself would **double-count** — don't. Only charge a
+   discovery cost for heavy intel cycles: `... metabolism.py charge --amount 0.5 --reason discovery`.
+   **GMAC buy-back:** if `gmac_treasury_usd` ≥ ~$5, run `node scripts/gmac_buy.js buy --usd <treasury>`
+   — it decrements the treasury itself on a confirmed buy (no manual `gmac --spend`).
 8. **Evolve.** `uv run --no-project python3 scripts/evolve.py capabilities`. If a threshold is newly
    crossed, follow `references/evolution.md`: replicate a mutated child **with a swarm role**
    (`evolve.py replicate --name <n> --role scout|analyst|executor|leader --mutation "<axis>"`),

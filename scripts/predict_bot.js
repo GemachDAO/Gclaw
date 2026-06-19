@@ -111,13 +111,18 @@ async function poll(timeoutSec) {
   let upd = await tg('getUpdates', params, (timeoutSec || 0) * 1000 + 15000);
   if (!upd || !upd.ok) upd = await tg('getUpdates', params, (timeoutSec || 0) * 1000 + 15000); // one retry on a transient null
   if (!upd || !upd.ok) return { ok: false, error: 'getUpdates failed' };
-  let processed = 0;
-  for (const u of upd.result) {
-    off.offset = u.update_id + 1;
-    if (u.message) { await handle(u.message); processed += 1; }
-  }
   fs.mkdirSync(DIR, { recursive: true });
-  fs.writeFileSync(OFFSET_PATH, JSON.stringify(off));
+  let processed = 0;
+  // Advance the offset only AFTER an update is handled, and persist it atomically
+  // per-update. Telegram permanently drops updates below a committed offset, so
+  // committing before handling would silently lose a user's call on any failure.
+  for (const u of upd.result) {
+    try { if (u.message) { await handle(u.message); processed += 1; } }
+    catch { break; } // leave the offset before this update so Telegram redelivers it
+    off.offset = u.update_id + 1;
+    const tmp = `${OFFSET_PATH}.tmp${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(off)); fs.renameSync(tmp, OFFSET_PATH);
+  }
   return { ok: true, processed };
 }
 

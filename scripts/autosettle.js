@@ -48,8 +48,14 @@ function loadCursor() {
   return JSON.parse(fs.readFileSync(CURSOR_PATH, 'utf8'));
 }
 
+function writeAtomic(p, data) {
+  const tmp = `${p}.tmp${process.pid}`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, p); // atomic on the same filesystem — a reader never sees a half-write
+}
+
 function saveCursor(c) {
-  fs.writeFileSync(CURSOR_PATH, JSON.stringify(c, null, 2) + '\n');
+  writeAtomic(CURSOR_PATH, JSON.stringify(c, null, 2) + '\n');
 }
 
 function managedAddress() {
@@ -142,11 +148,15 @@ async function main() {
   // advance time cursors over all consumed fills + funding
   const maxTime = Math.max(cursor.lastTime, ...(fresh.length ? fresh.map((f) => f.time) : [cursor.lastTime]));
   const tidsAtMax = fills.filter((f) => f.time === maxTime).map((f) => f.tid);
-  let residual = net;
+  const willSettle = Math.abs(net) >= DUST;
+  let residual = willSettle ? 0 : net;
   let settled = false;
-  if (Math.abs(net) >= DUST) {
+  // Advance the cursor BEFORE settling so a crash between settle() and the cursor
+  // write can't re-read the same fills and double-book the PnL. Fail-conservative:
+  // a crash mid-settle drops this batch (under-counts) rather than double-counting.
+  saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual, lastFundingTime: maxFundingTime });
+  if (willSettle) {
     settle(net, `auto-settle: ${fresh.length} fills, ${closes} closes, funding ${summary.fundingPnl}`);
-    residual = 0;
     settled = true;
     const closers = fresh.filter((x) => Number(x.closedPnl || 0) !== 0);
     const regimes = fetchRegimes([...new Set(closers.map((f) => f.coin))]);
@@ -179,7 +189,6 @@ async function main() {
       } catch { /* memory record is best-effort */ }
     }
   }
-  saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual, lastFundingTime: maxFundingTime });
   summary.settled = settled;
   summary.carriedResidual = residual;
   process.stdout.write(JSON.stringify(summary) + '\n');

@@ -73,6 +73,48 @@ function assess(st) {
   });
 }
 
+const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
+const writeAtomic = (p, data) => { const t = `${p}.tmp${process.pid}`; fs.writeFileSync(t, data); fs.renameSync(t, p); };
+
+// Janitor: position-keyed state files (open_risk, riskguard_exempt) are written at
+// entry but never cleaned, so a stale entry mis-attributes the next trade or
+// silently exempts a re-entry from the cap. Drop any entry with no matching live
+// position so each only ever describes trades that actually exist.
+function pruneState(positions) {
+  const liveAt = (coin, entry) => positions.some((p) => p.coin === coin
+    && Math.abs(Number(p.entryPx) - Number(entry)) / Number(p.entryPx) < 0.001);
+  const liveCoin = new Set(positions.map((p) => p.coin));
+  const exPath = path.join(GCLAW_HOME, 'riskguard_exempt.json');
+  const exempt = readJson(exPath, null);
+  if (Array.isArray(exempt)) {
+    const kept = exempt.filter((e) => liveAt(e.coin, e.entry));
+    if (kept.length !== exempt.length) writeAtomic(exPath, JSON.stringify(kept));
+  }
+  const orPath = path.join(GCLAW_HOME, 'open_risk.json');
+  const orisk = readJson(orPath, null);
+  if (orisk && typeof orisk === 'object') {
+    const kept = Object.fromEntries(Object.entries(orisk).filter(([coin]) => liveCoin.has(coin)));
+    if (Object.keys(kept).length !== Object.keys(orisk).length) writeAtomic(orPath, JSON.stringify(kept));
+  }
+}
+
+// Deterministic circuit breaker: halt + flatten everything on a drawdown from the
+// high-water mark. The advisory forge breaker was never enforced; this is.
+function breakerCheck(eq, positions, dry) {
+  const bpath = path.join(GCLAW_HOME, 'breaker.json');
+  const dd = Number(process.env.GCLAW_BREAKER_DD) || 0.25;
+  const prev = readJson(bpath, {});
+  const hwm = Math.max(Number(prev.hwm) || eq, eq);
+  const drawdown = hwm > 0 ? (hwm - eq) / hwm : 0;
+  const tripped = drawdown >= dd;
+  if (!dry) {
+    writeAtomic(bpath, JSON.stringify({ hwm: Math.round(hwm * 100) / 100, equity: Math.round(eq * 100) / 100,
+      drawdown_pct: Math.round(drawdown * 1000) / 10, tripped, reason: tripped ? `drawdown ${(drawdown * 100).toFixed(1)}% >= ${dd * 100}%` : null,
+      at: new Date().toISOString() }, null, 2) + '\n');
+  }
+  return { hwm, drawdown, tripped };
+}
+
 function reduce(coin, size, dry) {
   if (dry) return { coin, wouldReduce: Number(size.toFixed(6)) };
   return hl(['close', '--coin', coin, '--size', String(size)]);
@@ -88,6 +130,15 @@ function enforce(dry) {
   if (!st) return { ok: true, skipped: 'status read unavailable this cycle' };
   const eq = Number(st.equity) || 0;
   if (!eq) return { ok: false, error: 'no equity read' };
+  if (!dry) pruneState(st.positions || []); // clean stale position-keyed state first
+
+  // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
+  // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
+  const brk = breakerCheck(eq, st.positions || [], dry);
+  if (brk.tripped) {
+    const actions = (st.positions || []).map((p) => ({ coin: p.coin, reason: `BREAKER drawdown ${(brk.drawdown * 100).toFixed(1)}%`, action: flatten(p.coin, dry) }));
+    return { ok: true, dry: !!dry, equity: Math.round(eq * 100) / 100, breaker_tripped: true, drawdown_pct: Math.round(brk.drawdown * 1000) / 10, actions };
+  }
   const cap = eq * (RISK_CAP_PCT / 100);
   const portCap = eq * (PORTFOLIO_CAP_PCT / 100);
   const actions = [];

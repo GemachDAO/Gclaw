@@ -51,13 +51,20 @@ def _read_json(path: Path, default):
         return default
 
 
+def _write_atomic(path: Path, data: str) -> None:
+    """Write via temp + os.replace so a concurrent reader never sees a half-file."""
+    tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
+    tmp.write_text(data, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _write_edges() -> None:
     """Cache the proven-edge table to edges.json for the onchain card + dashboard."""
     cells = summary(None)["table"]
     edges = [{"t": c["technique"], "r": c["regime"], "e": c["expectancy_r"],
               "n": c["trades"], "real": c["edge_real"]}
              for c in cells if c["trades"] >= 3][:12]
-    (home() / "edges.json").write_text(json.dumps(edges), encoding="utf-8")
+    _write_atomic(home() / "edges.json", json.dumps(edges))
 
 
 def record(args: argparse.Namespace) -> dict:
