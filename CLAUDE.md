@@ -30,7 +30,8 @@ with `gdex_sign.js` providing the one local signature managed custody can't dele
 | `scripts/gdex_sign.js` | instant local sign-in signer (pure crypto) |
 | `scripts/hl_perp.js` | SDK executor (`status [--cache] / open / close [--size]`) |
 | `scripts/autofund.js` · `autotrail.js` · `autosettle.js` · `gmac_buy.js` | deterministic funding, trailing stops, settlement (atomic/idempotent), GMAC buy-back |
-| `scripts/forge.py` + `scripts/forge_data.js` | technique forge — author/prove/adopt/run self-made skills (AST-sandboxed) |
+| `scripts/forge.py` + `scripts/forge_data.js` | technique forge — author/prove/adopt/run self-made skills (AST-sandboxed). `run` is a **gated weighted ensemble**: every adopted technique votes per coin (sign × confidence × genome weight × regime-gate), votes net into one decision (chop-vetoed, agreement + conviction floors from Discipline, Meta-2 scaler breathes size with GMAC/streak) |
+| `scripts/blend.py` · `dna/arsenal/` | **born offensive arsenal** — six seed zero-sum techniques + the genome→technique birth blend (installed once per creature; Aggression/Cunning/Discipline pick the blend, Vitality breadth, Fertility wildcards) |
 | **Identity, social & UI** | |
 | `scripts/erc8004_register.js` · `peers.js` · `stats.js` | onchain ERC-8004 card/beacon, family discovery, IPFS leaderboard |
 | `scripts/predict.js` + `predict_bot.js` | the "Call it" prediction game engine + Telegram input |

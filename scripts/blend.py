@@ -90,13 +90,16 @@ def birth_blend(traits: dict, role: str | None) -> tuple[list[dict], float, floa
         w = 0.15 if k in explorers else round(min(1.0, max(0.10, raw[k] / top)), 3)
         blend.append({"id": k, "coin": techs[k]["coin"], "interval": techs[k].get("interval", "1h"),
                       "weight": w, "born": True, "explore": k in explorers})
-    return blend, round(0.55 + 0.40 * vit, 3), round(0.6 + 0.8 * agg, 3)
+    dis = _norm(traits.get("Discipline", 60)) * 69 + 25  # back to 25-94 scale for the floors
+    caps = {"conviction_cap": round(0.55 + 0.40 * vit, 3), "risk_mult": round(0.6 + 0.8 * agg, 3),
+            "agree_min": round(0.60 + 0.0020 * (dis - 50), 3), "conv_min": round(0.22 + 0.0024 * (dis - 50), 3)}
+    return blend, caps
 
 
 def cmd_install(args: argparse.Namespace) -> dict:
     traits, role = creature_traits()
     role = args.role or role
-    blend, cap, risk = birth_blend(traits, role)
+    blend, caps = birth_blend(traits, role)
     ad, fdir = arsenal_dir(), home() / "forge"
     (fdir / "techniques").mkdir(parents=True, exist_ok=True)
     for e in blend:
@@ -113,18 +116,17 @@ def cmd_install(args: argparse.Namespace) -> dict:
         pass
     kept = [e for e in prev.get("adopted", []) if e.get("id") not in arsenal_ids]
     style = {"agent": prev.get("agent", "gclaw"), "blend_source": "birth", "role": role or "leader",
-             "conviction_cap": cap, "risk_mult": risk, "adopted": blend + kept,
-             "updated_at": datetime.now(timezone.utc).isoformat()}
+             **caps, "adopted": blend + kept, "updated_at": datetime.now(timezone.utc).isoformat()}
     (fdir / "style.json").write_text(json.dumps(style, indent=2) + "\n", encoding="utf-8")
     return {"ok": True, "role": role or "leader", "born_with": [e["id"] for e in blend],
-            "kept_own": [e["id"] for e in kept], "conviction_cap": cap, "risk_mult": risk}
+            "kept_own": [e["id"] for e in kept], **caps}
 
 
 def cmd_show(args: argparse.Namespace) -> dict:
     traits, role = creature_traits()
-    blend, cap, risk = birth_blend(traits, args.role or role)
+    blend, caps = birth_blend(traits, args.role or role)
     return {"ok": True, "traits": traits, "role": args.role or role or "leader",
-            "blend": blend, "conviction_cap": cap, "risk_mult": risk}
+            "blend": blend, **caps}
 
 
 def main() -> int:

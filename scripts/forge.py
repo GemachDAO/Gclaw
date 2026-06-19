@@ -1022,12 +1022,16 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
 
 
 def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float,
-            cap: int, buying_power: float) -> dict[str, Any]:
-    """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling)."""
+            cap: int, buying_power: float, risk_mult: float = 1.0) -> dict[str, Any]:
+    """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
+
+    ``risk_mult`` is the genome's Aggression-derived risk envelope (>1 sizes up,
+    <1 down); the per-trade risk cap that riskguard.js enforces is unchanged.
+    """
     leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
     stop_pct = float(decision.get("stop_pct") or 0)
     risk_pct = RISK_PCT.get(mode, 0)
-    risk_usd = equity * risk_pct / 100.0
+    risk_usd = equity * risk_pct / 100.0 * max(0.3, min(2.0, risk_mult))
     notional = max(MIN_NOTIONAL + 1, risk_usd / (stop_pct / 100.0)) if stop_pct > 0 else 0
     # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
     max_notional = max(0.0, buying_power * 0.95) * leverage
@@ -1042,23 +1046,121 @@ def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: fl
     }
 
 
-def _worklist(adopted: list[dict[str, Any]], args: argparse.Namespace) -> list[tuple[str, str, str]]:
-    """Resolve (technique, coin, interval) pairs to evaluate this run.
+def _regime_stats() -> dict[str, Any]:
+    """Learned per-(technique, regime) expectancy (Meta-1 router data). The fitness
+    loop writes this on royalty; absent → static gates only. Best-effort."""
+    try:
+        return json.loads((forge_dir() / "regime_stats.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
-    Default: each technique on the market it was proven on. ``--coins`` overrides
-    to explore a technique on other markets (at ``--interval``).
+
+def _gate(tid: str, regime: str, rstats: dict[str, Any]) -> float:
+    """Eligibility of a technique in this regime ∈ [0.05, 1.2]. Static prior from the
+    technique's declared `regimes`, nudged by its learned edge there when known."""
+    try:
+        regimes = load_technique(tid).get("regimes")
+    except SystemExit:
+        regimes = None
+    static = float(regimes.get(regime, 0.15)) if isinstance(regimes, dict) else 1.0
+    r = (rstats.get(tid) or {}).get(regime)
+    if r is not None:  # learned nudge once the fitness loop has tagged ≥8 trades there
+        static *= 1.0 + 0.4 * math.tanh(float(r))
+    return max(0.05, min(1.2, static))
+
+
+def _recent_expectancy() -> float:
+    """EWMA of recent settled PnL signs — the 'hot/cold hand' for the Meta-2 scaler."""
+    try:
+        rows = [json.loads(line) for line in
+                (gclaw_home() / "journal.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, ValueError):
+        return 0.0
+    settles = [r for r in rows if r.get("event") == "settle"][-12:]
+    e = 0.0
+    for r in settles:
+        pnl = float(r.get("pnl") or 0)
+        e = 0.7 * e + 0.3 * (1.0 if pnl > 0 else -1.0 if pnl < 0 else 0.0)
+    return e
+
+
+def _conviction_scaler(meta: dict[str, Any]) -> float:
+    """Meta-2: breathe size with survival (GMAC) + recent edge ∈ [0.3, 1.3]."""
+    seed = float(meta.get("seed", 1000) or 1000)
+    health = 0.5 + 0.5 * (float(meta.get("gmac_balance", seed) or seed) / seed) if seed else 1.0
+    streak = 1.0 + 0.3 * math.tanh(_recent_expectancy())
+    return max(0.3, min(1.3, health * streak))
+
+
+def _weighted_median(pairs: list[tuple[float, float]]) -> float:
+    """Weighted median of (value, weight) — robust stop across contributors."""
+    pairs = sorted((v, w) for v, w in pairs if w > 0)
+    if not pairs:
+        return 0.0
+    half = sum(w for _, w in pairs) / 2.0
+    acc = 0.0
+    for v, w in pairs:
+        acc += w
+        if acc >= half:
+            return v
+    return pairs[-1][0]
+
+
+def _combine(votes: list[dict[str, Any]], regime: str, caps: dict[str, float],
+             scaler: float) -> Optional[dict[str, Any]]:
+    """Gated weighted ensemble → one decision for a coin, or None.
+
+    Each vote is signed conviction × weight × regime-gate. Techniques that agree
+    reinforce; opposers net out. The chop guard, agreement floor, and conviction
+    floor (all genome-tuned) keep the family from overtrading or fading a trend.
     """
-    if args.coins:
-        coins = [c.strip() for c in args.coins.split(",") if c.strip()]
-        return [(e["id"], coin, args.interval) for e in adopted for coin in coins]
-    # Scan each technique across its proven market first, then the wider universe.
-    return [(e["id"], coin, e["interval"])
-            for e in adopted
-            for coin in dict.fromkeys([e["coin"], *SCAN_UNIVERSE])]
+    if regime == "chop" or not votes:
+        return None  # DNA invariant: no entries in chop
+    total = sum(v["v"] for v in votes)
+    mobilized = sum(abs(v["v"]) for v in votes)
+    if mobilized == 0:
+        return None
+    pos = sum(v["v"] for v in votes if v["v"] > 0)
+    neg = -sum(v["v"] for v in votes if v["v"] < 0)
+    agree = max(pos, neg) / mobilized
+    eligible = sum(v["w"] * v["g"] for v in votes) or 1.0
+    conviction = min(caps["conviction_cap"], (abs(total) / eligible) * agree)
+    conviction = min(caps["conviction_cap"], conviction * scaler)
+    if agree < caps["agree_min"] or conviction < caps["conv_min"]:
+        return None
+    long_side = total > 0
+    winners = [v for v in votes if (v["v"] > 0) == long_side]
+    dominant = max(winners, key=lambda v: abs(v["v"]))
+    stop_pct = _weighted_median([(v["stop_pct"], v["w"] * v["g"]) for v in winners]) or dominant["stop_pct"]
+    names = ", ".join(v["tid"] for v in sorted(winners, key=lambda v: -abs(v["v"]))[:3])
+    return {"action": "long" if long_side else "short", "confidence": round(conviction, 3),
+            "stop_pct": round(stop_pct, 3), "leverage": min(v["leverage"] for v in winners),
+            "reason": f"{len(winners)}x agree({agree:.0%}): {names}", "technique": dominant["tid"],
+            "contributors": [v["tid"] for v in winners]}
+
+
+def _coin_votes(coin: str, f: dict[str, Any], adopted: list[dict[str, Any]],
+                rstats: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect every adopted technique's signed, gated vote on one coin."""
+    regime = f.get("regime", "range")
+    votes = []
+    for e in adopted:
+        decision = call_signal(load_signal(e["id"]), f)
+        if not decision or decision["action"] == "flat" or float(decision.get("stop_pct") or 0) <= 0:
+            continue
+        w = float(e.get("weight", 1.0) or 1.0)
+        g = _gate(e["id"], regime, rstats)
+        sign = 1.0 if decision["action"] == "long" else -1.0
+        votes.append({"tid": e["id"], "v": sign * float(decision.get("confidence") or 0) * w * g,
+                      "w": w, "g": g, "stop_pct": float(decision["stop_pct"]),
+                      "leverage": int(decision.get("leverage") or 99)})
+    return votes
 
 
 def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
-    """Evaluate adopted techniques on live features; optionally execute top intent."""
+    """Combine every adopted technique into one ensemble decision per coin; execute the
+    strongest proven-market signal. Techniques vote (gated by regime + genome weight)
+    rather than compete — the family acts as one weapon, not the loudest single signal."""
     meta = load_metabolism()
     mode = meta.get("mode", "thrive")
     cap = leverage_cap(float(meta.get("goodwill", 0) or 0))
@@ -1066,28 +1168,36 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     if not style["adopted"]:
         return {"ok": True, "mode": mode, "leverage_cap": cap, "intents": [],
                 "note": "no adopted techniques"}
-    # Each adopted technique runs on its own proven (coin, interval) unless overridden.
-    worklist = _worklist(style["adopted"], args)
-    proven_coin = {e["id"]: e["coin"] for e in style["adopted"]}
-    coins = sorted({coin for _, coin, _ in worklist})
+    caps = {"conviction_cap": float(style.get("conviction_cap", 0.85)),
+            "agree_min": float(style.get("agree_min", 0.60)),
+            "conv_min": float(style.get("conv_min", 0.22))}
+    risk_mult = float(style.get("risk_mult", 1.0))
+    proven_coins = {e["coin"] for e in style["adopted"]}
+    proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
+    # The ensemble votes on every market a technique is proven on plus the wider universe.
+    coins = list(dict.fromkeys([*proven_coins, *SCAN_UNIVERSE])) if not args.coins \
+        else [c.strip() for c in args.coins.split(",") if c.strip()]
+    interval = args.interval if args.coins else style["adopted"][0].get("interval", "1h")
     live = get_live_features(coins)
-    cache: dict[tuple[str, str], list[dict[str, float]]] = {}
-    intents: list[dict[str, Any]] = []
+    rstats = _regime_stats()
+    scaler = _conviction_scaler(meta)
     acct = _account()
     equity, buying_power = acct["equity"], acct["buying_power"]
-    for tid, coin, interval in worklist:
-        key = (coin, interval)
-        if key not in cache:
-            cache[key] = get_candles(coin, interval, 60)
-        cs = cache[key]
+    intents: list[dict[str, Any]] = []
+    for coin in coins:
+        cs = get_candles(coin, interval, 60)
         if len(cs) <= WARMUP:
             continue
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
-        decision = call_signal(load_signal(tid), f)
-        if decision and decision["action"] != "flat" and float(decision.get("stop_pct") or 0) > 0:
-            intent = _intent(tid, coin, decision, mode, equity, cap, buying_power)
-            intent["proven"] = coin == proven_coin.get(tid)
-            intents.append(intent)
+        decision = _combine(_coin_votes(coin, f, style["adopted"], rstats),
+                            f.get("regime", "range"), caps, scaler)
+        if not decision:
+            continue
+        intent = _intent(decision["technique"], coin, decision, mode, equity, cap, buying_power, risk_mult)
+        intent["proven"] = coin in proven_coins or any(
+            proven_by_tech.get(t) == coin for t in decision["contributors"])
+        intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
+        intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
     result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity,
