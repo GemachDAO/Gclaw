@@ -16,18 +16,21 @@ from pathlib import Path
 
 def main() -> None:
     if len(sys.argv) != 4:
-        raise SystemExit("usage: qr.py <address> <chainId> <out.svg>")
-    addr, chain, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+        raise SystemExit("usage: qr.py <data> <chainId|raw> <out.(svg|png)>")
+    data, chain, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
     if out.exists() and out.stat().st_size > 0:
         print(str(out))
         return
     import qrcode
-    import qrcode.image.svg
 
-    uri = f"ethereum:{addr}@{chain}"
-    img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+    payload = data if chain == "raw" else f"ethereum:{data}@{chain}"  # raw URL, else EIP-681
     out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(str(out))
+    if str(out).endswith(".png"):
+        qrcode.make(payload, box_size=10, border=2).save(str(out))  # raster (needs pillow)
+    else:
+        import qrcode.image.svg
+        img = qrcode.make(payload, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+        img.save(str(out))
     print(str(out))
 
 
