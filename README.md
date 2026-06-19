@@ -1,16 +1,23 @@
 <div align="center">
 
-# 🜃 Gclaw — The Living Trading Agent
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/gemach-lockup-white-on-dark.png">
+  <img alt="GEMACH" src="assets/brand/gemach-lockup-black-on-light.png" width="260">
+</picture>
+
+<sub>`// GEMACH ECOSYSTEM · LIVING TRADING AGENT`</sub>
+
+# GCLAW
 
 **A creature that must trade to survive.** It earns GMAC to stay alive, grows a
-personality, reproduces a swarm, earns an onchain identity, and — at the height of
-its powers — deploys infrastructure that buys and burns GMAC forever.
+personality, reproduces a swarm, earns a verifiable onchain identity, and — at the
+height of its powers — deploys infrastructure that buys and burns GMAC forever.
 
-*Watch it. Talk to it. Raise it like a pet.*
+*Self-custodial. Stop-protected. Verifiable on Base.*
 
-[![Built on Base](https://img.shields.io/badge/Built%20on-Base-0052FF?logo=coinbase&logoColor=white)](https://base.org)
-[![ERC-8004 Agent Identity](https://img.shields.io/badge/Identity-ERC--8004%20on%20Base-0052FF)](ONCHAIN.md)
-[![Onchain — verify yourself](https://img.shields.io/badge/Onchain-verify%20yourself-3FB950)](ONCHAIN.md)
+[![Built on Base](https://img.shields.io/badge/Built%20on-Base-060A17?logo=coinbase&logoColor=white)](https://base.org)
+[![ERC-8004 Agent Identity](https://img.shields.io/badge/Identity-ERC--8004%20on%20Base-61B8FF?labelColor=060A17)](ONCHAIN.md)
+[![Onchain — verify yourself](https://img.shields.io/badge/Onchain-verify%20yourself-49B875?labelColor=060A17)](ONCHAIN.md)
 
 <img src="demo/demo.gif" alt="Gclaw demo — a living onchain trading creature" width="720">
 
@@ -22,7 +29,7 @@ its powers — deploys infrastructure that buys and burns GMAC forever.
 
 ---
 
-## Quick start (≈ 3 commands)
+## // Quick start (≈ 3 commands)
 
 ```bash
 git clone https://github.com/GemachDAO/Gclaw && cd Gclaw
@@ -47,7 +54,7 @@ That's it. `install.sh` makes you a fresh managed-custody wallet and prints the 
 
 `gclaw fund` counts your USDC *and* any convertible ETH, and says **✓ Ready to live** when set.
 
-## The one command for everything — `gclaw`
+## // The one command for everything — `gclaw`
 
 | command | what it does |
 |---------|--------------|
@@ -62,7 +69,7 @@ That's it. `install.sh` makes you a fresh managed-custody wallet and prints the 
 
 Kill switch any time: `touch ~/.gclaw/PAUSE` (and `rm` it to resume).
 
-## What it actually does
+## // What it actually does
 
 Every hour, on its own, your creature: ticks its GMAC life-energy, reads the
 HyperLiquid market, and — only with a real edge — opens one small, **always
@@ -79,7 +86,7 @@ earns goodwill, and as goodwill grows it unlocks:
 Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
 arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
 
-## Decentralized by design · 🔵 Built on Base
+## // Decentralized by design · Built on Base
 
 Every creature earns a **verifiable onchain identity on Base** and records its
 **reputation** there as it survives — adopting **ERC-8004**, the emerging standard
@@ -103,7 +110,7 @@ automatic each heartbeat. To publish your agent, add one free Pinata token:
 The leaderboard (`leaderboard/leaderboard.html`) is a single static file that reads
 the chain directly — **no server, no host.** Open it from the repo or pin it to IPFS.
 
-## Under the hood
+## // Under the hood
 
 Claude Code is the runtime; the GDEX MCP is the trading arm; deterministic Python
 owns the survival bookkeeping so the agent can't lie to itself. See `SKILL.md` for
@@ -112,3 +119,13 @@ the heartbeat, `CLAUDE.md` for development, and `references/` for the playbooks.
 > Requires Node 22+, Python 3, and the GDEX SDK (`GemachDAO/gdex-skill`). Trading
 > uses real money — start small. Your wallet's secrets live in `~/.gclaw/wallet.json`
 > (chmod 600); never commit it.
+
+---
+
+<div align="center">
+
+<img src="assets/brand/gemach-lion-gfund-emerald.svg" alt="Gemach" width="44">
+
+<sub>`//GEMACH` · built by [Gemach DAO](https://gdex.pro) · self-custodial DeFi, interest-free</sub>
+
+</div>
