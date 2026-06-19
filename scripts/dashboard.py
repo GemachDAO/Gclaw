@@ -409,13 +409,17 @@ def positions_html(h: Path) -> str:
         color = "var(--emerald)" if up >= 0 else "var(--red)"
         pnl = f'{"+" if up >= 0 else "−"}${abs(up):,.2f}'
         liq = float(p.get("liquidationPx") or 0)
+        coin = html.escape(str(p.get("coin", "?")))
         rows.append(
-            f'<li><span class="pill">{side}</span><b>{html.escape(str(p.get("coin", "?")))}</b> '
+            f'<li><span class="pill">{side}</span><b>{coin}</b> '
             f'{abs(size):g} @ ${float(p.get("entryPx", 0) or 0):,.2f} '
-            f'<span style="color:{color};font-weight:700">{pnl}</span> '
+            f'<span class="pos-pnl" data-coin="{coin}" style="color:{color};font-weight:700">{pnl}</span> '
             f'<span class="muted">liq ${liq:,.0f}</span></li>')
+    # ids let the live sync update each row + the header from HL's API (the snapshot
+    # they render from is only refreshed hourly), so the panel matches the live vitals.
     head = (f'<div class="muted" style="margin-bottom:8px">equity '
-            f'<b style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · as of {asof} UTC</div>')
+            f'<b id="posEquity" style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · '
+            f'<span id="posAsOf">as of {asof} UTC</span></div>')
     return head + f'<ul class="events">{"".join(rows)}</ul>'
 
 
@@ -798,7 +802,11 @@ def live_sync_script(h: Path) -> str:
             "var eq=spotTotal+upnl;set('liveEquity','$'+fmt(eq));"
             "var el=document.getElementById('liveUpnl');if(el){el.innerHTML=(upnl>=0?'+':'\\u2212')+'$'+fmt(upnl);"
             "el.className='sval '+(upnl>=0?'up':'down');}"
-            "set('liveAsOf','live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC');})"
+            "var now='live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC';set('liveAsOf',now);"
+            "document.querySelectorAll('.pos-pnl').forEach(function(el){var c=el.getAttribute('data-coin');"
+            "if(c in live){var v=live[c];el.textContent=(v>=0?'+':'\\u2212')+'$'+fmt(v);"
+            "el.style.color=v>=0?'var(--emerald)':'var(--red)';}});"
+            "set('posEquity','$'+fmt(eq));set('posAsOf',now);})"
             ".catch(function(){});}\n"
             "sync();setInterval(sync,20000);})();</script>")
 
