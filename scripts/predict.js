@@ -54,7 +54,7 @@ function hlInfo(body) {
 function position() {
   const { execFileSync } = require('node:child_process');
   try {
-    const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), 'status'], { encoding: 'utf8', timeout: 90000 });
+    const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), 'status', '--cache'], { encoding: 'utf8', timeout: 90000 });
     return JSON.parse(out.trim().split('\n').pop());
   } catch { return { positions: [], openOrders: [] }; }
 }
@@ -136,8 +136,17 @@ async function cmdResolve(args) {
   const calls = readJsonl(callsPath());
   const predictors = readJson(predictorsPath(), {});
   const resolved = [];
+  const expired = [];
+  const ttlMs = (Number(process.env.GCLAW_ROUND_TTL_DAYS) || 14) * 24 * 3600 * 1000;
   for (const r of open) {
-    if (live.has(r.coin)) continue; // still running
+    if (live.has(r.coin)) {
+      // A coin that's still (or perpetually) a live position can't resolve. Expire
+      // a stale one so it stops bloating the root + open list forever. No scoring.
+      if (Date.now() - new Date(r.openedAt).getTime() > ttlMs) {
+        r.status = 'expired'; r.resolvedAt = new Date().toISOString(); expired.push(r.id);
+      }
+      continue;
+    }
     const since = new Date(r.openedAt).getTime();
     const close = fills.filter((f) => f.coin === r.coin && Number(f.closedPnl || 0) !== 0 && f.time >= since)
       .reduce((s, f) => s + Number(f.closedPnl), 0);
@@ -159,7 +168,7 @@ async function cmdResolve(args) {
   writeAtomic(roundsPath(), JSON.stringify(rounds, null, 2));
   writeAtomic(predictorsPath(), JSON.stringify(predictors, null, 2));
   writeRoot();
-  return { ok: true, resolved };
+  return { ok: true, resolved, ...(expired.length ? { expired } : {}) };
 }
 
 function cmdLeaderboard() {

@@ -25,7 +25,7 @@ const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8'))
 
 function positionCount() {
   try {
-    const out = execFileSync('node', [path.join(__dirname, 'hl_perp.js'), 'status'],
+    const out = execFileSync('node', [path.join(__dirname, 'hl_perp.js'), 'status', '--cache'],
       { encoding: 'utf8', timeout: 60000 });
     return (JSON.parse(out.trim().split('\n').pop()).positions || []).length;
   } catch { return 0; }

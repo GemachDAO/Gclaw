@@ -47,7 +47,7 @@ function positions() {
   // Best-effort: a transient status failure means "nothing to trail this cycle"
   // (the hard exchange SL still protects), never an error that noise-spams the log.
   try {
-    const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), 'status'], { encoding: 'utf8', timeout: 90000 });
+    const out = execFileSync('node', [path.join(SKILL_DIR, 'hl_perp.js'), 'status', '--cache'], { encoding: 'utf8', timeout: 90000 });
     return JSON.parse(out.trim().split('\n').pop()).positions || [];
   } catch {
     return [];

@@ -308,14 +308,41 @@ async function cmdCancel(wallet, args) {
   return { ok: true, action: 'cancel', coin, oid: String(args.oid) };
 }
 
+// Cache the status read so the several callers in one heartbeat (autotrail,
+// model_select, riskguard, predict) share a single network fetch. The 90s TTL is
+// short enough that the post-LLM callers re-read fresh state (the LLM cycle takes
+// minutes), so a trade just opened is never served stale.
+const STATUS_CACHE = path.join(process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw'), 'status_cache.json');
+const STATUS_TTL_MS = 90000;
+
+function readStatusCache() {
+  try {
+    const c = JSON.parse(fs.readFileSync(STATUS_CACHE, 'utf8'));
+    return Date.now() - c.ts < STATUS_TTL_MS ? c.data : null;
+  } catch { return null; }
+}
+
+function writeStatusCache(data) {
+  try {
+    const tmp = `${STATUS_CACHE}.tmp${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify({ ts: Date.now(), data }));
+    fs.renameSync(tmp, STATUS_CACHE);
+  } catch { /* cache is best-effort */ }
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
+  if (cmd === 'status' && args.cache) {
+    const cached = readStatusCache();
+    if (cached) { process.stdout.write(JSON.stringify(cached) + '\n'); return; }
+  }
   const wallet = loadWallet();
   const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel };
   const handler = handlers[cmd];
   if (!handler) die(`unknown command '${cmd}'. Use: status | open | close`);
   const result = await handler(wallet, args);
+  if (cmd === 'status' && result.ok) writeStatusCache(result); // never cache a failed/partial read
   process.stdout.write(JSON.stringify(result) + '\n');
 }
 
