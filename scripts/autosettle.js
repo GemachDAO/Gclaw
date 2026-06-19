@@ -29,6 +29,20 @@ const SDK = require(path.join(GDEX_DIR, 'dist'));
 const CURSOR_PATH = path.join(GCLAW_HOME, 'autosettle.json');
 const DUST = 0.01; // carry remainders below 1 cent rather than spam tiny settles
 
+const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
+
+// One regime read per settle for the coins that just closed — tags each memory
+// record with the market conditions it happened in.
+function fetchRegimes(coins) {
+  if (!coins.length) return {};
+  try {
+    const out = execFileSync('node', [path.join(__dirname, 'intel.js'), 'regime', '--coins', coins.join(',')],
+      { env: { ...process.env, GCLAW_HOME }, timeout: 30000 }).toString();
+    const r = JSON.parse(out.slice(out.indexOf('{'))).regimes || {};
+    return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v && v.regime]));
+  } catch { return {}; }
+}
+
 function loadCursor() {
   if (!fs.existsSync(CURSOR_PATH)) return { lastTime: 0, lastTids: [], residual: 0 };
   return JSON.parse(fs.readFileSync(CURSOR_PATH, 'utf8'));
@@ -134,14 +148,30 @@ async function main() {
     settle(net, `auto-settle: ${fresh.length} fills, ${closes} closes, funding ${summary.fundingPnl}`);
     residual = 0;
     settled = true;
-    // Auto-attribute each closing fill to its technique's author (royalty) — works
-    // regardless of how the trade was opened (forge --execute OR the model via MCP).
-    for (const f of fresh.filter((x) => Number(x.closedPnl || 0) !== 0)) {
+    const closers = fresh.filter((x) => Number(x.closedPnl || 0) !== 0);
+    const regimes = fetchRegimes([...new Set(closers.map((f) => f.coin))]);
+    const openRisk = readJson(path.join(GCLAW_HOME, 'open_risk.json'), {});
+    // Auto-attribute each closing fill to its technique's author (royalty) AND
+    // record the outcome to the trade-memory (technique x regime -> R) so the agent
+    // learns which techniques actually work in which conditions.
+    for (const f of closers) {
+      let technique = 'unknown';
       try {
-        execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'forge.py'),
+        const out = execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'forge.py'),
           'royalty', '--coin', String(f.coin), '--pnl', String(f.closedPnl), '--auto'],
-        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });
+        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'pipe', 'ignore'] });
+        technique = JSON.parse(out.toString()).technique || 'unknown';
       } catch { /* attribution is best-effort */ }
+      try {
+        const notional = Math.abs(Number(f.sz || 0)) * Number(f.px || 0);
+        const risk = openRisk[f.coin] || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
+        const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
+        execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'memory.py'),
+          'record', '--coin', String(f.coin), '--technique', String(technique),
+          '--regime', regimes[f.coin] || 'unknown', '--side', side,
+          '--pnl', String(f.closedPnl), '--risk', String(risk)],
+        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });
+      } catch { /* memory record is best-effort */ }
     }
   }
   saveCursor({ lastTime: maxTime, lastTids: tidsAtMax, residual, lastFundingTime: maxFundingTime });

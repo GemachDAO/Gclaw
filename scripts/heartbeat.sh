@@ -56,6 +56,10 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Perception: scan the market into a regime + feature read the agent and dashboard use.
+[[ -f "$SKILL_DIR/scripts/intel.js" ]] &&
+  node "$SKILL_DIR/scripts/intel.js" scan >"$GCLAW_HOME/intel.json" 2>>"$LOG" &&
+  echo "$(ts) intel: $(uv run --no-project python3 -c 'import json;d=json.load(open("'"$GCLAW_HOME"'/intel.json"));print({k:(v["regime"] if v else None) for k,v in d.get("intel",{}).items()})' 2>/dev/null)" >>"$LOG" || true
 
 # Anti-drain: the heartbeat runs unattended with bypassPermissions, and reads
 # untrusted text (peer cards, family bus, market data, gene-pool metadata) that
