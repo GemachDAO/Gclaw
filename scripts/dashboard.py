@@ -654,6 +654,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         children=len(state.get("children", [])),
         generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         script=TABS_JS,
+        dna_script=dna_script(g),
     )
 
 
@@ -744,6 +745,53 @@ TABS_JS = """<script>
 })();
 </script>"""
 
+# A living 3D double helix (Three.js, WebGL). Genome-driven (colours + rung count),
+# brand-lit (emerald + blue point lights on rich black), slow rotation with an
+# organic wobble. Pauses when the Genome tab is hidden; if the CDN can't load the
+# library, the inline SVG fallback inside #dna3d simply stays.
+DNA3D_INIT = r"""<script>
+(function(){
+  if(!window.THREE){return;}
+  var host=document.getElementById('dna3d'); if(!host) return;
+  var W=host.clientWidth||230, H=300;
+  host.textContent='';
+  var d=window.GCLAW_DNA||{hue1:150,hue2:210,rungs:16};
+  var scene=new THREE.Scene();
+  var cam=new THREE.PerspectiveCamera(36,W/H,0.1,100); cam.position.set(0,0,15.5);
+  var rnd=new THREE.WebGLRenderer({alpha:true,antialias:true});
+  rnd.setSize(W,H); rnd.setPixelRatio(Math.min(window.devicePixelRatio||1,2)); host.appendChild(rnd.domElement);
+  function col(h){return new THREE.Color('hsl('+Math.round(h)+',72%,60%)');}
+  function node(x,y,z,c){var m=new THREE.Mesh(new THREE.SphereGeometry(0.30,18,18),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.55,roughness:0.3,metalness:0.1}));m.position.set(x,y,z);return m;}
+  function rung(a,b,c){var len=a.distanceTo(b);var m=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,len,8),new THREE.MeshStandardMaterial({color:c,emissive:c,emissiveIntensity:0.4,roughness:0.45,transparent:true,opacity:0.85}));m.position.copy(a.clone().add(b).multiplyScalar(0.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.clone().sub(a).normalize());return m;}
+  var g=new THREE.Group(), c1=col(d.hue1), c2=col(d.hue2);
+  var N=Math.max(10,Math.min(30,d.rungs||16)), turns=2.7, R=2.2, span=8.0;
+  for(var i=0;i<N;i++){
+    var t=i/(N-1), ang=t*turns*Math.PI*2, y=(t-0.5)*span;
+    var a=new THREE.Vector3(Math.cos(ang)*R,y,Math.sin(ang)*R);
+    var b=new THREE.Vector3(Math.cos(ang+Math.PI)*R,y,Math.sin(ang+Math.PI)*R);
+    g.add(node(a.x,a.y,a.z,c1)); g.add(node(b.x,b.y,b.z,c2)); g.add(rung(a,b,i%2?c1:c2));
+  }
+  scene.add(g);
+  scene.add(new THREE.AmbientLight(0xffffff,0.55));
+  var l1=new THREE.PointLight(0x9affc4,0.9); l1.position.set(6,5,10); scene.add(l1);
+  var l2=new THREE.PointLight(0x61b8ff,0.6); l2.position.set(-6,-4,7); scene.add(l2);
+  window.addEventListener('resize',function(){var w=host.clientWidth||W; rnd.setSize(w,H); cam.aspect=w/H; cam.updateProjectionMatrix();});
+  (function loop(){
+    requestAnimationFrame(loop);
+    if(host.offsetParent===null) return;
+    g.rotation.y+=0.012; g.rotation.x=Math.sin(Date.now()/2600)*0.13; rnd.render(scene,cam);
+  })();
+})();
+</script>"""
+
+
+def dna_script(g: dict[str, Any]) -> str:
+    """Three.js (CDN, UMD global) + this creature's genome params for the 3D helix."""
+    return ('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
+            f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]}}};</script>'
+            + DNA3D_INIT)
+
+
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="60">
@@ -761,6 +809,7 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .wrap{{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:300px 1fr;gap:18px}}
 .card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}}
 .hero{{text-align:center}}.species{{color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase}}
+.dna3d{{min-height:300px;display:flex;align-items:center;justify-content:center;overflow:hidden}}.dna3d canvas{{display:block}}
 .brandrow{{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)}}
 .lionmark{{color:var(--emerald);display:inline-flex}}.eyebrow{{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}}
 .lionfoot{{color:var(--muted);display:inline-flex;vertical-align:middle}}.foot b{{color:var(--silver);letter-spacing:1px}}
@@ -849,7 +898,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 </div>
 
 <div class="pane" id="genome">
-  <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div>{helix}<div class="fp">genome {fingerprint} · born {born}</div></div>
+  <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div><div id="dna3d" class="dna3d">{helix}</div><div class="fp">genome {fingerprint} · born {born}</div></div>
   <div class="card"><h2>Genome traits</h2>{traits}</div>
   <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
   <div class="card decent full"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
@@ -857,6 +906,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 
 <div class="foot"><span class="lionfoot">{lion_sm}</span> <b>//GEMACH</b> · Gclaw the living trading agent · rendered {generated} · auto-refresh 60s</div>
 {script}
+{dna_script}
 </body></html>"""
 
 
