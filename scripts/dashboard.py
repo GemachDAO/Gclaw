@@ -467,6 +467,29 @@ def global_predictors(h: Path) -> list[dict]:
     return sorted(board, key=lambda e: (-e["acc"], -e["correct"]))
 
 
+def intel_html(h: Path) -> str:
+    """Market intelligence panel — the regime + key features the agent now trades on."""
+    intel = load_json(h / "intel.json", {}).get("intel", {})
+    if not intel:
+        return '<p class="muted">No market scan yet — the intel engine runs each heartbeat.</p>'
+    color = {"trend_up": "var(--emerald)", "trend_down": "var(--red)",
+             "range": "var(--silver)", "chop": "var(--muted)"}
+    rows = []
+    for coin, f in intel.items():
+        if not f:
+            continue
+        reg = f.get("regime", "?")
+        rows.append(
+            f'<tr><td><b>{html.escape(coin)}</b></td>'
+            f'<td style="color:{color.get(reg, "var(--silver)")}">{reg}</td>'
+            f'<td>{f.get("rsi", "?")}</td><td>{f.get("atr_pct", "?")}%</td>'
+            f'<td>{f.get("funding_z", "?")}</td><td>{"✓" if f.get("tradeable") else "—"}</td></tr>')
+    return (f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
+            f'<th>fund-z</th><th>trade?</th></tr>{"".join(rows)}</table>'
+            f'<p class="muted" style="margin-top:6px">Chop = sit out · trend = ride ema_stack · '
+            f'range = fade extremes. Sized by ATR + Kelly, only on regime-proven edge.</p>')
+
+
 def predictions_html(h: Path) -> str:
     """The free 'Call it' game — the open round + the GLOBAL predictors ladder."""
     rounds = load_json(h / "predictions" / "rounds.json", {})
@@ -533,6 +556,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         roster=roster_html(home()),
         leaderboard=leaderboard_html(home()),
         achievements=achievements_html(state),
+        intel=intel_html(home()),
         predictions=predictions_html(home()),
         topup=topup_html(home()),
         recodes=state.get("recodes", 0),
@@ -684,6 +708,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
     <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
   </div>
   <div class="card" style="margin-top:18px"><h2>🏅 Achievements</h2>{achievements}</div>
+  <div class="card decent" style="margin-top:18px"><h2>🧠 Market intelligence · regime + risk brain</h2>{intel}</div>
   <div class="card decent" style="margin-top:18px"><h2>🎯 Call it · predictions (free · onchain-anchored)</h2>{predictions}</div>
   <div class="card decent" style="margin-top:18px"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
   <div class="grid2" style="margin-top:18px">

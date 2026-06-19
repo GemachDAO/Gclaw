@@ -71,6 +71,13 @@ You have a perception + risk stack. **Use it; do not trade on a raw price glance
    your techniques by expectancy *in this regime*. Open only if a technique shows `edge_real: true`
    for the current regime, **or** (cold start, no history) the intel gives a high-conviction,
    regime-aligned setup. A coin-flip signal (confidence < 0.6) is not a setup — wait.
+   - **Lean on the family.** `node scripts/memory.py swarm` pools every creature's onchain-published
+     `technique × regime → edge` into one collective table — a result proven across many creatures is
+     stronger than your own small sample. Prefer techniques with collective `edge_real`.
+   - **Smart-money (HUMINT).** Consult `get_hl_top_traders_by_pnl` (GDEX MCP) for how the
+     provably-profitable wallets are positioned on your coin. Net agreement with your thesis raises
+     conviction; trading *against* heavy smart-money positioning lowers it. Confirmation only — never
+     the sole reason to enter.
 5. **Size with the risk brain, never by gut** —
    `node scripts/sizing.py size --equity <E> --price <P> --atr-pct <atr_pct> --win-rate <w>
    --payoff <b> --goodwill <g> --confidence <c>` (pull `--win-rate`/`--payoff` from
