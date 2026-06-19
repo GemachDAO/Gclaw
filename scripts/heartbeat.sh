@@ -80,6 +80,12 @@ else
     node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
 fi
 
+# Risk guardrail: the model bypasses sizing.py, so enforce the per-trade and
+# portfolio risk caps deterministically — trim any position over the cap and
+# flatten naked ones. Runs AFTER the cycle to catch what the model just opened.
+[[ -f "$SKILL_DIR/scripts/riskguard.js" ]] &&
+  echo "$(ts) riskguard: $(node "$SKILL_DIR/scripts/riskguard.js" run 2>&1)" >>"$LOG" || true
+
 # "Call it" prediction game: score any round whose trade just closed, then open a
 # round for any new trade — BEFORE the dashboard render anchors the root onchain.
 [[ -f "$SKILL_DIR/scripts/predict.js" ]] && {
