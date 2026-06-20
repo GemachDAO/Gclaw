@@ -421,17 +421,6 @@ def telepathy_html(messages: list[dict[str, Any]]) -> str:
     return f'<ul class="events">{"".join(rows)}</ul>'
 
 
-LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
-
-
-def leverage_cap(goodwill: float) -> int:
-    cap = LEVERAGE_LADDER[0][1]
-    for threshold, lev in LEVERAGE_LADDER:
-        if goodwill >= threshold:
-            cap = lev
-    return cap
-
-
 def onchain_html(state: dict[str, Any]) -> str:
     """Decentralized identity panel — the ERC-8004 agent registered on Base."""
     ident = state.get("onchain_identity") or {}
@@ -456,20 +445,6 @@ def onchain_html(state: dict[str, Any]) -> str:
         f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>'
         f"<div>{base_badge()}</div>"
     )
-
-
-def leverage_html(state: dict[str, Any]) -> str:
-    """Earned-leverage ladder — the cap rises with goodwill won from real trades."""
-    gw = float(state.get("goodwill", 0) or 0)
-    cap = leverage_cap(gw)
-    rows = []
-    for threshold, lev in LEVERAGE_LADDER:
-        cls = "lev on" if lev == cap else ("lev" if lev <= cap else "lev locked")
-        need = f"{threshold} goodwill" if threshold > 0 else "base"
-        state_word = "◄ you" if lev == cap else ("unlocked" if lev <= cap else need)
-        rows.append(f'<div class="{cls}"><b>{lev}×</b><span>{state_word}</span></div>')
-    head = f'<div class="muted" style="margin-bottom:8px">goodwill {int(gw)} → cap <b style="color:var(--emerald)">{cap}×</b></div>'
-    return head + "".join(rows)
 
 
 def refresh_positions(h: Path) -> None:
@@ -792,51 +767,27 @@ def rewards_html(state: dict[str, Any]) -> str:
 
 
 def achievements_html(state: dict[str, Any]) -> str:
-    """Badge wall — unlocked milestones + the next target, the chase-the-next loop."""
-    gw = float(state.get("goodwill", 0) or 0)
+    """Trophy case — accomplishments the Evolution Path doesn't cover (it owns goodwill
+    progression): surviving heartbeats, win streaks, clawing back above seed, first child."""
     hb = int(state.get("heartbeats", 0) or 0)
     gmac = float(state.get("gmac_balance", 0) or 0)
     seed = float(state.get("seed", 1000) or 1000)
     kids = len(state.get("children", []))
     streak = int(load_json(home() / "celebrations.json", {}).get("winStreak", 0) or 0)
-    items = []
-    for t in (10, 25, 50, 100, 200, 500, 1000):
-        tag = {50: " ·Replicate", 100: " ·Recode", 1000: " ·Max lev"}.get(t, "")
-        items.append(("⭐", f"GW {t}{tag}", gw >= t))
-    for t in (100, 250, 500, 1000):
-        items.append(("🫀", f"{t} beats", hb >= t))
+    items = [("🫀", f"{t} heartbeats", hb >= t) for t in (100, 250, 500, 1000, 2500)]
     items += [
-        ("🌱", "Above seed", gmac > seed),
+        ("🌱", "Clawed above seed", gmac > seed),
         ("🧬", "First child", kids > 0),
-        ("🔥", f"{streak}-win streak" if streak >= 3 else "Win streak", streak >= 3),
+        ("🔥", f"{streak}-win streak" if streak >= 3 else "3-win streak", streak >= 3),
     ]
     earned = [(e, lbl) for e, lbl, u in items if u]
-    total = len(items)
-    # Celebrate what's won (bright) + the single next target as a progress bar —
-    # not a wall of greyed-out locks.
-    if earned:
-        badges = "".join(
-            f'<span class="badge on">{e} {html.escape(lbl)}</span>' for e, lbl in earned
-        )
-    else:
-        badges = '<p class="muted">No badges yet — the first ones come fast.</p>'
-    header = f'<div class="achhdr"><b>{len(earned)}</b> <span class="muted">of {total} unlocked</span></div>'
-    nxt = next((t for t in (10, 25, 50, 100, 200, 500, 1000) if gw < t), None)
-    progress = ""
-    if nxt:
-        prev = max([t for t in (0, 10, 25, 50, 100, 200, 500) if t <= gw], default=0)
-        pct = (gw - prev) / (nxt - prev) * 100 if nxt > prev else 0
-        unlock = {
-            50: " · unlocks Replicate",
-            100: " · unlocks Recode",
-            1000: " · unlocks Max leverage",
-        }.get(nxt, "")
-        progress = (
-            f'<div class="nextup"><div class="nblabel">Next → ⭐ goodwill '
-            f"<b>{int(gw)}</b>/{nxt}{unlock}</div>"
-            f'<div class="gbar"><div class="gfill" style="width:{pct:.0f}%;background:var(--emerald)"></div></div></div>'
-        )
-    return f'{header}<div class="badges">{badges}</div>{progress}'
+    badges = (
+        "".join(f'<span class="badge on">{e} {html.escape(lbl)}</span>' for e, lbl in earned)
+        if earned
+        else '<p class="muted">No trophies yet — they come with survival and wins.</p>'
+    )
+    header = f'<div class="achhdr"><b>{len(earned)}</b> <span class="muted">of {len(items)} earned</span></div>'
+    return f'{header}<div class="badges">{badges}</div>'
 
 
 def global_predictors(h: Path) -> list[dict]:
@@ -1086,8 +1037,9 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
     seed = state.get("seed", 1000)
     gauges = "".join(
         [
+            # Goodwill lives in the Evolution Path panel below (its rich home) + the
+            # header vital, so Life-state keeps just the two metrics it owns.
             gauge("GMAC life energy", gmac, max(seed, gmac), mode_hue),
-            gauge("Goodwill", state.get("goodwill", 0), 200, 280),
             gauge(
                 "Heartbeats", state.get("heartbeats", 0), max(50, state.get("heartbeats", 0)), 190
             ),
@@ -1116,7 +1068,6 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         events=events_html(journal),
         telepathy=telepathy_html(messages),
         onchain=onchain_html(state),
-        leverage=leverage_html(state),
         techniques=techniques_html(),
         positions=positions_html(home()),
         roster=roster_html(home()),
@@ -1418,7 +1369,6 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .loadsub{{font-size:12px}}.loadsub .up{{color:var(--emerald)}}.loadsub .down{{color:var(--red)}}
 .callit{{background:#10203a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px}}
 .achhdr{{font-size:22px;font-weight:800;color:var(--ink);margin-bottom:10px}}.achhdr .muted{{font-size:13px;font-weight:400}}
-.nextup{{margin-top:12px}}.nblabel{{font-size:12px;color:var(--muted);margin-bottom:6px}}.nblabel b{{color:var(--silver)}}
 .badges{{display:flex;flex-wrap:wrap;gap:8px}}
 .badge{{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}}
 .badge.on{{background:rgba(73,184,117,.12);border-color:#2c6e4a;color:var(--emerald)}}
@@ -1443,8 +1393,6 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .rlev{{flex:0 0 auto;font-size:14px;font-weight:800;color:var(--emerald);font-variant-numeric:tabular-nums}}
 .rstep.locked .rlev{{color:var(--muted);opacity:.55}}.rlev.none{{color:var(--muted);font-weight:400;font-size:13px}}
 .muted{{color:var(--muted);font-size:12px}}.foot{{text-align:center;color:var(--muted);font-size:11px;margin-top:18px}}
-.lev{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}}
-.lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:var(--emerald);font-size:15px}}.lev.locked{{opacity:.5}}
 .link{{display:inline-block;margin-top:10px;color:var(--blue);text-decoration:none;font-size:12px}}.idrow{{font-size:15px}}
 .lb-full{{display:block;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);color:var(--emerald);font-weight:600}}.lb-full:hover{{color:var(--ink)}}
 .decent h2{{color:var(--emerald)}}
@@ -1506,9 +1454,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 </div>
 
 <div class="pane" id="trading">
-  <div class="card decent"><h2>⚡ Earned leverage</h2>{leverage}</div>
-  <div class="card decent"><h2>⚔ Arsenal · offensive loadout</h2>{techniques}</div>
-  <div class="card"><h2>🏅 Achievements</h2>{achievements}</div>
+  <div class="card decent full"><h2>⚔ Arsenal · offensive loadout</h2>{techniques}</div>
+  <div class="card"><h2>🏅 Milestones</h2>{achievements}</div>
   <div class="card"><h2>Life events</h2>{events}</div>
 </div>
 
