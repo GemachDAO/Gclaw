@@ -733,6 +733,56 @@ def deploy_leaderboard(h: Path) -> None:
         pass
 
 
+GOODWILL_REWARDS = [
+    (0, "🐣", "Born", "Trading live — every position stop-protected", "3×"),
+    (50, "🧬", "Reproduce", "Spawn a child that inherits your genome + your winning techniques", "5×"),
+    (100, "🛠️", "Self-recode", "Rewrite your own DNA to evolve how you trade", None),
+    (200, "🐝", "Swarm", "Lead a whole family of agents that trade as one", "10×"),
+    (500, "⚡", "Sharper edge", "Press harder on your proven setups", "15×"),
+    (1000, "👑", "Apex", "Maximum leverage — the top of the ladder", "20×"),
+]
+
+
+def rewards_html(state: dict[str, Any]) -> str:
+    """The goodwill → power-up ladder — the loop. Goodwill is earned ONLY from real
+    profitable trades, and each tier unlocks a concrete new ability (reproduce, recode,
+    swarm) plus more leverage, so there's always a next reward to climb toward: the page
+    leads with how close the NEXT unlock is, then shows the whole path beyond it."""
+    gw = float(state.get("goodwill", 0) or 0)
+    tiers = GOODWILL_REWARDS
+    nxt = next((i for i, t in enumerate(tiers) if gw < t[0]), None)
+    if nxt is not None:
+        th, ic, name, desc, lev = tiers[nxt]
+        prev = tiers[nxt - 1][0] if nxt > 0 else 0
+        pct = max(0.0, min(100.0, (gw - prev) / (th - prev) * 100)) if th > prev else 0.0
+        levline = f" · unlocks {lev} leverage" if lev else ""
+        hero = (
+            '<div class="nextcard">'
+            f'<div class="nextlabel">NEXT POWER-UP · {int(th - gw)} goodwill to go</div>'
+            f'<div class="nextname">{ic} {html.escape(name)}</div>'
+            f'<div class="nextdesc muted">{html.escape(desc)}{levline}</div>'
+            f'<div class="nbar"><i style="width:{pct:.0f}%"></i></div>'
+            f'<div class="nfoot"><b>{int(gw)}</b><span class="muted">{th} goodwill</span></div>'
+            "</div>"
+        )
+    else:
+        hero = ('<div class="nextcard maxed"><div class="nextname">👑 Apex reached</div>'
+                '<div class="nextdesc muted">Every power-up unlocked.</div></div>')
+    rows = []
+    for i, (th, ic, name, desc, lev) in enumerate(tiers):
+        done = gw >= th
+        cls = "rstep " + ("done" if done else ("next" if i == nxt else "locked"))
+        node = "✓" if done else ("◆" if i == nxt else "○")
+        levtag = f'<span class="rlev">{lev}</span>' if lev else '<span class="rlev none">—</span>'
+        rows.append(
+            f'<div class="{cls}"><span class="rnode">{node}</span>'
+            f'<div class="rbody"><div class="rtop"><b>{ic} {html.escape(name)}</b>'
+            f'<span class="rgw">{th} GW</span></div>'
+            f'<div class="rdesc muted">{html.escape(desc)}</div></div>{levtag}</div>'
+        )
+    return hero + '<div class="ladder">' + "".join(rows) + "</div>"
+
+
 def achievements_html(state: dict[str, Any]) -> str:
     """Badge wall — unlocked milestones + the next target, the chase-the-next loop."""
     gw = float(state.get("goodwill", 0) or 0)
@@ -1064,6 +1114,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         roster=roster_html(home()),
         leaderboard=leaderboard_html(home()),
         achievements=achievements_html(state),
+        rewards=rewards_html(state),
         intel=intel_html(home()),
         predictions=predictions_html(home()),
         topup=topup_html(home()),
@@ -1364,6 +1415,25 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .badge{{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}}
 .badge.on{{background:rgba(73,184,117,.12);border-color:#2c6e4a;color:var(--emerald)}}
 .badge.off{{background:#0c1424;color:var(--muted);opacity:.55}}
+.nextcard{{background:linear-gradient(180deg,rgba(73,184,117,.10),rgba(73,184,117,.02));border:1px solid #2c6e4a;border-radius:14px;padding:16px 18px;margin-bottom:16px}}
+.nextcard.maxed{{text-align:center}}
+.nextlabel{{font-size:10px;letter-spacing:1.6px;color:var(--emerald);font-weight:700;margin-bottom:6px}}
+.nextname{{font-size:21px;font-weight:800;color:var(--ink);line-height:1.1}}
+.nextdesc{{font-size:13px;margin:4px 0 13px}}
+.nbar{{height:9px;background:#0b1424;border-radius:999px;overflow:hidden}}
+.nbar i{{display:block;height:100%;background:linear-gradient(90deg,#2c6e4a,var(--emerald));border-radius:999px;box-shadow:0 0 12px rgba(73,184,117,.55);transition:width .6s ease}}
+.nfoot{{display:flex;justify-content:space-between;margin-top:6px;font-size:12px;font-variant-numeric:tabular-nums}}.nfoot b{{color:var(--emerald);font-weight:700}}
+.ladder{{display:flex;flex-direction:column}}
+.rstep{{display:flex;align-items:center;gap:12px;padding:11px 2px;border-top:1px solid var(--line)}}.rstep:first-child{{border-top:none}}
+.rnode{{width:22px;height:22px;flex:0 0 22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:1px solid var(--line);color:var(--muted)}}
+.rstep.done .rnode{{background:var(--emerald);border-color:var(--emerald);color:#06210f}}
+.rstep.next .rnode{{border-color:var(--emerald);color:var(--emerald);box-shadow:0 0 0 4px rgba(73,184,117,.16)}}
+.rbody{{flex:1;min-width:0}}.rtop{{display:flex;align-items:baseline;gap:8px}}.rtop b{{font-size:14px;color:var(--ink)}}
+.rstep.locked .rtop b{{color:var(--silver);opacity:.6}}
+.rgw{{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}}
+.rdesc{{font-size:12px;margin-top:2px}}.rstep.locked .rdesc{{opacity:.5}}
+.rlev{{flex:0 0 auto;font-size:14px;font-weight:800;color:var(--emerald);font-variant-numeric:tabular-nums}}
+.rstep.locked .rlev{{color:var(--muted);opacity:.55}}.rlev.none{{color:var(--muted);font-weight:400;font-size:13px}}
 .muted{{color:var(--muted);font-size:12px}}.foot{{text-align:center;color:var(--muted);font-size:11px;margin-top:18px}}
 .lev{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}}
 .lev b{{color:var(--muted)}}.lev.on{{color:var(--ink)}}.lev.on b{{color:var(--emerald);font-size:15px}}.lev.locked{{opacity:.5}}
@@ -1423,6 +1493,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
   <div class="card decent"><h2>🧠 Market intelligence · regime</h2>{intel}</div>
   <div class="card"><h2>Life-state</h2>{gauges}</div>
+  <div class="card decent full"><h2>🧬 Evolution path · earn goodwill, unlock power-ups</h2>{rewards}</div>
   <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
 </div>
 

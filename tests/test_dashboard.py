@@ -161,6 +161,18 @@ def test_sigil_is_a_clean_glyph(gclaw_home):
         assert g["sigil"] not in tofu
 
 
+def test_rewards_ladder_shows_next_unlock_and_full_path(gclaw_home):
+    # The goodwill→power-up loop: at 31 goodwill the next unlock is Reproduce (at 50),
+    # the "to go" carrot shows, and the whole ladder (every tier) is visible.
+    out = dashboard.rewards_html({"goodwill": 31})
+    assert "Reproduce" in out
+    assert "goodwill to go" in out  # the carrot
+    assert "Self-recode" in out and "Swarm" in out and "Apex" in out  # the path beyond
+    assert "rstep next" in out  # the next tier is highlighted
+    # maxed out → no "to go", shows Apex reached
+    assert "Apex reached" in dashboard.rewards_html({"goodwill": 1500})
+
+
 def test_hl_perp_reads_perp_state_from_public_api():
     # Regression: the authenticated SDK returns the shared collateral as accountValue
     # when FLAT, which double-counts against spot (equity read ~2x, e.g. $404 vs $202).
