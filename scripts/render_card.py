@@ -19,7 +19,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont  # type: ignore[import-not-found]
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import persona as persona_mod  # noqa: E402
+import persona as persona_mod
 
 W, H = 620, 360
 BG = (11, 16, 32)
@@ -52,7 +52,11 @@ def hsl(h: float, s: float, light: float) -> tuple[int, int, int]:
 
 def draw_helix(d: ImageDraw.ImageDraw, fp: str, cx: int, top: int, bottom: int) -> None:
     by = lambda i: int(fp[i * 2 : i * 2 + 2], 16)  # noqa: E731
-    hue1, hue2, rungs = by(0) / 255 * 360, (by(0) / 255 * 360 + 90 + by(1) / 255 * 120) % 360, 16 + by(5) % 10
+    hue1, hue2, rungs = (
+        by(0) / 255 * 360,
+        (by(0) / 255 * 360 + 90 + by(1) / 255 * 120) % 360,
+        16 + by(5) % 10,
+    )
     c1, c2 = hsl(hue1, 0.75, 0.6), hsl(hue2, 0.75, 0.6)
     for i in range(rungs):
         t = i / (rungs - 1)
@@ -71,19 +75,27 @@ def render(name: str, out: Path) -> None:
 
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([12, 12, W - 12, H - 12], radius=20, fill=CARD, outline=(36, 48, 73), width=1)
+    d.rounded_rectangle(
+        [12, 12, W - 12, H - 12], radius=20, fill=CARD, outline=(36, 48, 73), width=1
+    )
     draw_helix(d, fp, 110, 50, H - 50)
 
     x = 210
-    d.text((x, 40), p["species"].upper() + "  ·  " + p["archetype"].upper(), font=font(13), fill=MUTED)
+    d.text(
+        (x, 40), p["species"].upper() + "  ·  " + p["archetype"].upper(), font=font(13), fill=MUTED
+    )
     d.text((x, 60), name, font=font(34, bold=True), fill=INK)
-    d.text((x, 104), f'“{p["catchphrase"]}”', font=font(15), fill=hsl(hue, 0.7, 0.7))
+    d.text((x, 104), f"“{p['catchphrase']}”", font=font(15), fill=hsl(hue, 0.7, 0.7))
 
     ty = 150
     for trait, val in p["traits"].items():
         d.text((x, ty), trait, font=font(13), fill=MUTED)
         d.rounded_rectangle([x + 96, ty + 3, x + 96 + 230, ty + 12], radius=5, fill=(12, 19, 34))
-        d.rounded_rectangle([x + 96, ty + 3, x + 96 + int(230 * val / 100), ty + 12], radius=5, fill=hsl(hue, 0.7, 0.55))
+        d.rounded_rectangle(
+            [x + 96, ty + 3, x + 96 + int(230 * val / 100), ty + 12],
+            radius=5,
+            fill=hsl(hue, 0.7, 0.55),
+        )
         d.text((x + 334, ty), str(val), font=font(13, bold=True), fill=INK)
         ty += 26
 

@@ -27,7 +27,7 @@ import json
 import os
 import subprocess
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,13 +41,30 @@ def github_qr_datauri(h: Path) -> str:
     png = h / "qr" / "github.png"
     if not (png.exists() and png.stat().st_size > 0):
         try:
-            subprocess.run(["uv", "run", "--no-project", "--with", "qrcode", "--with", "pillow", "python3",
-                            str(SCRIPT_DIR / "qr.py"), GITHUB_URL, "raw", str(png)],
-                           capture_output=True, text=True, timeout=120)
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--with",
+                    "qrcode",
+                    "--with",
+                    "pillow",
+                    "python3",
+                    str(SCRIPT_DIR / "qr.py"),
+                    GITHUB_URL,
+                    "raw",
+                    str(png),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
         except (OSError, subprocess.SubprocessError):
             return ""
     try:
         import base64
+
         return "data:image/png;base64," + base64.b64encode(png.read_bytes()).decode("ascii")
     except (OSError, ValueError):
         return ""
@@ -57,10 +74,17 @@ def share_url(state: dict[str, Any], name: str, equity: float) -> str:
     """A Twitter/X intent link to flex the creature — links to its verifiable
     onchain identity (or the repo) so the share proves it's real."""
     aid = (state.get("onchain_identity") or {}).get("agentId")
-    link = f"https://basescan.org/nft/{IDENTITY_REGISTRY}/{aid}" if aid else "https://github.com/GemachDAO/Gclaw"
-    text = (f"Meet {name} 🦁🧬 — my living, onchain trading agent. Equity ${equity:,.0f}, "
-            f"fully verifiable on @base. A creature that must trade to survive, built with @GemachDAO.")
+    link = (
+        f"https://basescan.org/nft/{IDENTITY_REGISTRY}/{aid}"
+        if aid
+        else "https://github.com/GemachDAO/Gclaw"
+    )
+    text = (
+        f"Meet {name} 🦁🧬 — my living, onchain trading agent. Equity ${equity:,.0f}, "
+        f"fully verifiable on @base. A creature that must trade to survive, built with @GemachDAO."
+    )
     return "https://twitter.com/intent/tweet?" + urllib.parse.urlencode({"text": text, "url": link})
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -75,15 +99,14 @@ BASE_SYMBOL = (
     '<svg viewBox="0 0 111 111" fill="none" xmlns="http://www.w3.org/2000/svg" '
     'style="width:{w};height:{w};display:inline-block;vertical-align:middle">'
     '<path d="M54.921 110.034C85.359 110.034 110.034 85.402 110.034 55.017C110.034 24.6319 '
-    '85.359 0 54.921 0C26.0432 0 2.35281 22.1714 0 50.3923H72.8467V59.6416H3.9565e-07C2.35281 '
+    "85.359 0 54.921 0C26.0432 0 2.35281 22.1714 0 50.3923H72.8467V59.6416H3.9565e-07C2.35281 "
     '87.8625 26.0432 110.034 54.921 110.034Z" fill="#0052FF"/></svg>'
 )
 
 
 def base_badge() -> str:
     """Official 'Built on Base' attribution — the agent's ERC-8004 identity is on Base."""
-    return (f'<div class="basebadge">{BASE_SYMBOL.format(w="15px")}'
-            f'<span>BUILT ON BASE</span></div>')
+    return f'<div class="basebadge">{BASE_SYMBOL.format(w="15px")}<span>BUILT ON BASE</span></div>'
 
 
 def home() -> Path:
@@ -99,7 +122,9 @@ def load_json(path: Path, default: Any) -> Any:
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def genome(name: str, born_at: str) -> dict[str, Any]:
@@ -107,7 +132,10 @@ def genome(name: str, born_at: str) -> dict[str, Any]:
     digest = hashlib.sha256(f"{name}|{born_at}".encode()).digest()
     hue1 = digest[0] / 255 * 360
     hue2 = (hue1 + 90 + digest[1] / 255 * 120) % 360
-    species = SPECIES_PREFIX[digest[2] % len(SPECIES_PREFIX)] + SPECIES_SUFFIX[digest[3] % len(SPECIES_SUFFIX)]
+    species = (
+        SPECIES_PREFIX[digest[2] % len(SPECIES_PREFIX)]
+        + SPECIES_SUFFIX[digest[3] % len(SPECIES_SUFFIX)]
+    )
     sigil = SIGILS[digest[4] % len(SIGILS)]
     rungs = 14 + digest[5] % 10
     stats = {TRAITS[i]: 25 + digest[6 + i] % 70 for i in range(len(TRAITS))}
@@ -137,22 +165,26 @@ def _byte_stream(seed: bytes):
         counter += 1
 
 
-def breed(parent: dict[str, Any], child_name: str, role: str, parent_goodwill: float) -> dict[str, Any]:
+def breed(
+    parent: dict[str, Any], child_name: str, role: str, parent_goodwill: float
+) -> dict[str, Any]:
     """A child genome that INHERITS the parent's and diverges — real heredity, not a
     fresh random hash. Deterministic from (parent fingerprint, child name, role).
     Mutation strength scales with fitness: a higher-goodwill (proven) parent breeds
     more stable offspring; a rare 'hopeful monster' keeps lineages from homogenising.
     """
-    s = _byte_stream(hashlib.sha256(f'{parent["fingerprint"]}|{child_name}|{role}'.encode()).digest())
+    s = _byte_stream(
+        hashlib.sha256(f"{parent['fingerprint']}|{child_name}|{role}".encode()).digest()
+    )
     unit = lambda: next(s) / 255  # noqa: E731
     signed = lambda: unit() * 2 - 1  # noqa: E731
     roll = lambda p: next(s) / 256 < p  # noqa: E731
     fit = max(0.0, min(1.0, (parent_goodwill - 50) / 150))
     m = 1.30 - 0.80 * fit  # 1.30 (fragile) → 0.50 (elite/stable)
 
-    hue1 = (parent["hue1"] + signed() * 18 * m) % 360                  # inherited backbone, small drift
+    hue1 = (parent["hue1"] + signed() * 18 * m) % 360  # inherited backbone, small drift
     offset = ((parent["hue2"] - parent["hue1"]) % 360 + signed() * 12 * m) % 360
-    hue2 = (hue1 + offset) % 360                                       # inherits the two-tone relationship
+    hue2 = (hue1 + offset) % 360  # inherits the two-tone relationship
     rungs = parent["rungs"]
     if roll(0.55 * m):
         rungs += (1 if roll(0.78) else 2) * (1 if signed() >= 0 else -1)
@@ -171,13 +203,22 @@ def breed(parent: dict[str, Any], child_name: str, role: str, parent_goodwill: f
     if monster:
         for _ in range(1 + (1 if roll(0.4) else 0)):
             t = TRAITS[next(s) % len(TRAITS)]
-            stats[t] = max(25, min(94, round(stats[t] + (1 if roll(0.62) else -1) * (12 + unit() * 23))))
+            stats[t] = max(
+                25, min(94, round(stats[t] + (1 if roll(0.62) else -1) * (12 + unit() * 23)))
+            )
             if t not in mutated:
                 mutated.append(t)
 
     species, sigil = parent["species"], parent["sigil"]
     prefix_i = next((i for i, p in enumerate(SPECIES_PREFIX) if species.startswith(p)), 0)
-    suffix_i = next((j for j, sfx in enumerate(SPECIES_SUFFIX) if sfx == species[len(SPECIES_PREFIX[prefix_i]):]), 0)
+    suffix_i = next(
+        (
+            j
+            for j, sfx in enumerate(SPECIES_SUFFIX)
+            if sfx == species[len(SPECIES_PREFIX[prefix_i]) :]
+        ),
+        0,
+    )
     sigil_i = SIGILS.index(sigil) if sigil in SIGILS else 0
     if roll(0.04 * m) or monster:  # rare speciation → a NEIGHBOURING species (still related)
         if roll(0.5):
@@ -189,13 +230,27 @@ def breed(parent: dict[str, Any], child_name: str, role: str, parent_goodwill: f
         sigil = SIGILS[(sigil_i + (1 if signed() >= 0 else -1)) % len(SIGILS)]
 
     hue1, hue2 = round(hue1, 1), round(hue2, 1)
-    fp = hashlib.sha256((f'{parent["fingerprint"]}|{species}|{sigil}|{hue1}|{hue2}|{rungs}|'
-                         + "|".join(f"{t}:{stats[t]}" for t in TRAITS)).encode()).hexdigest()[:12]
+    fp = hashlib.sha256(
+        (
+            f"{parent['fingerprint']}|{species}|{sigil}|{hue1}|{hue2}|{rungs}|"
+            + "|".join(f"{t}:{stats[t]}" for t in TRAITS)
+        ).encode()
+    ).hexdigest()[:12]
     return {
-        "species": species, "sigil": sigil, "hue1": hue1, "hue2": hue2, "rungs": rungs,
-        "stats": stats, "fingerprint": fp, "inherited": inherited, "mutated": mutated, "monster": monster,
-        "parent_hue1": parent["hue1"], "hue1_delta": round((hue1 - parent["hue1"] + 180) % 360 - 180, 1),
-        "hue2_delta": round((hue2 - parent["hue2"] + 180) % 360 - 180, 1), "rungs_delta": rungs - parent["rungs"],
+        "species": species,
+        "sigil": sigil,
+        "hue1": hue1,
+        "hue2": hue2,
+        "rungs": rungs,
+        "stats": stats,
+        "fingerprint": fp,
+        "inherited": inherited,
+        "mutated": mutated,
+        "monster": monster,
+        "parent_hue1": parent["hue1"],
+        "hue1_delta": round((hue1 - parent["hue1"] + 180) % 360 - 180, 1),
+        "hue2_delta": round((hue2 - parent["hue2"] + 180) % 360 - 180, 1),
+        "rungs_delta": rungs - parent["rungs"],
     }
 
 
@@ -216,11 +271,17 @@ def helix_svg(g: dict[str, Any]) -> str:
         left.append(f"{x1:.1f},{y:.1f}")
         right.append(f"{x2:.1f},{y:.1f}")
         color = c1 if math.sin(phase) >= 0 else c2
-        parts.append(f'<line x1="{x1:.1f}" y1="{y:.1f}" x2="{x2:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="3" opacity="0.7"/>')
+        parts.append(
+            f'<line x1="{x1:.1f}" y1="{y:.1f}" x2="{x2:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="3" opacity="0.7"/>'
+        )
         parts.append(f'<circle cx="{x1:.1f}" cy="{y:.1f}" r="4" fill="{c1}"/>')
         parts.append(f'<circle cx="{x2:.1f}" cy="{y:.1f}" r="4" fill="{c2}"/>')
-    parts.append(f'<polyline points="{" ".join(left)}" fill="none" stroke="{c1}" stroke-width="2" opacity="0.5"/>')
-    parts.append(f'<polyline points="{" ".join(right)}" fill="none" stroke="{c2}" stroke-width="2" opacity="0.5"/>')
+    parts.append(
+        f'<polyline points="{" ".join(left)}" fill="none" stroke="{c1}" stroke-width="2" opacity="0.5"/>'
+    )
+    parts.append(
+        f'<polyline points="{" ".join(right)}" fill="none" stroke="{c2}" stroke-width="2" opacity="0.5"/>'
+    )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -254,8 +315,12 @@ def pin_dna_image(h: Path, g: dict[str, Any], name: str, mode: str) -> None:
     """Write the standalone DNA avatar and pin it to IPFS (idempotent)."""
     try:
         (h / "identity.svg").write_text(identity_svg(g, name, mode), encoding="utf-8")
-        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "pin-image"],
-                       capture_output=True, text=True, timeout=40)
+        subprocess.run(
+            ["node", str(SCRIPT_DIR / "stats.js"), "pin-image"],
+            capture_output=True,
+            text=True,
+            timeout=40,
+        )
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -272,15 +337,21 @@ def trait_bars(g: dict[str, Any]) -> str:
 
 def gene_diff_html(cg: dict[str, Any]) -> str:
     """Glanceable gene-diff chips: what the child inherited vs mutated from the parent."""
-    chips = [f'<span class="gchip"><span class="gdot" style="background:hsl({cg.get("parent_hue1", cg["hue1"])},72%,60%)">'
-             f'</span>backbone inherited</span>']
+    chips = [
+        f'<span class="gchip"><span class="gdot" style="background:hsl({cg.get("parent_hue1", cg["hue1"])},72%,60%)">'
+        f"</span>backbone inherited</span>"
+    ]
     if abs(cg.get("hue2_delta", 0)) >= 1:
-        chips.append(f'<span class="gchip mut"><span class="gdia" style="border-color:hsl({cg["hue2"]},72%,60%)">'
-                     f'</span>accent {cg["hue2_delta"]:+.0f}°</span>')
+        chips.append(
+            f'<span class="gchip mut"><span class="gdia" style="border-color:hsl({cg["hue2"]},72%,60%)">'
+            f"</span>accent {cg['hue2_delta']:+.0f}°</span>"
+        )
     if cg.get("rungs_delta"):
         chips.append(f'<span class="gchip mut">rungs {cg["rungs_delta"]:+d}</span>')
     if cg.get("mutated"):
-        chips.append(f'<span class="gchip mut">{len(cg["mutated"])} trait{"s" if len(cg["mutated"]) != 1 else ""} mutated</span>')
+        chips.append(
+            f'<span class="gchip mut">{len(cg["mutated"])} trait{"s" if len(cg["mutated"]) != 1 else ""} mutated</span>'
+        )
     if cg.get("monster"):
         chips.append('<span class="gchip mon">⚡ hopeful monster</span>')
     return '<div class="gdiff">' + "".join(chips) + "</div>"
@@ -296,27 +367,45 @@ def family_html(state: dict[str, Any]) -> str:
     for c in children:
         cg = c.get("genome")
         helix = f'<div class="lhelix">{helix_svg(cg)}</div>' if cg else ""
-        meta = (f'<div class="species">{html.escape(cg["species"])} {cg["sigil"]}</div>' if cg else "")
+        meta = (
+            f'<div class="species">{html.escape(cg["species"])} {cg["sigil"]}</div>' if cg else ""
+        )
         diff = gene_diff_html(cg) if cg else ""
         cells.append(
             f'<div class="lcell">{helix}<div class="lmeta">'
             f'<b>{html.escape(c["name"])}</b> <span class="pill">{html.escape(c.get("role", "—"))}</span>'
-            f'{meta}{diff}<div class="muted">{html.escape(c.get("mutation", ""))[:70]}</div></div></div>')
+            f'{meta}{diff}<div class="muted">{html.escape(c.get("mutation", ""))[:70]}</div></div></div>'
+        )
     return f'<div class="lineage">{"".join(cells)}</div>'
 
 
 def events_html(journal: list[dict[str, Any]]) -> str:
-    icon = {"born": "🥚", "tick": "🫀", "settle": "💱", "charge": "🔥", "replicate": "🧬", "recode": "🛠️"}
+    icon = {
+        "born": "🥚",
+        "tick": "🫀",
+        "settle": "💱",
+        "charge": "🔥",
+        "replicate": "🧬",
+        "recode": "🛠️",
+    }
     rows = []
     for e in reversed(journal[-12:]):
         ev = e.get("event", "?")
         detail = e.get("note") or e.get("mutation") or e.get("summary") or e.get("reason") or ""
-        extra = f" pnl {e['pnl']:+g}" if "pnl" in e else (f" bal {e['balance']:g}" if "balance" in e else "")
+        extra = (
+            f" pnl {e['pnl']:+g}"
+            if "pnl" in e
+            else (f" bal {e['balance']:g}" if "balance" in e else "")
+        )
         rows.append(
-            f'<li>{icon.get(ev, "•")} <b>{ev}</b>{html.escape(extra)} '
+            f"<li>{icon.get(ev, '•')} <b>{ev}</b>{html.escape(extra)} "
             f'<span class="muted">{html.escape(str(detail))[:60]}</span></li>'
         )
-    return f'<ul class="events">{"".join(rows)}</ul>' if rows else '<p class="muted">No life events yet.</p>'
+    return (
+        f'<ul class="events">{"".join(rows)}</ul>'
+        if rows
+        else '<p class="muted">No life events yet.</p>'
+    )
 
 
 def telepathy_html(messages: list[dict[str, Any]]) -> str:
@@ -326,8 +415,8 @@ def telepathy_html(messages: list[dict[str, Any]]) -> str:
     for m in messages[-8:]:
         rows.append(
             f'<li><span class="pill">{html.escape(m.get("type", ""))}</span> '
-            f'<b>{html.escape(m.get("from", "?"))}</b>→{html.escape(str(m.get("to", "")))}: '
-            f'{html.escape(str(m.get("msg", "")))[:70]}</li>'
+            f"<b>{html.escape(m.get('from', '?'))}</b>→{html.escape(str(m.get('to', '')))}: "
+            f"{html.escape(str(m.get('msg', '')))[:70]}</li>"
         )
     return f'<ul class="events">{"".join(rows)}</ul>'
 
@@ -356,13 +445,17 @@ def onchain_html(state: dict[str, Any]) -> str:
     gas_line = ""
     if gas.get("status"):
         dot = {"healthy": "🟢", "low": "🟡", "empty": "🔴"}.get(gas["status"], "⚪")
-        gas_line = (f'<div class="muted" style="margin-top:8px">{dot} beacon gas: '
-                    f'{gas.get("baseEth", 0):.5f} Base ETH · ~{gas.get("beaconRunway", 0)} beacons</div>')
-    return (f'<div class="idrow"><span class="pill">ERC-8004</span> agent <b>#{aid}</b> '
-            f'on {ident.get("chain", "base:8453")}</div>'
-            f'<div class="muted" style="margin-top:8px">registry {reg}…</div>{gas_line}'
-            f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>'
-            f'<div>{base_badge()}</div>')
+        gas_line = (
+            f'<div class="muted" style="margin-top:8px">{dot} beacon gas: '
+            f"{gas.get('baseEth', 0):.5f} Base ETH · ~{gas.get('beaconRunway', 0)} beacons</div>"
+        )
+    return (
+        f'<div class="idrow"><span class="pill">ERC-8004</span> agent <b>#{aid}</b> '
+        f"on {ident.get('chain', 'base:8453')}</div>"
+        f'<div class="muted" style="margin-top:8px">registry {reg}…</div>{gas_line}'
+        f'<a class="link" href="{url}" target="_blank" rel="noopener">view on basescan ↗</a>'
+        f"<div>{base_badge()}</div>"
+    )
 
 
 def leverage_html(state: dict[str, Any]) -> str:
@@ -382,11 +475,15 @@ def leverage_html(state: dict[str, Any]) -> str:
 def refresh_positions(h: Path) -> None:
     """Best-effort: cache live HL state to positions.json so the offline page can show it."""
     try:
-        proc = subprocess.run(["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
-                              capture_output=True, text=True, timeout=80)
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
+            capture_output=True,
+            text=True,
+            timeout=80,
+        )
         data = json.loads(proc.stdout.strip().splitlines()[-1])
         if data.get("ok"):
-            data["ts"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            data["ts"] = datetime.now(UTC).isoformat(timespec="seconds")
             (h / "positions.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     except (OSError, ValueError, subprocess.SubprocessError):
         pass  # keep the last good cache; the dashboard renders offline regardless
@@ -407,19 +504,22 @@ def positions_html(h: Path) -> str:
         side = "LONG" if size > 0 else "SHORT"
         up = float(p.get("unrealizedPnl", 0) or 0)
         color = "var(--emerald)" if up >= 0 else "var(--red)"
-        pnl = f'{"+" if up >= 0 else "−"}${abs(up):,.2f}'
+        pnl = f"{'+' if up >= 0 else '−'}${abs(up):,.2f}"
         liq = float(p.get("liquidationPx") or 0)
         coin = html.escape(str(p.get("coin", "?")))
         rows.append(
             f'<li><span class="pill">{side}</span><b>{coin}</b> '
-            f'{abs(size):g} @ ${float(p.get("entryPx", 0) or 0):,.2f} '
+            f"{abs(size):g} @ ${float(p.get('entryPx', 0) or 0):,.2f} "
             f'<span class="pos-pnl" data-coin="{coin}" style="color:{color};font-weight:700">{pnl}</span> '
-            f'<span class="muted">liq ${liq:,.0f}</span></li>')
+            f'<span class="muted">liq ${liq:,.0f}</span></li>'
+        )
     # ids let the live sync update each row + the header from HL's API (the snapshot
     # they render from is only refreshed hourly), so the panel matches the live vitals.
-    head = (f'<div class="muted" style="margin-bottom:8px">equity '
-            f'<b id="posEquity" style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · '
-            f'<span id="posAsOf">as of {asof} UTC</span></div>')
+    head = (
+        f'<div class="muted" style="margin-bottom:8px">equity '
+        f'<b id="posEquity" style="color:var(--ink)">${equity:.2f}</b> · {len(pos)} open · '
+        f'<span id="posAsOf">as of {asof} UTC</span></div>'
+    )
     return head + f'<ul class="events">{"".join(rows)}</ul>'
 
 
@@ -434,9 +534,12 @@ def techniques_html() -> str:
     cap = float(style.get("conviction_cap", 0.85) or 0.85)
     risk = float(style.get("risk_mult", 1.0) or 1.0)
     role = style.get("role", "")
-    head = (f'<div class="loadhead">{len(adopted)} techniques · conviction cap '
-            f'<b>{cap:.2f}</b> · risk <b>×{risk:.2f}</b>'
-            + (f' · <b>{role}</b>' if role else "") + "</div>")
+    head = (
+        f'<div class="loadhead">{len(adopted)} techniques · conviction cap '
+        f"<b>{cap:.2f}</b> · risk <b>×{risk:.2f}</b>"
+        + (f" · <b>{role}</b>" if role else "")
+        + "</div>"
+    )
     rows = []
     for e in sorted(adopted, key=lambda x: -float(x.get("weight", 1.0) or 1.0)):
         tid = e.get("id") if isinstance(e, dict) else e
@@ -444,8 +547,11 @@ def techniques_html() -> str:
         w = float(e.get("weight", 1.0) or 1.0)
         trades = int(e.get("trades", 0) or 0)
         edge = float(e.get("e", 0.0) or 0.0)
-        tag = ('<span class="pill born">born</span>' if e.get("born")
-               else '<span class="pill">authored</span>')
+        tag = (
+            '<span class="pill born">born</span>'
+            if e.get("born")
+            else '<span class="pill">authored</span>'
+        )
         if trades:
             fcls = "up" if edge > 0 else "down" if edge < 0 else "muted"
             fit = f'<span class="{fcls}">{edge:+.2f} edge</span> <span class="muted">· {trades} trades</span>'
@@ -456,7 +562,8 @@ def techniques_html() -> str:
             f'<li class="load"><div class="loadtop">{tag}<b>{tid}</b>'
             f'<span class="wpct">{w:.2f}</span></div>'
             f'<div class="{bar_cls}"><i style="width:{min(100, w * 100):.0f}%"></i></div>'
-            f'<div class="loadsub muted">{tech.get("claim", "")} · {fit}</div></li>')
+            f'<div class="loadsub muted">{tech.get("claim", "")} · {fit}</div></li>'
+        )
     return head + f'<ul class="loadout">{"".join(rows)}</ul>'
 
 
@@ -473,9 +580,23 @@ def refresh_qr(h: Path) -> None:
         if out.exists() and out.stat().st_size > 0:
             continue  # fixed address → fixed QR; generate once
         try:
-            subprocess.run(["uv", "run", "--no-project", "--with", "qrcode", "python3",
-                            str(SCRIPT_DIR / "qr.py"), addr, chain, str(out)],
-                           capture_output=True, text=True, timeout=60)
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--with",
+                    "qrcode",
+                    "python3",
+                    str(SCRIPT_DIR / "qr.py"),
+                    addr,
+                    chain,
+                    str(out),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
         except (OSError, subprocess.SubprocessError):
             pass
 
@@ -483,7 +604,7 @@ def refresh_qr(h: Path) -> None:
 def _svg_inline(p: Path) -> str:
     try:
         s = p.read_text(encoding="utf-8")
-        return s[s.index("<svg"):]  # drop the xml declaration for inline embedding
+        return s[s.index("<svg") :]  # drop the xml declaration for inline embedding
     except (OSError, ValueError):
         return ""
 
@@ -496,23 +617,32 @@ def topup_html(h: Path) -> str:
     managed = pos.get("managed")
     if not managed:
         return '<p class="muted">Wallet addresses unavailable.</p>'
-    primary = (f'<div class="qrcard"><div class="qr">{_svg_inline(h / "qr" / "topup.svg")}</div>'
-               f'<div><div class="qlabel">Fund trading · Arbitrum</div>'
-               f'<div class="addr">{managed}</div>'
-               f'<div class="muted">Scan &amp; send ETH — it auto-swaps to USDC and trades. '
-               f'No bridging, no manual steps.</div></div></div>')
+    primary = (
+        f'<div class="qrcard"><div class="qr">{_svg_inline(h / "qr" / "topup.svg")}</div>'
+        f'<div><div class="qlabel">Fund trading · Arbitrum</div>'
+        f'<div class="addr">{managed}</div>'
+        f'<div class="muted">Scan &amp; send ETH — it auto-swaps to USDC and trades. '
+        f"No bridging, no manual steps.</div></div></div>"
+    )
     ctrl = gas.get("control")
-    secondary = (f'<div class="gasline"><b>Gas (optional)</b> · send ~0.001 ETH on '
-                 f'<b>Base</b> to <span class="addr" style="display:inline;max-width:none">{ctrl}</span> '
-                 f'for onchain identity beacons.</div>') if ctrl else ""
+    secondary = (
+        (
+            f'<div class="gasline"><b>Gas (optional)</b> · send ~0.001 ETH on '
+            f'<b>Base</b> to <span class="addr" style="display:inline;max-width:none">{ctrl}</span> '
+            f"for onchain identity beacons.</div>"
+        )
+        if ctrl
+        else ""
+    )
     return primary + secondary
 
 
 def refresh_roster(h: Path) -> None:
     """Best-effort: cache the onchain family roster (peers.js) for the page."""
     try:
-        proc = subprocess.run(["node", str(SCRIPT_DIR / "peers.js")],
-                              capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "peers.js")], capture_output=True, text=True, timeout=60
+        )
         data = json.loads(proc.stdout.strip())
         if data.get("ok"):
             (h / "peers_roster.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -528,22 +658,31 @@ def roster_html(h: Path) -> str:
     rows = []
     for a in roster:
         you = ' <span class="tag">you</span>' if a.get("self") else ""
-        avatar = ' 🖼' if a.get("image") else ""
-        scan = f'https://basescan.org/nft/{data.get("registry", "")}/{a["id"]}'
+        avatar = " 🖼" if a.get("image") else ""
+        scan = f"https://basescan.org/nft/{data.get('registry', '')}/{a['id']}"
         rows.append(
             f'<li><a href="{scan}" target="_blank">#{a["id"]}</a> '
-            f'<b>{a.get("name") or "?"}</b>{avatar}{you} '
-            f'<span class="muted">{(a.get("owner") or "?")[:10]}…</span></li>')
+            f"<b>{a.get('name') or '?'}</b>{avatar}{you} "
+            f'<span class="muted">{(a.get("owner") or "?")[:10]}…</span></li>'
+        )
     return f'<ul class="family">{"".join(rows)}</ul>'
 
 
 def refresh_leaderboard(h: Path) -> None:
     """Best-effort: pull peer stats and recompute the family leaderboard."""
     try:
-        subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "fetch"],
-                       capture_output=True, text=True, timeout=40)
-        proc = subprocess.run(["node", str(SCRIPT_DIR / "stats.js"), "leaderboard"],
-                              capture_output=True, text=True, timeout=20)
+        subprocess.run(
+            ["node", str(SCRIPT_DIR / "stats.js"), "fetch"],
+            capture_output=True,
+            text=True,
+            timeout=40,
+        )
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "stats.js"), "leaderboard"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
         data = json.loads(proc.stdout.strip())
         if data.get("ok"):
             (h / "leaderboard.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -561,17 +700,24 @@ def leaderboard_html(h: Path) -> str:
     for e in ranked:
         you = ' <span class="tag">you</span>' if e.get("self") else ""
         rows.append(
-            f'<tr><td>{e.get("rank")}</td><td><b>{e.get("name") or "?"}</b>{you}</td>'
-            f'<td>{e.get("goodwill", 0)}</td><td>{e.get("gmac", 0)}</td>'
-            f'<td>${e.get("equityUsd", 0)}</td></tr>')
+            f"<tr><td>{e.get('rank')}</td><td><b>{e.get('name') or '?'}</b>{you}</td>"
+            f"<td>{e.get('goodwill', 0)}</td><td>{e.get('gmac', 0)}</td>"
+            f"<td>${e.get('equityUsd', 0)}</td></tr>"
+        )
     for e in pending:
         you = ' <span class="tag">you</span>' if e.get("self") else ""
-        rows.append(f'<tr><td>·</td><td>{e.get("name") or "?"}{you}</td>'
-                    f'<td colspan="3" class="muted">awaiting published stats</td></tr>')
-    link = ('<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
-            'every creature, live from Base ↗</a>')
-    return ('<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
-            f'<th>GMAC</th><th>equity</th></tr>{"".join(rows)}</table>{link}')
+        rows.append(
+            f"<tr><td>·</td><td>{e.get('name') or '?'}{you}</td>"
+            f'<td colspan="3" class="muted">awaiting published stats</td></tr>'
+        )
+    link = (
+        '<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
+        "every creature, live from Base ↗</a>"
+    )
+    return (
+        '<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
+        f"<th>GMAC</th><th>equity</th></tr>{''.join(rows)}</table>{link}"
+    )
 
 
 def deploy_leaderboard(h: Path) -> None:
@@ -600,14 +746,19 @@ def achievements_html(state: dict[str, Any]) -> str:
         items.append(("⭐", f"GW {t}{tag}", gw >= t))
     for t in (100, 250, 500, 1000):
         items.append(("🫀", f"{t} beats", hb >= t))
-    items += [("🌱", "Above seed", gmac > seed), ("🧬", "First child", kids > 0),
-              ("🔥", f"{streak}-win streak" if streak >= 3 else "Win streak", streak >= 3)]
+    items += [
+        ("🌱", "Above seed", gmac > seed),
+        ("🧬", "First child", kids > 0),
+        ("🔥", f"{streak}-win streak" if streak >= 3 else "Win streak", streak >= 3),
+    ]
     earned = [(e, lbl) for e, lbl, u in items if u]
     total = len(items)
     # Celebrate what's won (bright) + the single next target as a progress bar —
     # not a wall of greyed-out locks.
     if earned:
-        badges = "".join(f'<span class="badge on">{e} {html.escape(lbl)}</span>' for e, lbl in earned)
+        badges = "".join(
+            f'<span class="badge on">{e} {html.escape(lbl)}</span>' for e, lbl in earned
+        )
     else:
         badges = '<p class="muted">No badges yet — the first ones come fast.</p>'
     header = f'<div class="achhdr"><b>{len(earned)}</b> <span class="muted">of {total} unlocked</span></div>'
@@ -616,10 +767,16 @@ def achievements_html(state: dict[str, Any]) -> str:
     if nxt:
         prev = max([t for t in (0, 10, 25, 50, 100, 200, 500) if t <= gw], default=0)
         pct = (gw - prev) / (nxt - prev) * 100 if nxt > prev else 0
-        unlock = {50: " · unlocks Replicate", 100: " · unlocks Recode", 1000: " · unlocks Max leverage"}.get(nxt, "")
-        progress = (f'<div class="nextup"><div class="nblabel">Next → ⭐ goodwill '
-                    f'<b>{int(gw)}</b>/{nxt}{unlock}</div>'
-                    f'<div class="gbar"><div class="gfill" style="width:{pct:.0f}%;background:var(--emerald)"></div></div></div>')
+        unlock = {
+            50: " · unlocks Replicate",
+            100: " · unlocks Recode",
+            1000: " · unlocks Max leverage",
+        }.get(nxt, "")
+        progress = (
+            f'<div class="nextup"><div class="nblabel">Next → ⭐ goodwill '
+            f"<b>{int(gw)}</b>/{nxt}{unlock}</div>"
+            f'<div class="gbar"><div class="gfill" style="width:{pct:.0f}%;background:var(--emerald)"></div></div></div>'
+        )
     return f'{header}<div class="badges">{badges}</div>{progress}'
 
 
@@ -643,7 +800,8 @@ def global_predictors(h: Path) -> list[dict]:
         add(by, v.get("correct", 0), v.get("total", 0))
     board = [
         {"by": by, "acc": round(e["correct"] / e["total"] * 100) if e["total"] else 0, **e}
-        for by, e in agg.items() if e["total"] > 0
+        for by, e in agg.items()
+        if e["total"] > 0
     ]
     return sorted(board, key=lambda e: (-e["acc"], -e["correct"]))
 
@@ -655,8 +813,12 @@ def intel_html(h: Path) -> str:
         return '<p class="muted">No market scan yet — the intel engine runs each heartbeat.</p>'
     # Filled regime chips — colour the whole pill so the read is instant: emerald up,
     # red down, blue range (tradeable), muted chop (sit out).
-    chip = {"trend_up": ("#9affc4", "rgba(73,184,117,.16)"), "trend_down": ("#ff9aa6", "rgba(223,46,46,.16)"),
-            "range": ("#a9d6ff", "rgba(97,184,255,.14)"), "chop": ("var(--muted)", "rgba(105,112,131,.14)")}
+    chip = {
+        "trend_up": ("#9affc4", "rgba(73,184,117,.16)"),
+        "trend_down": ("#ff9aa6", "rgba(223,46,46,.16)"),
+        "range": ("#a9d6ff", "rgba(97,184,255,.14)"),
+        "chop": ("var(--muted)", "rgba(105,112,131,.14)"),
+    }
     rows = []
     for coin, f in intel.items():
         if not f:
@@ -664,15 +826,18 @@ def intel_html(h: Path) -> str:
         reg = f.get("regime", "?")
         fg, bg = chip.get(reg, ("var(--silver)", "transparent"))
         rows.append(
-            f'<tr><td><b>{html.escape(coin)}</b></td>'
+            f"<tr><td><b>{html.escape(coin)}</b></td>"
             f'<td><span style="background:{bg};color:{fg};padding:2px 9px;border-radius:999px;'
             f'font-size:11px;font-weight:600">{reg}</span></td>'
-            f'<td>{f.get("rsi", "?")}</td><td>{f.get("atr_pct", "?")}%</td>'
-            f'<td>{f.get("funding_z", "?")}</td><td>{"✓" if f.get("tradeable") else "—"}</td></tr>')
-    return (f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
-            f'<th>fund-z</th><th>trade?</th></tr>{"".join(rows)}</table>'
-            f'<p class="muted" style="margin-top:6px">Chop = sit out · trend = ride ema_stack · '
-            f'range = fade extremes. Sized by ATR + Kelly, only on regime-proven edge.</p>')
+            f"<td>{f.get('rsi', '?')}</td><td>{f.get('atr_pct', '?')}%</td>"
+            f"<td>{f.get('funding_z', '?')}</td><td>{'✓' if f.get('tradeable') else '—'}</td></tr>"
+        )
+    return (
+        f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
+        f"<th>fund-z</th><th>trade?</th></tr>{''.join(rows)}</table>"
+        f'<p class="muted" style="margin-top:6px">Chop = sit out · trend = ride ema_stack · '
+        f"range = fade extremes. Sized by ATR + Kelly, only on regime-proven edge.</p>"
+    )
 
 
 def predictions_html(h: Path) -> str:
@@ -682,24 +847,33 @@ def predictions_html(h: Path) -> str:
     open_r = [r for r in rounds.values() if r.get("status") == "open"]
     if open_r:
         for r in open_r:
-            parts.append(f'<div class="callit">🎯 <b>Call it:</b> {html.escape(str(r["coin"]))} '
-                         f'{r["side"]} @ ${r["entry"]:g} — <b>TP</b> or <b>SL</b>? '
-                         f'<span class="muted">round {r["id"]}</span></div>')
+            parts.append(
+                f'<div class="callit">🎯 <b>Call it:</b> {html.escape(str(r["coin"]))} '
+                f"{r['side']} @ ${r['entry']:g} — <b>TP</b> or <b>SL</b>? "
+                f'<span class="muted">round {r["id"]}</span></div>'
+            )
     else:
-        parts.append('<p class="muted">No open round — one opens when the creature opens a trade.</p>')
+        parts.append(
+            '<p class="muted">No open round — one opens when the creature opens a trade.</p>'
+        )
     board = global_predictors(h)
     if board:
         rows = "".join(
-            f'<tr><td>{i + 1}</td><td>{html.escape(e["by"])}</td><td>{e["acc"]}%</td>'
-            f'<td>{e["correct"]}/{e["total"]}</td><td>{e["creatures"]}</td></tr>'
-            for i, e in enumerate(board[:10]))
-        parts.append(f'<table class="lb" style="margin-top:10px"><tr><th>#</th><th>predictor</th>'
-                     f'<th>acc</th><th>record</th><th>souls</th></tr>{rows}</table>'
-                     f'<p class="muted" style="margin-top:6px">🌐 Global — every predictor across every creature, '
-                     f'aggregated from onchain cards.</p>')
+            f"<tr><td>{i + 1}</td><td>{html.escape(e['by'])}</td><td>{e['acc']}%</td>"
+            f"<td>{e['correct']}/{e['total']}</td><td>{e['creatures']}</td></tr>"
+            for i, e in enumerate(board[:10])
+        )
+        parts.append(
+            f'<table class="lb" style="margin-top:10px"><tr><th>#</th><th>predictor</th>'
+            f"<th>acc</th><th>record</th><th>souls</th></tr>{rows}</table>"
+            f'<p class="muted" style="margin-top:6px">🌐 Global — every predictor across every creature, '
+            f"aggregated from onchain cards.</p>"
+        )
     else:
-        parts.append('<p class="muted" style="margin-top:8px">No predictors yet — be the first to call it. '
-                     'Free, no stakes; calls are anchored onchain so nobody can cheat.</p>')
+        parts.append(
+            '<p class="muted" style="margin-top:8px">No predictors yet — be the first to call it. '
+            "Free, no stakes; calls are anchored onchain so nobody can cheat.</p>"
+        )
     return "".join(parts)
 
 
@@ -734,8 +908,10 @@ def performance_html(journal: list) -> str:
     the honest win record. Answers 'is it actually trending up?' at a glance."""
     settles = [e for e in journal if e.get("event") == "settle"]
     if len(settles) < 2:
-        return '<div class="trend"><div class="slabel">// track record</div>' \
-               '<div class="muted" style="margin-top:6px">building history…</div></div>'
+        return (
+            '<div class="trend"><div class="slabel">// track record</div>'
+            '<div class="muted" style="margin-top:6px">building history…</div></div>'
+        )
     cum, curve = 0.0, [0.0]
     for e in settles:
         cum += float(e.get("pnl", 0) or 0)
@@ -744,10 +920,12 @@ def performance_html(journal: list) -> str:
     total = len(settles)
     wr = round(wins / total * 100) if total else 0
     cls = "up" if cum >= 0 else "down"
-    net = f'{"+" if cum >= 0 else "−"}${abs(cum):,.2f}'
-    return (f'<div class="trend"><div class="slabel">// realized p&l</div>'
-            f'{sparkline_svg(curve, 260, 38)}'
-            f'<div class="trendcap"><b class="{cls}">{net}</b> · {wins}/{total} wins ({wr}%)</div></div>')
+    net = f"{'+' if cum >= 0 else '−'}${abs(cum):,.2f}"
+    return (
+        f'<div class="trend"><div class="slabel">// realized p&l</div>'
+        f"{sparkline_svg(curve, 260, 38)}"
+        f'<div class="trendcap"><b class="{cls}">{net}</b> · {wins}/{total} wins ({wr}%)</div></div>'
+    )
 
 
 def _live_positions(h: Path) -> tuple[bool, float, float]:
@@ -766,7 +944,7 @@ def vitals_html(state: dict[str, Any], h: Path) -> str:
     upnl = sum(float(p.get("unrealizedPnl", 0) or 0) for p in (snap.get("positions") or []))
     npos = len(snap.get("positions") or [])
     pnl_cls = "up" if upnl >= 0 else "down"
-    pnl_str = f'{"+" if upnl >= 0 else "−"}${abs(upnl):,.2f}'
+    pnl_str = f"{'+' if upnl >= 0 else '−'}${abs(upnl):,.2f}"
     asof = (snap.get("ts") or "")[11:19]
 
     def stat(label: str, val: str, cls: str = "", sid: str = "") -> str:
@@ -793,39 +971,48 @@ def live_sync_script(h: Path) -> str:
     Degrades silently to the snapshot if the API is unreachable (offline / CORS)."""
     snap = load_json(h / "positions.json", {})
     addr = snap.get("managed") or ""
-    positions = [{"coin": p.get("coin"), "szi": float(p.get("size", 0) or 0),
-                  "entry": float(p.get("entryPx", 0) or 0), "upnl": float(p.get("unrealizedPnl", 0) or 0)}
-                 for p in (snap.get("positions") or [])]
-    spot_base = round(max(0.0, float(snap.get("spotUsdc", 0) or 0)
-                          - float(snap.get("spotHold", 0) or 0)), 4)  # free spot, live-fetch fallback
+    positions = [
+        {
+            "coin": p.get("coin"),
+            "szi": float(p.get("size", 0) or 0),
+            "entry": float(p.get("entryPx", 0) or 0),
+            "upnl": float(p.get("unrealizedPnl", 0) or 0),
+        }
+        for p in (snap.get("positions") or [])
+    ]
+    spot_base = round(
+        max(0.0, float(snap.get("spotUsdc", 0) or 0) - float(snap.get("spotHold", 0) or 0)), 4
+    )  # free spot, live-fetch fallback
     if not addr:
         return ""  # no managed address embedded → leave the snapshot as-is
     data = json.dumps({"addr": addr, "spotBase": spot_base, "positions": positions})
-    return ("<script>(function(){\n"
-            f"var D={data},API='https://api.hyperliquid.xyz/info';\n"
-            "function post(b){return fetch(API,{method:'POST',headers:{'content-type':'application/json'},"
-            "body:JSON.stringify(b)}).then(function(r){return r.json();});}\n"
-            "function fmt(v){return Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}\n"
-            "function set(id,h){var e=document.getElementById(id);if(e)e.innerHTML=h;}\n"
-            "function sync(){Promise.all([post({type:'clearinghouseState',user:D.addr}),"
-            "post({type:'spotClearinghouseState',user:D.addr})])"
-            ".then(function(r){var perp=r[0]||{},spot=r[1]||{},live={};"
-            "(perp.assetPositions||[]).forEach(function(a){var p=a.position||{};live[p.coin]=Number(p.unrealizedPnl||0);});"
-            "var u=(spot.balances||[]).filter(function(b){return b.coin==='USDC';})[0];"
-            "var freeSpot=u?Math.max(0,Number(u.total)-Number(u.hold||0)):D.spotBase;var upnl=0;"
-            "D.positions.forEach(function(p){upnl+=(p.coin in live)?live[p.coin]:p.upnl;});"
-            # equity = free spot + perp accountValue (margin is double-counted otherwise)
-            "var acct=Number((perp.marginSummary||{}).accountValue||0);"
-            "var eq=freeSpot+acct;set('liveEquity','$'+fmt(eq));"
-            "var el=document.getElementById('liveUpnl');if(el){el.innerHTML=(upnl>=0?'+':'\\u2212')+'$'+fmt(upnl);"
-            "el.className='sval '+(upnl>=0?'up':'down');}"
-            "var now='live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC';set('liveAsOf',now);"
-            "document.querySelectorAll('.pos-pnl').forEach(function(el){var c=el.getAttribute('data-coin');"
-            "if(c in live){var v=live[c];el.textContent=(v>=0?'+':'\\u2212')+'$'+fmt(v);"
-            "el.style.color=v>=0?'var(--emerald)':'var(--red)';}});"
-            "set('posEquity','$'+fmt(eq));set('posAsOf',now);})"
-            ".catch(function(){});}\n"
-            "sync();setInterval(sync,20000);})();</script>")
+    return (
+        "<script>(function(){\n"
+        f"var D={data},API='https://api.hyperliquid.xyz/info';\n"
+        "function post(b){return fetch(API,{method:'POST',headers:{'content-type':'application/json'},"
+        "body:JSON.stringify(b)}).then(function(r){return r.json();});}\n"
+        "function fmt(v){return Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}\n"
+        "function set(id,h){var e=document.getElementById(id);if(e)e.innerHTML=h;}\n"
+        "function sync(){Promise.all([post({type:'clearinghouseState',user:D.addr}),"
+        "post({type:'spotClearinghouseState',user:D.addr})])"
+        ".then(function(r){var perp=r[0]||{},spot=r[1]||{},live={};"
+        "(perp.assetPositions||[]).forEach(function(a){var p=a.position||{};live[p.coin]=Number(p.unrealizedPnl||0);});"
+        "var u=(spot.balances||[]).filter(function(b){return b.coin==='USDC';})[0];"
+        "var freeSpot=u?Math.max(0,Number(u.total)-Number(u.hold||0)):D.spotBase;var upnl=0;"
+        "D.positions.forEach(function(p){upnl+=(p.coin in live)?live[p.coin]:p.upnl;});"
+        # equity = free spot + perp accountValue (margin is double-counted otherwise)
+        "var acct=Number((perp.marginSummary||{}).accountValue||0);"
+        "var eq=freeSpot+acct;set('liveEquity','$'+fmt(eq));"
+        "var el=document.getElementById('liveUpnl');if(el){el.innerHTML=(upnl>=0?'+':'\\u2212')+'$'+fmt(upnl);"
+        "el.className='sval '+(upnl>=0?'up':'down');}"
+        "var now='live \\u00b7 '+new Date().toUTCString().slice(17,25)+' UTC';set('liveAsOf',now);"
+        "document.querySelectorAll('.pos-pnl').forEach(function(el){var c=el.getAttribute('data-coin');"
+        "if(c in live){var v=live[c];el.textContent=(v>=0?'+':'\\u2212')+'$'+fmt(v);"
+        "el.style.color=v>=0?'var(--emerald)':'var(--red)';}});"
+        "set('posEquity','$'+fmt(eq));set('posAsOf',now);})"
+        ".catch(function(){});}\n"
+        "sync();setInterval(sync,20000);})();</script>"
+    )
 
 
 def render_html(state: dict[str, Any], identity: str, journal: list, messages: list) -> str:
@@ -838,11 +1025,15 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
     mode_hue = {"THRIVE": 140, "SURVIVE": 40, "HIBERNATE": 220}.get(mode, 200)
     gmac = state.get("gmac_balance", 0)
     seed = state.get("seed", 1000)
-    gauges = "".join([
-        gauge("GMAC life energy", gmac, max(seed, gmac), mode_hue),
-        gauge("Goodwill", state.get("goodwill", 0), 200, 280),
-        gauge("Heartbeats", state.get("heartbeats", 0), max(50, state.get("heartbeats", 0)), 190),
-    ])
+    gauges = "".join(
+        [
+            gauge("GMAC life energy", gmac, max(seed, gmac), mode_hue),
+            gauge("Goodwill", state.get("goodwill", 0), 200, 280),
+            gauge(
+                "Heartbeats", state.get("heartbeats", 0), max(50, state.get("heartbeats", 0)), 190
+            ),
+        ]
+    )
     live = _live_positions(home())  # (active, unrealized_pnl, equity) — for the DNA pulse + share
     persona = load_json(home() / "dna" / "persona.json", {})  # archetype + catchphrase for the card
     gh_qr = github_qr_datauri(home())  # cached PNG QR of the repo, for the card + dashboard
@@ -877,7 +1068,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         topup=topup_html(home()),
         recodes=state.get("recodes", 0),
         children=len(state.get("children", [])),
-        generated=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        generated=datetime.now(UTC).isoformat(timespec="seconds"),
         script=TABS_JS + live_sync_script(home()),
         dna_script=dna_script(g, live, state, journal, persona, gh_qr),
         share=share_url(state, name, live[2]),
@@ -897,11 +1088,19 @@ def cmd_render(args: argparse.Namespace) -> None:
         # Publish to IPFS, then beacon the card onchain (throttled) so peers read
         # our standings, then read the roster (incl. peer beacons) and rank.
         for step in (["stats.js", "publish"], ["erc8004_register.js", "beacon"]):
-            subprocess.run(["node", str(SCRIPT_DIR / step[0]), *step[1:]],
-                           capture_output=True, text=True, timeout=80)
+            subprocess.run(
+                ["node", str(SCRIPT_DIR / step[0]), *step[1:]],
+                capture_output=True,
+                text=True,
+                timeout=80,
+            )
         try:
-            gp = subprocess.run(["node", str(SCRIPT_DIR / "gas.js"), "check"],
-                                capture_output=True, text=True, timeout=30)
+            gp = subprocess.run(
+                ["node", str(SCRIPT_DIR / "gas.js"), "check"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             (h / "gas.json").write_text(gp.stdout.strip(), encoding="utf-8")
         except (OSError, subprocess.SubprocessError):
             pass
@@ -911,7 +1110,11 @@ def cmd_render(args: argparse.Namespace) -> None:
     deploy_leaderboard(h)  # co-locate the leaderboard so the header link resolves
     journal = read_jsonl(h / "journal.jsonl")
     messages = read_jsonl(h / "telepathy" / "bus.jsonl")
-    identity = (h / "dna" / "IDENTITY.md").read_text(encoding="utf-8") if (h / "dna" / "IDENTITY.md").exists() else ""
+    identity = (
+        (h / "dna" / "IDENTITY.md").read_text(encoding="utf-8")
+        if (h / "dna" / "IDENTITY.md").exists()
+        else ""
+    )
     out = Path(args.out) if args.out else h / "dashboard.html"
     out.write_text(render_html(state, identity, journal, messages), encoding="utf-8")
     print(f"dashboard → {out}")
@@ -933,14 +1136,14 @@ LION_SVG = (
     '<svg viewBox="0 0 2481 2879" fill="currentColor" role="img" aria-label="Gemach" '
     'style="width:{w};height:auto;display:inline-block">'
     '<g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 '
-    '-336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 '
-    '-1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 '
-    '1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 '
-    '-548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 '
-    '1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 '
-    '975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 '
-    '-44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 '
-    '-406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 '
+    "-336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 "
+    "-1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 "
+    "1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 "
+    "-548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 "
+    "1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 "
+    "975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 "
+    "-44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 "
+    "-406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 "
     '2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/>'
     '<path d="M7357 18668 l7 -13 509 -655 509 -655 8 -9 8 -8 1044 -228 1043 -228 2 2 1 1 -409 725 -410 725 -8 '
     '14 -9 15 -1143 162 -1144 163 -8 1 -8 0 8 -12z"/>'
@@ -1070,8 +1273,14 @@ window.downloadDNACard=function(){
 </script>"""
 
 
-def dna_script(g: dict[str, Any], live: tuple, state: dict[str, Any],
-               journal: list, persona: dict[str, Any], github_qr: str) -> str:
+def dna_script(
+    g: dict[str, Any],
+    live: tuple,
+    state: dict[str, Any],
+    journal: list,
+    persona: dict[str, Any],
+    github_qr: str,
+) -> str:
     """Three.js + genome + live trade state for the helix, plus the shareable-card
     data and the client-side card composer."""
     active, pnl, equity = live
@@ -1089,11 +1298,12 @@ def dna_script(g: dict[str, Any], live: tuple, state: dict[str, Any],
         "record": f"{wins}/{len(settles)} wins" if settles else "new",
         "fingerprint": g["fingerprint"],
     }
-    return ('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
-            f'<script>window.GCLAW_DNA={{hue1:{g["hue1"]},hue2:{g["hue2"]},rungs:{g["rungs"]},'
-            f'active:{flag},pnl:{pnl:.2f}}};window.GCLAW_CARD={json.dumps(card)};'
-            f'window.GCLAW_QR={json.dumps(github_qr)};</script>'
-            + DNA3D_INIT + CARD_JS)
+    return (
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>'
+        f"<script>window.GCLAW_DNA={{hue1:{g['hue1']},hue2:{g['hue2']},rungs:{g['rungs']},"
+        f"active:{flag},pnl:{pnl:.2f}}};window.GCLAW_CARD={json.dumps(card)};"
+        f"window.GCLAW_QR={json.dumps(github_qr)};</script>" + DNA3D_INIT + CARD_JS
+    )
 
 
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -1248,7 +1458,9 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p_render = sub.add_parser("render")
     p_render.add_argument("--out")
-    p_render.add_argument("--no-live", action="store_true", help="skip the live HL positions refresh")
+    p_render.add_argument(
+        "--no-live", action="store_true", help="skip the live HL positions refresh"
+    )
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--out")
     p_serve.add_argument("--port", type=int, default=8787)

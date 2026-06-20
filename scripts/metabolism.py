@@ -26,7 +26,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,16 +67,14 @@ def journal_path() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def load_state() -> dict[str, Any]:
     """Load metabolism state, failing fast if the agent was never born."""
     path = state_path()
     if not path.exists():
-        sys.exit(
-            f"No metabolism state at {path}. Run `metabolism.py init` to birth the agent."
-        )
+        sys.exit(f"No metabolism state at {path}. Run `metabolism.py init` to birth the agent.")
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
 
@@ -243,8 +241,10 @@ def _arsenal_lines() -> list[str]:
     adopted = style.get("adopted", [])
     if not adopted:
         return []
-    caps = (f"conviction cap {style.get('conviction_cap', 0.85):.2f}"
-            f" · risk ×{style.get('risk_mult', 1.0):.2f}")
+    caps = (
+        f"conviction cap {style.get('conviction_cap', 0.85):.2f}"
+        f" · risk ×{style.get('risk_mult', 1.0):.2f}"
+    )
     rows = [f"  {'Arsenal':<12}{len(adopted)} techniques · {caps}"]
     for e in sorted(adopted, key=lambda x: -float(x.get("weight", 1.0) or 1.0))[:6]:
         w = float(e.get("weight", 1.0) or 1.0)
@@ -270,16 +270,29 @@ def render(state: dict[str, Any], as_json: bool) -> str:
 
     lines = [f"  ◇  {name}{subtitle}", rule, row("Mode", state["mode"].upper())]
     if pos:
-        lines.append(row("Equity", f"${float(pos.get('equity', 0) or 0):,.2f}   ·  "
-                         f"{sign}${abs(upnl):,.2f} unrealized · {npos} open"))
+        lines.append(
+            row(
+                "Equity",
+                f"${float(pos.get('equity', 0) or 0):,.2f}   ·  "
+                f"{sign}${abs(upnl):,.2f} unrealized · {npos} open",
+            )
+        )
     lines += [
-        row("Life energy", f"{state['gmac_balance']:.0f} GMAC  ·  seed {state['seed']:.0f}"
-            f" · survive < {state['survival_threshold']:.0f}"),
-        row("Goodwill", f"{state['goodwill']}        ·  {state['heartbeats']} heartbeats"
-            f" · {len(state['children'])} children · {state['recodes']} recodes"),
+        row(
+            "Life energy",
+            f"{state['gmac_balance']:.0f} GMAC  ·  seed {state['seed']:.0f}"
+            f" · survive < {state['survival_threshold']:.0f}",
+        ),
+        row(
+            "Goodwill",
+            f"{state['goodwill']}        ·  {state['heartbeats']} heartbeats"
+            f" · {len(state['children'])} children · {state['recodes']} recodes",
+        ),
     ]
     if state.get("gmac_treasury_usd", 0.0):
-        lines.append(row("Treasury", f"${state['gmac_treasury_usd']:.2f} earmarked for GMAC buy-back"))
+        lines.append(
+            row("Treasury", f"${state['gmac_treasury_usd']:.2f} earmarked for GMAC buy-back")
+        )
     lines += _arsenal_lines()
     if state["mode"] == "hibernate":
         lines += [rule, "  ⚠  Hibernating — life energy depleted. Trading paused; awaiting reseed."]

@@ -33,7 +33,9 @@ def load_json(path: Path, default: Any) -> Any:
 def read_jsonl(path: Path, tail: int) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()][-tail:]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ][-tail:]
 
 
 def persona_for(name: str) -> dict[str, Any]:
@@ -49,7 +51,10 @@ def persona_for(name: str) -> dict[str, Any]:
     if name == "Gclaw":
         born = state.get("born_at", "genesis")
     else:
-        born = next((c.get("born_at", "genesis") for c in state.get("children", []) if c["name"] == name), "genesis")
+        born = next(
+            (c.get("born_at", "genesis") for c in state.get("children", []) if c["name"] == name),
+            "genesis",
+        )
     return persona_mod.persona(name, born)
 
 
@@ -80,7 +85,11 @@ def cmd_sheet(args: argparse.Namespace) -> None:
     p = persona_for(name)
     ls = life_state(name)
     events = read_jsonl(home() / "journal.jsonl", 6)
-    chatter = [m for m in read_jsonl(home() / "telepathy" / "bus.jsonl", 30) if name in (m.get("from"), m.get("to"))][-6:]
+    chatter = [
+        m
+        for m in read_jsonl(home() / "telepathy" / "bus.jsonl", 30)
+        if name in (m.get("from"), m.get("to"))
+    ][-6:]
 
     lines = [
         f"# You ARE {name} — speak only as this creature, never break character.",

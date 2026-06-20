@@ -22,7 +22,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +37,7 @@ def home() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def load_state() -> dict[str, Any]:
@@ -51,7 +51,9 @@ def read_bus() -> list[dict[str, Any]]:
     path = home() / "telepathy" / "bus.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 def require_unlock(state: dict[str, Any]) -> None:
@@ -62,7 +64,9 @@ def require_unlock(state: dict[str, Any]) -> None:
 def classify(msg: str) -> tuple[str | None, str | None]:
     """Heuristically extract (asset, side) from a free-text signal."""
     text = msg.lower()
-    asset = next((a for a in ASSETS if a.lower() in text or (a == "OUTCOME" and "outcome" in text)), None)
+    asset = next(
+        (a for a in ASSETS if a.lower() in text or (a == "OUTCOME" and "outcome" in text)), None
+    )
     side = None
     if any(w in text for w in LONG_WORDS):
         side = "long"
@@ -83,7 +87,8 @@ def aggregate(state: dict[str, Any], recent: int) -> dict[str, Any]:
         if m.get("from") in kids and m.get("type") in ("trade_signal", "market_insight")
     ][-recent:]
     book: dict[str, dict[str, Any]] = {
-        a: {"long": 0, "short": 0, "long_voices": set(), "short_voices": set(), "voices": []} for a in ASSETS
+        a: {"long": 0, "short": 0, "long_voices": set(), "short_voices": set(), "voices": []}
+        for a in ASSETS
     }
     for m in signals:
         asset, side = classify(m.get("msg", ""))
@@ -111,7 +116,9 @@ def aggregate(state: dict[str, Any], recent: int) -> dict[str, Any]:
 
 def cmd_status(state: dict[str, Any]) -> None:
     unlocked = state.get("goodwill", 0) >= SWARM_THRESHOLD
-    print(f"goodwill {state.get('goodwill', 0)} — swarm {'UNLOCKED' if unlocked else 'locked (need 200)'}")
+    print(
+        f"goodwill {state.get('goodwill', 0)} — swarm {'UNLOCKED' if unlocked else 'locked (need 200)'}"
+    )
     children = state.get("children", [])
     if not children:
         print("  no children yet")
@@ -148,7 +155,15 @@ def cmd_assign(state: dict[str, Any], _: argparse.Namespace) -> None:
     bus_dir = home() / "telepathy"
     bus_dir.mkdir(parents=True, exist_ok=True)
     bus_path = bus_dir / "bus.jsonl"
-    base_id = len([line for line in (bus_path.read_text(encoding="utf-8").splitlines() if bus_path.exists() else []) if line.strip()])
+    base_id = len(
+        [
+            line
+            for line in (
+                bus_path.read_text(encoding="utf-8").splitlines() if bus_path.exists() else []
+            )
+            if line.strip()
+        ]
+    )
     lines = []
     for i, child in enumerate(children):
         mandate = ASSETS[i % len(ASSETS)]

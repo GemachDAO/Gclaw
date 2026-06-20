@@ -28,8 +28,12 @@ const path = require('node:path');
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
-const { ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers'));
-const SDK = require(path.join(GDEX_DIR, 'dist'));
+// Loaded lazily inside signedSkill so the module's pure functions can be unit
+// tested without the SDK/ethers (and without ever reaching the network).
+const loadSdk = () => ({
+  ethers: require(path.join(GDEX_DIR, 'node_modules', 'ethers')).ethers,
+  SDK: require(path.join(GDEX_DIR, 'dist')),
+});
 
 const HL_CHAIN_ID = 42161; // sign in on Arbitrum for HyperLiquid
 const MIN_NOTIONAL = 11; // HyperLiquid minimum order value (USD)
@@ -163,6 +167,7 @@ function roundSig(value, sig = 5) {
 }
 
 async function signedSkill(wallet) {
+  const { ethers, SDK } = loadSdk();
   const apiKey = process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY;
   const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
   skill.loginWithApiKey(apiKey);
@@ -182,6 +187,35 @@ async function signedSkill(wallet) {
   return { skill, creds: { apiKey, walletAddress: wallet.control, sessionPrivateKey: kp.sessionPrivateKey } };
 }
 
+// Pure equity assembly — the one place the HL two-wallet equity formula lives.
+// Kept free of any network call so it can be regression-tested against the
+// cross-margin / perp-funded / pure-spot account table (the equity bug we fixed).
+//
+// Equity = FREE spot + perp accountValue. The perp margin is double-represented:
+// it shows as spot `hold` AND inside `accountValue` (margin + unrealized). Adding
+// spot total + accountValue would count it twice; spot total + unrealized drops
+// the whole perp wallet (so a perp-funded account with ~$0 spot reads as ~$0).
+// (total - hold) + accountValue counts each dollar once and works for cross,
+// isolated, perp-funded, and pure-spot accounts alike.
+function computeEquity(full, spot, orders, managed) {
+  const usdc = (spot.balances || []).find((b) => b.coin === 'USDC');
+  const spotTotal = usdc ? Number(usdc.total) : 0;
+  const spotHold = usdc ? Number(usdc.hold) : 0;
+  const buyingPower = Math.max(0, spotTotal - spotHold);
+  return {
+    ok: true,
+    managed,
+    spotUsdc: spotTotal,
+    spotHold,
+    buyingPower,
+    equity: buyingPower + Number(full.accountValue || 0),
+    accountValue: full.accountValue, // perp wallet value (margin + unrealized)
+    withdrawable: full.withdrawable,
+    positions: full.positions, // includes builder-dex (xyz:*) positions
+    openOrders: (orders || []).map((o) => ({ coin: o.coin, px: Number(o.limitPx), sz: Number(o.sz), reduceOnly: !!o.reduceOnly })),
+  };
+}
+
 async function cmdStatus(wallet) {
   const { skill } = await signedSkill(wallet);
   // Resilient: a transient non-JSON response on one read shouldn't fail the whole status.
@@ -193,28 +227,7 @@ async function cmdStatus(wallet) {
   const full = fullR.status === 'fulfilled' ? fullR.value : { accountValue: 0, positions: [], withdrawable: 0 };
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
   const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
-  const usdc = (spot.balances || []).find((b) => b.coin === 'USDC');
-  const spotTotal = usdc ? Number(usdc.total) : 0;
-  const spotHold = usdc ? Number(usdc.hold) : 0;
-  const unrealized = (full.positions || []).reduce((s, p) => s + Number(p.unrealizedPnl || 0), 0);
-  return {
-    ok: true,
-    managed: wallet.managed,
-    // Equity = FREE spot + perp accountValue. The perp margin is double-represented:
-    // it shows as spot `hold` AND inside `accountValue` (margin + unrealized). Adding
-    // spot total + accountValue would count it twice; spot total + unrealized drops
-    // the whole perp wallet (so a perp-funded account with ~$0 spot reads as ~$0).
-    // (total - hold) + accountValue counts each dollar once and works for cross,
-    // isolated, perp-funded, and pure-spot accounts alike.
-    spotUsdc: spotTotal,
-    spotHold,
-    buyingPower: Math.max(0, spotTotal - spotHold),
-    equity: Math.max(0, spotTotal - spotHold) + Number(full.accountValue || 0),
-    accountValue: full.accountValue, // perp wallet value (margin + unrealized)
-    withdrawable: full.withdrawable,
-    positions: full.positions, // includes builder-dex (xyz:*) positions
-    openOrders: (orders || []).map((o) => ({ coin: o.coin, px: Number(o.limitPx), sz: Number(o.sz), reduceOnly: !!o.reduceOnly })),
-  };
+  return computeEquity(full, spot, orders, wallet.managed);
 }
 
 async function cmdOpen(wallet, args) {
@@ -349,7 +362,15 @@ async function main() {
   process.stdout.write(JSON.stringify(result) + '\n');
 }
 
+// Pure functions are exported for unit testing; main() runs only as a CLI.
+module.exports = {
+  computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
+  readStatusCache, writeStatusCache, parseArgs,
+};
+
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
-main()
-  .then(() => process.exit(0))
-  .catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));
+}

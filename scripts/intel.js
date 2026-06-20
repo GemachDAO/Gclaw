@@ -209,4 +209,12 @@ async function main() {
   }
 }
 
-main().catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+// Pure functions are exported for unit testing; main() runs only as a CLI.
+module.exports = {
+  mean, stdev, sma, ema, rsi, atrPct, efficiencyRatio, correlation, returns,
+  classifyRegime, coinIntel, scan,
+};
+
+if (require.main === module) {
+  main().catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+}

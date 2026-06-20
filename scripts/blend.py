@@ -11,6 +11,7 @@ Trait→technique affinity comes from each technique's `affinity` (in technique.
 Vitality sets how many weapons (breadth/survivability), Aggression the risk envelope,
 Fertility the wildcard explorers. Writes the forge style.json the loadout runs from.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,7 @@ import json
 import math
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MIN_TRADES = 12  # a parent technique must clear this sample before it tilts a child's blend
@@ -59,11 +60,15 @@ def creature_traits() -> tuple[dict, str | None]:
         return meta["genome"]["stats"], meta.get("role")
     try:  # derive the root genome the same way the dashboard does
         import sys
+
         sys.path.insert(0, str(SCRIPT_DIR))
         import dashboard
+
         return dashboard.genome("Gclaw", meta.get("born_at", "genesis"))["stats"], meta.get("role")
-    except Exception:  # noqa: BLE001
-        return {t: 60 for t in ("Vitality", "Cunning", "Aggression", "Discipline", "Fertility")}, meta.get("role")
+    except Exception:
+        return {
+            t: 60 for t in ("Vitality", "Cunning", "Aggression", "Discipline", "Fertility")
+        }, meta.get("role")
 
 
 def _crowding(raw: dict, peers: list[set] | None) -> dict:
@@ -78,7 +83,9 @@ def _crowding(raw: dict, peers: list[set] | None) -> dict:
     return raw
 
 
-def birth_blend(traits: dict, role: str | None, peers: list[set] | None = None) -> tuple[list[dict], dict]:
+def birth_blend(
+    traits: dict, role: str | None, peers: list[set] | None = None
+) -> tuple[list[dict], dict]:
     """Genome-weighted technique selection → (blend, caps). ``peers`` (the family's
     current loadouts) applies a crowding penalty so the lineage diversifies."""
     techs = {}
@@ -99,27 +106,43 @@ def birth_blend(traits: dict, role: str | None, peers: list[set] | None = None) 
     n_born = round(2 + 4 * vit)  # Vitality → 2-6 weapons (breadth / survivability)
     ranked = sorted(raw, key=lambda k: raw[k], reverse=True)
     chosen, explorers = ranked[:n_born], []
-    for k in ranked[n_born:][:round(2 * fert)]:  # Fertility → low-weight wildcards
+    for k in ranked[n_born:][: round(2 * fert)]:  # Fertility → low-weight wildcards
         explorers.append(k)
     top = max(raw[k] for k in chosen) if chosen else 1.0
     blend = []
     for k in chosen + explorers:
         w = 0.15 if k in explorers else round(min(1.0, max(0.10, raw[k] / top)), 3)
-        blend.append({"id": k, "coin": techs[k]["coin"], "interval": techs[k].get("interval", "1h"),
-                      "weight": w, "born": True, "explore": k in explorers})
+        blend.append(
+            {
+                "id": k,
+                "coin": techs[k]["coin"],
+                "interval": techs[k].get("interval", "1h"),
+                "weight": w,
+                "born": True,
+                "explore": k in explorers,
+            }
+        )
     dis = _norm(traits.get("Discipline", 60)) * 69 + 25  # back to 25-94 scale for the floors
-    caps = {"conviction_cap": round(0.55 + 0.40 * vit, 3), "risk_mult": round(0.6 + 0.8 * agg, 3),
-            "agree_min": round(0.60 + 0.0020 * (dis - 50), 3), "conv_min": round(0.22 + 0.0024 * (dis - 50), 3)}
+    caps = {
+        "conviction_cap": round(0.55 + 0.40 * vit, 3),
+        "risk_mult": round(0.6 + 0.8 * agg, 3),
+        "agree_min": round(0.60 + 0.0020 * (dis - 50), 3),
+        "conv_min": round(0.22 + 0.0024 * (dis - 50), 3),
+    }
     return blend, caps
 
 
-def inherit_blend(parent_style: dict, traits: dict, role: str | None,
-                  peers: list[set] | None = None) -> tuple[list[dict], dict]:
+def inherit_blend(
+    parent_style: dict, traits: dict, role: str | None, peers: list[set] | None = None
+) -> tuple[list[dict], dict]:
     """A child's born blend: its genome-weighted selection, tilted toward the techniques
     the parent actually made money on (proven winners), so bloodlines compound."""
     blend, caps = birth_blend(traits, role, peers)
-    winners = {e["id"]: float(e.get("e", 0.0)) for e in parent_style.get("adopted", [])
-               if int(e.get("trades", 0)) >= MIN_TRADES and float(e.get("e", 0.0)) > 0}
+    winners = {
+        e["id"]: float(e.get("e", 0.0))
+        for e in parent_style.get("adopted", [])
+        if int(e.get("trades", 0)) >= MIN_TRADES and float(e.get("e", 0.0)) > 0
+    }
     for e in blend:
         edge = winners.get(e["id"])
         if edge:  # memetic inheritance — heavier on what worked for the parent
@@ -128,8 +151,9 @@ def inherit_blend(parent_style: dict, traits: dict, role: str | None,
     return blend, caps
 
 
-def materialize(fdir: Path, blend: list[dict], caps: dict, role: str | None,
-                agent: str | None = None) -> dict:
+def materialize(
+    fdir: Path, blend: list[dict], caps: dict, role: str | None, agent: str | None = None
+) -> dict:
     """Copy the blend's techniques into a forge dir and write its style.json (merging
     with any technique the creature already adopted on its own)."""
     ad = arsenal_dir()
@@ -145,15 +169,25 @@ def materialize(fdir: Path, blend: list[dict], caps: dict, role: str | None,
     except (OSError, ValueError):
         pass
     kept = [e for e in prev.get("adopted", []) if e.get("id") not in arsenal_ids]
-    style = {"agent": agent or prev.get("agent", "gclaw"), "blend_source": "birth",
-             "role": role or "leader", **caps, "adopted": blend + kept,
-             "updated_at": datetime.now(timezone.utc).isoformat()}
+    style = {
+        "agent": agent or prev.get("agent", "gclaw"),
+        "blend_source": "birth",
+        "role": role or "leader",
+        **caps,
+        "adopted": blend + kept,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
     (fdir / "style.json").write_text(json.dumps(style, indent=2) + "\n", encoding="utf-8")
     return {"born_with": [e["id"] for e in blend], "kept_own": [e["id"] for e in kept], **caps}
 
 
-def seed_child(child_home: str, parent_style: dict, traits: dict, role: str | None,
-               peers: list[set] | None = None) -> dict:
+def seed_child(
+    child_home: str,
+    parent_style: dict,
+    traits: dict,
+    role: str | None,
+    peers: list[set] | None = None,
+) -> dict:
     """Born-with-an-arsenal for a freshly bred child: inherit the parent's winners,
     tilt by the child's bred genome, diversify against the family. Called at replicate."""
     blend, caps = inherit_blend(parent_style, traits, role, peers)
@@ -176,8 +210,13 @@ def cmd_install(args: argparse.Namespace) -> dict:
 def cmd_show(args: argparse.Namespace) -> dict:
     traits, role = creature_traits()
     blend, caps = birth_blend(traits, args.role or role)
-    return {"ok": True, "traits": traits, "role": args.role or role or "leader",
-            "blend": blend, **caps}
+    return {
+        "ok": True,
+        "traits": traits,
+        "role": args.role or role or "leader",
+        "blend": blend,
+        **caps,
+    }
 
 
 def main() -> int:

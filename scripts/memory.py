@@ -25,7 +25,7 @@ import argparse
 import json
 import os
 import random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -61,9 +61,17 @@ def _write_atomic(path: Path, data: str) -> None:
 def _write_edges() -> None:
     """Cache the proven-edge table to edges.json for the onchain card + dashboard."""
     cells = summary(None)["table"]
-    edges = [{"t": c["technique"], "r": c["regime"], "e": c["expectancy_r"],
-              "n": c["trades"], "real": c["edge_real"]}
-             for c in cells if c["trades"] >= 3][:12]
+    edges = [
+        {
+            "t": c["technique"],
+            "r": c["regime"],
+            "e": c["expectancy_r"],
+            "n": c["trades"],
+            "real": c["edge_real"],
+        }
+        for c in cells
+        if c["trades"] >= 3
+    ][:12]
     _write_atomic(home() / "edges.json", json.dumps(edges))
 
 
@@ -72,7 +80,7 @@ def record(args: argparse.Namespace) -> dict:
     risk = abs(args.risk) if args.risk else 0.0
     r_multiple = (args.pnl / risk) if risk else 0.0
     row = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "coin": args.coin,
         "technique": args.technique,
         "regime": args.regime,
@@ -107,10 +115,16 @@ def swarm(_args: argparse.Namespace) -> dict:
             continue
         for e in peer.get("edges", []):
             add(e.get("t", "?"), e.get("r", "?"), float(e.get("e", 0)), int(e.get("n", 0)))
-    table = [{"technique": t, "regime": r,
-              "expectancy_r": round(c["wexp"] / c["trades"], 3) if c["trades"] else 0,
-              "trades": c["trades"], "creatures": c["creatures"]}
-             for (t, r), c in cells.items()]
+    table = [
+        {
+            "technique": t,
+            "regime": r,
+            "expectancy_r": round(c["wexp"] / c["trades"], 3) if c["trades"] else 0,
+            "trades": c["trades"],
+            "creatures": c["creatures"],
+        }
+        for (t, r), c in cells.items()
+    ]
     table.sort(key=lambda e: e["expectancy_r"], reverse=True)
     return {"ok": True, "collective": table}
 
@@ -155,9 +169,12 @@ def _stats(rows: list[dict]) -> dict:
 
 
 def _filter(rows: list[dict], technique: str | None, regime: str | None) -> list[dict]:
-    return [r for r in rows
-            if (technique is None or r.get("technique") == technique)
-            and (regime is None or r.get("regime") == regime)]
+    return [
+        r
+        for r in rows
+        if (technique is None or r.get("technique") == technique)
+        and (regime is None or r.get("regime") == regime)
+    ]
 
 
 def expectancy(args: argparse.Namespace) -> dict:
@@ -181,13 +198,20 @@ def summary(_args: argparse.Namespace) -> dict:
     rows = load()
     cells: dict[str, list[dict]] = {}
     for row in rows:
-        cells.setdefault(f'{row["technique"]}|{row.get("regime", "?")}', []).append(row)
+        cells.setdefault(f"{row['technique']}|{row.get('regime', '?')}", []).append(row)
     table = []
     for key, rs in cells.items():
         tech, regime = key.split("|", 1)
         s = _stats(rs)
-        table.append({"technique": tech, "regime": regime, "trades": s["trades"],
-                      "expectancy_r": s["expectancy_r"], "edge_real": s["edge_real"]})
+        table.append(
+            {
+                "technique": tech,
+                "regime": regime,
+                "trades": s["trades"],
+                "expectancy_r": s["expectancy_r"],
+                "edge_real": s["edge_real"],
+            }
+        )
     table.sort(key=lambda e: e["expectancy_r"], reverse=True)
     return {"ok": True, "table": table}
 
@@ -210,8 +234,13 @@ def main() -> int:
     sub.add_parser("summary")
     sub.add_parser("swarm")
     args = p.parse_args()
-    fn = {"record": record, "expectancy": expectancy, "query": query,
-          "summary": summary, "swarm": swarm}[args.command]
+    fn = {
+        "record": record,
+        "expectancy": expectancy,
+        "query": query,
+        "summary": summary,
+        "swarm": swarm,
+    }[args.command]
     print(json.dumps(fn(args), indent=2))
     return 0
 

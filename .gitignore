@@ -5,9 +5,23 @@ state/
 __pycache__/
 *.pyc
 
+# Test + tooling artifacts (generated, never committed).
+node_modules/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+mutants/
+coverage/
+*.tsbuildinfo
+
 # Never commit wallet secrets or private keys.
 wallet.json
 *-wallet.json
 *.key
 .env
 .serena/
+.pytest_cache/
+__pycache__/
+mutants/
+*.pyc

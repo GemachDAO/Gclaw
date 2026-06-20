@@ -19,7 +19,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,7 @@ def gclaw_home() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def load_state() -> dict[str, Any]:
@@ -102,9 +102,7 @@ def announce_birth(name: str, role: str, mutation: str) -> None:
 def cmd_replicate(args: argparse.Namespace) -> None:
     state = load_state()
     if state["goodwill"] < REPLICATE_THRESHOLD:
-        sys.exit(
-            f"Goodwill {state['goodwill']} < {REPLICATE_THRESHOLD}: replication locked."
-        )
+        sys.exit(f"Goodwill {state['goodwill']} < {REPLICATE_THRESHOLD}: replication locked.")
     if len(state["children"]) >= MAX_CHILDREN:
         sys.exit(f"Child cap reached ({MAX_CHILDREN}). Cannot replicate further.")
 
@@ -130,12 +128,24 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     child_genome = breed_child(state, name, args.role)
     blend = seed_child_arsenal(child_dir, state, child_genome, args.role)
     state["children"].append(
-        {"name": name, "born_at": born, "role": args.role, "mutation": args.mutation,
-         "genome": child_genome, "blend": blend.get("born_with") if blend else None}
+        {
+            "name": name,
+            "born_at": born,
+            "role": args.role,
+            "mutation": args.mutation,
+            "genome": child_genome,
+            "blend": blend.get("born_with") if blend else None,
+        }
     )
     save_state(state)
     append_journal(
-        {"ts": born, "event": "replicate", "child": name, "role": args.role, "mutation": args.mutation}
+        {
+            "ts": born,
+            "event": "replicate",
+            "child": name,
+            "role": args.role,
+            "mutation": args.mutation,
+        }
     )
     soul = give_soul(child_dir, name, born)
     announce_birth(name, args.role, args.mutation)
@@ -151,9 +161,10 @@ def breed_child(state: dict[str, Any], name: str, role: str) -> dict[str, Any] |
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import dashboard
+
         parent_g = state.get("genome") or dashboard.genome("Gclaw", state.get("born_at", "genesis"))
         return dashboard.breed(parent_g, name, role, state.get("goodwill", 50))
-    except Exception:  # noqa: BLE001 — heredity is a nicety, never block a birth
+    except Exception:
         return None
 
 
@@ -171,17 +182,21 @@ def _family_loadouts(state: dict[str, Any]) -> list[set]:
     return rosters
 
 
-def seed_child_arsenal(child_dir: Path, state: dict[str, Any], child_genome: dict[str, Any] | None,
-                       role: str) -> dict[str, Any] | None:
+def seed_child_arsenal(
+    child_dir: Path, state: dict[str, Any], child_genome: dict[str, Any] | None, role: str
+) -> dict[str, Any] | None:
     """Born with an arsenal: inherit the parent's proven winners, tilt by the child's
     bred genome, diversify against the family. Best-effort; never blocks a birth."""
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import blend
-        parent_style = json.loads((gclaw_home() / "forge" / "style.json").read_text(encoding="utf-8"))
+
+        parent_style = json.loads(
+            (gclaw_home() / "forge" / "style.json").read_text(encoding="utf-8")
+        )
         traits = (child_genome or {}).get("stats") or {}
         return blend.seed_child(str(child_dir), parent_style, traits, role, _family_loadouts(state))
-    except Exception:  # noqa: BLE001 — the arsenal is a nicety, never block a birth
+    except Exception:
         return None
 
 
@@ -191,17 +206,15 @@ def give_soul(child_dir, name: str, born: str) -> str:
         import persona
 
         p = persona.write_persona(child_dir, name, born)
-        return f"{p['archetype']}, {p['voice']} — \"{p['catchphrase']}\""
-    except Exception as exc:  # noqa: BLE001 — soul is a nicety, never block a birth
+        return f'{p["archetype"]}, {p["voice"]} — "{p["catchphrase"]}"'
+    except Exception as exc:
         return f"(persona unavailable: {exc})"
 
 
 def cmd_recode(args: argparse.Namespace) -> None:
     state = load_state()
     if state["goodwill"] < RECODE_THRESHOLD:
-        sys.exit(
-            f"Goodwill {state['goodwill']} < {RECODE_THRESHOLD}: self-recoding locked."
-        )
+        sys.exit(f"Goodwill {state['goodwill']} < {RECODE_THRESHOLD}: self-recoding locked.")
     state["recodes"] += 1
     save_state(state)
     append_journal(

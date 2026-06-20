@@ -23,7 +23,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +31,24 @@ PREFIX = ["Vor", "Kryo", "Zeph", "Mor", "Lyx", "Quel", "Ras", "Thi", "Nyx", "Obo
 SUFFIX = ["dax", "mire", "lith", "phar", "gax", "ven", "tide", "korn", "ses", "wraith"]
 TRAITS = ["Vitality", "Cunning", "Aggression", "Discipline", "Fertility"]
 ARCHETYPES = [
-    "The Gambler", "The Sage", "The Hustler", "The Stoic",
-    "The Trickster", "The Guardian", "The Visionary", "The Survivor",
+    "The Gambler",
+    "The Sage",
+    "The Hustler",
+    "The Stoic",
+    "The Trickster",
+    "The Guardian",
+    "The Visionary",
+    "The Survivor",
 ]
 VOICES = [
-    "terse and dry", "warm and chatty", "cryptic and poetic", "brash and loud",
-    "calm and philosophical", "anxious and over-caffeinated", "regal and theatrical", "deadpan and sarcastic",
+    "terse and dry",
+    "warm and chatty",
+    "cryptic and poetic",
+    "brash and loud",
+    "calm and philosophical",
+    "anxious and over-caffeinated",
+    "regal and theatrical",
+    "deadpan and sarcastic",
 ]
 QUIRKS = [
     "talk about every trade like a war story",
@@ -55,7 +67,7 @@ def home() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def genome(name: str, born_at: str) -> dict[str, Any]:
@@ -117,17 +129,17 @@ def persona(name: str, born_at: str) -> dict[str, Any]:
 
 def soul_md(p: dict[str, Any]) -> str:
     traits = "  \n".join(f"- {k}: {v}" for k, v in p["traits"].items())
-    return f"""# Soul — {p['name']}
+    return f"""# Soul — {p["name"]}
 
-*{p['species']} · {p['archetype']} · genome {p['fingerprint']}*
+*{p["species"]} · {p["archetype"]} · genome {p["fingerprint"]}*
 
-> "{p['catchphrase']}"
+> "{p["catchphrase"]}"
 
-I am **{p['name']}**, a living trading agent. I must trade to survive — but I am
-also someone. I am **{p['archetype'].lower()}**: {', '.join(p['temperament'])}.
+I am **{p["name"]}**, a living trading agent. I must trade to survive — but I am
+also someone. I am **{p["archetype"].lower()}**: {", ".join(p["temperament"])}.
 
 ## How I speak
-My voice is {p['voice']}. I {p['quirk']}.
+My voice is {p["voice"]}. I {p["quirk"]}.
 
 ## What moves me
 - My GMAC balance is my heartbeat; when it falls I feel it.
@@ -168,13 +180,13 @@ def creature_born_at(name: str, is_child: bool) -> str:
 def cmd_for_genesis(_: argparse.Namespace) -> None:
     born = creature_born_at("Gclaw", is_child=False)
     p = write_persona(home() / "dna", "Gclaw", born)
-    print(f"Genesis soul: {p['name']} — {p['archetype']}, {p['voice']}. \"{p['catchphrase']}\"")
+    print(f'Genesis soul: {p["name"]} — {p["archetype"]}, {p["voice"]}. "{p["catchphrase"]}"')
 
 
 def cmd_for_child(args: argparse.Namespace) -> None:
     born = creature_born_at(args.name, is_child=True)
     p = write_persona(home() / "children" / args.name, args.name, born)
-    print(f"Child soul: {p['name']} — {p['archetype']}, {p['voice']}. \"{p['catchphrase']}\"")
+    print(f'Child soul: {p["name"]} — {p["archetype"]}, {p["voice"]}. "{p["catchphrase"]}"')
 
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -254,7 +266,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
-    handlers = {"for-genesis": cmd_for_genesis, "for-child": cmd_for_child, "show": cmd_show, "card": cmd_card}
+    handlers = {
+        "for-genesis": cmd_for_genesis,
+        "for-child": cmd_for_child,
+        "show": cmd_show,
+        "card": cmd_card,
+    }
     handlers[args.command](args)
     return 0
 

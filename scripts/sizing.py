@@ -25,7 +25,7 @@ import json
 MIN_NOTIONAL = 11.0
 BASE_RISK_PCT = 0.005  # risk 0.5% of equity per trade at full Kelly confidence
 KELLY_FRACTION = 0.25  # quarter-Kelly — survival agent, not a degen
-STOP_ATR_MULT = 1.6    # stop sits 1.6 ATR from entry
+STOP_ATR_MULT = 1.6  # stop sits 1.6 ATR from entry
 # goodwill → max leverage (mirrors the trading DNA ladder)
 LEVERAGE_LADDER = [(0, 2), (25, 3), (50, 5), (100, 8), (200, 12), (500, 20)]
 
@@ -56,8 +56,16 @@ def kelly_fraction(win_rate: float, payoff: float) -> float:
     return max(0.0, full) * KELLY_FRACTION
 
 
-def size_trade(equity: float, price: float, atr_pct: float, win_rate: float,
-               payoff: float, goodwill: float, confidence: float, trades: int = 0) -> dict:
+def size_trade(
+    equity: float,
+    price: float,
+    atr_pct: float,
+    win_rate: float,
+    payoff: float,
+    goodwill: float,
+    confidence: float,
+    trades: int = 0,
+) -> dict:
     """Return the position size, stop, and risk for one trade."""
     stop_pct = max(STOP_ATR_MULT * atr_pct, 0.8) / 100  # never tighter than 0.8%
     # risk fraction: base, scaled by the (sample-shrunk) Kelly edge and confidence.
@@ -98,9 +106,13 @@ def main() -> int:
     p.add_argument("--payoff", type=float, default=1.5)
     p.add_argument("--goodwill", type=float, default=0)
     p.add_argument("--confidence", type=float, default=0.6)
-    p.add_argument("--trades", type=int, default=0, help="sample size behind win-rate (for shrinkage)")
+    p.add_argument(
+        "--trades", type=int, default=0, help="sample size behind win-rate (for shrinkage)"
+    )
     a = p.parse_args()
-    out = size_trade(a.equity, a.price, a.atr_pct, a.win_rate, a.payoff, a.goodwill, a.confidence, a.trades)
+    out = size_trade(
+        a.equity, a.price, a.atr_pct, a.win_rate, a.payoff, a.goodwill, a.confidence, a.trades
+    )
     print(json.dumps(out, indent=2))
     return 0
 

@@ -33,9 +33,10 @@ import signal as signalmod
 import statistics
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 # Risk caps (mirror dna/TRADING_STRATEGY.md — enforced, never bypassable).
 # Leverage is EARNED: the cap rises with goodwill, the metric won from profitable
@@ -52,24 +53,49 @@ MIN_NOTIONAL = 11
 # market it was proven on; signals on the rest are surfaced as exploration for
 # the heartbeat's judgment (and as candidates to prove next). Override --coins.
 SCAN_UNIVERSE = (
-    "BTC", "ETH", "SOL",
-    "xyz:NVDA", "xyz:TSLA", "xyz:SPCX", "xyz:AAPL", "xyz:AMZN", "xyz:GOLD",
+    "BTC",
+    "ETH",
+    "SOL",
+    "xyz:NVDA",
+    "xyz:TSLA",
+    "xyz:SPCX",
+    "xyz:AAPL",
+    "xyz:AMZN",
+    "xyz:GOLD",
 )
 
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
 IS_FRACTION = 0.6
-HORIZON = 4          # bars held per backtest trade
+HORIZON = 4  # bars held per backtest trade
 TAKER_COST = 0.0006  # round-trip fee + slippage estimate
-WARMUP = 26          # bars before features are valid
+WARMUP = 26  # bars before features are valid
 
 # signal.py sandbox.
 ALLOWED_IMPORTS = {"math", "statistics"}
 BANNED_NAMES = {
-    "eval", "exec", "open", "__import__", "compile", "input", "globals",
-    "locals", "getattr", "setattr", "vars", "delattr", "memoryview",
-    "__builtins__", "breakpoint", "help", "object", "type", "super",
-    "classmethod", "staticmethod", "property",
+    "eval",
+    "exec",
+    "open",
+    "__import__",
+    "compile",
+    "input",
+    "globals",
+    "locals",
+    "getattr",
+    "setattr",
+    "vars",
+    "delattr",
+    "memoryview",
+    "__builtins__",
+    "breakpoint",
+    "help",
+    "object",
+    "type",
+    "super",
+    "classmethod",
+    "staticmethod",
+    "property",
 }
 # Attribute access that can pivot to builtins/globals even without a dunder name.
 BANNED_ATTRS = {"format", "format_map", "mro", "__class__", "__globals__", "__subclasses__"}
@@ -84,6 +110,7 @@ def _safe_import(name: str, *_a: Any, **_k: Any) -> Any:
     """The only import a signal may perform — the allow-listed math libs."""
     import math
     import statistics
+
     allowed = {"math": math, "statistics": statistics}
     if name in allowed:
         return allowed[name]
@@ -97,13 +124,40 @@ def _safe_builtins() -> dict[str, Any]:
     it removes the `__builtins__['__import__']('os')` subscript escape that the AST
     validator alone cannot see. The validator is defense-in-depth on top.
     """
-    safe = ("abs", "min", "max", "round", "sum", "len", "range", "sorted", "enumerate",
-            "zip", "map", "filter", "any", "all", "pow", "divmod", "float", "int",
-            "bool", "str", "list", "dict", "tuple", "set", "abs", "isinstance")
+    safe = (
+        "abs",
+        "min",
+        "max",
+        "round",
+        "sum",
+        "len",
+        "range",
+        "sorted",
+        "enumerate",
+        "zip",
+        "map",
+        "filter",
+        "any",
+        "all",
+        "pow",
+        "divmod",
+        "float",
+        "int",
+        "bool",
+        "str",
+        "list",
+        "dict",
+        "tuple",
+        "set",
+        "abs",
+        "isinstance",
+    )
     import builtins
+
     out: dict[str, Any] = {k: getattr(builtins, k) for k in safe}
     out["__import__"] = _safe_import
     return out
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -192,8 +246,9 @@ def reputation_table() -> dict[str, Any]:
     rep: dict[str, Any] = {}
     for e in _read_ledger():
         a = e["author"]
-        r = rep.setdefault(a, {"author": a, "earned_usd": 0.0, "trades": 0,
-                               "wins": 0, "adopters": set()})
+        r = rep.setdefault(
+            a, {"author": a, "earned_usd": 0.0, "trades": 0, "wins": 0, "adopters": set()}
+        )
         r["earned_usd"] += e.get("royalty_usd", 0.0)
         r["trades"] += 1
         if e.get("pnl_usd", 0) > 0:
@@ -207,7 +262,7 @@ def reputation_table() -> dict[str, Any]:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def slugify(name: str) -> str:
@@ -226,7 +281,7 @@ def agent_id() -> str:
     return str(ident.get("agentId") or "local")
 
 
-def leverage_cap(goodwill: Optional[float] = None) -> int:
+def leverage_cap(goodwill: float | None = None) -> int:
     """The agent's earned leverage ceiling, unlocked by goodwill."""
     if goodwill is None:
         goodwill = float(load_metabolism().get("goodwill", 0) or 0)
@@ -249,7 +304,9 @@ def run_node(args: list[str]) -> dict[str, Any]:
     """Call forge_data.js and return its parsed JSON, or raise on failure."""
     proc = subprocess.run(
         ["node", str(SCRIPT_DIR / "forge_data.js"), *args],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "forge_data.js failed")
@@ -260,20 +317,33 @@ def run_node(args: list[str]) -> dict[str, Any]:
 
 
 def get_candles(coin: str, interval: str, limit: int) -> list[dict[str, float]]:
-    return run_node(["candles", "--coin", coin, "--interval", interval,
-                     "--limit", str(limit)])["candles"]
+    return run_node(["candles", "--coin", coin, "--interval", interval, "--limit", str(limit)])[
+        "candles"
+    ]
 
 
 def get_live_features(coins: list[str]) -> dict[str, Any]:
     return run_node(["features", "--coins", ",".join(coins)])["features"]
 
 
-_INTEL: Optional[dict[str, Any]] = None
+_INTEL: dict[str, Any] | None = None
 # The rich senses intel.js scans each heartbeat — the offensive features the arsenal
 # trades on (funding extremes, dislocation, regime, order-flow). Merged into live runs.
-INTEL_KEYS = ("regime", "funding_z", "bb_z", "rsi", "atr_pct", "realized_vol_pct",
-              "ema_stack", "ema_slope_pct", "efficiency", "flow_pressure", "premium",
-              "btc_corr", "oi_delta")
+INTEL_KEYS = (
+    "regime",
+    "funding_z",
+    "bb_z",
+    "rsi",
+    "atr_pct",
+    "realized_vol_pct",
+    "ema_stack",
+    "ema_slope_pct",
+    "efficiency",
+    "flow_pressure",
+    "premium",
+    "btc_corr",
+    "oi_delta",
+)
 
 
 def _intel_features() -> dict[str, Any]:
@@ -291,8 +361,9 @@ def _intel_features() -> dict[str, Any]:
 # ── Feature engineering ──────────────────────────────────────────────────────
 
 
-def features_at(candles: list[dict[str, float]], i: int, coin: str,
-                live: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def features_at(
+    candles: list[dict[str, float]], i: int, coin: str, live: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Build the feature dict the signal sees at bar ``i`` (price-derived).
 
     funding/oi/premium are live-only (None in backtests) — a robust signal
@@ -358,10 +429,10 @@ def validate_signal_src(src: str) -> list[str]:
         elif isinstance(node, ast.Name) and (node.id in BANNED_NAMES or node.id.startswith("__")):
             violations.append(f"banned name: {node.id}")
         elif isinstance(node, ast.Attribute) and (
-                node.attr in BANNED_ATTRS or node.attr.startswith(BANNED_ATTR_PREFIXES)):
+            node.attr in BANNED_ATTRS or node.attr.startswith(BANNED_ATTR_PREFIXES)
+        ):
             violations.append(f"banned attribute access: {node.attr}")
-    if not any(isinstance(n, ast.FunctionDef) and n.name == "signal"
-               for n in ast.walk(tree)):
+    if not any(isinstance(n, ast.FunctionDef) and n.name == "signal" for n in ast.walk(tree)):
         violations.append("missing required function: signal(features)")
     return violations
 
@@ -374,7 +445,7 @@ def _compile_signal(src: str, where: str) -> Callable[[dict[str, Any]], Any]:
     # Restricted builtins are the real boundary; the AST validation is defence in
     # depth. Together they close the __builtins__/__import__ subscript escape.
     namespace: dict[str, Any] = {"__builtins__": _safe_builtins()}
-    exec(compile(src, where, "exec"), namespace)  # noqa: S102 — sandboxed builtins + AST-validated
+    exec(compile(src, where, "exec"), namespace)
     return namespace["signal"]
 
 
@@ -389,7 +460,7 @@ def load_signal(tid: str) -> Callable[[dict[str, Any]], Any]:
         die(f"signal.py rejected: {exc}")
 
 
-def load_pooled_signal(ref: str) -> Optional[Callable[[dict[str, Any]], Any]]:
+def load_pooled_signal(ref: str) -> Callable[[dict[str, Any]], Any] | None:
     """Compile a pooled technique's signal (returns None if missing or rejected)."""
     if "/" not in ref:
         return None
@@ -407,7 +478,7 @@ def _timeout(_signum: int, _frame: Any) -> None:
     raise TimeoutError("signal exceeded time budget")
 
 
-def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> Optional[dict[str, Any]]:
+def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> dict[str, Any] | None:
     """Call signal(features) with a wall-clock cap and validate the decision."""
     signalmod.signal(signalmod.SIGALRM, _timeout)
     signalmod.setitimer(signalmod.ITIMER_REAL, SIGNAL_TIMEOUT_S)
@@ -441,8 +512,13 @@ def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pc
     return raw - TAKER_COST
 
 
-def score_window(candles: list[dict[str, float]], fn: Callable[[dict[str, Any]], Any],
-                 coin: str, lo: int, hi: int) -> dict[str, Any]:
+def score_window(
+    candles: list[dict[str, float]],
+    fn: Callable[[dict[str, Any]], Any],
+    coin: str,
+    lo: int,
+    hi: int,
+) -> dict[str, Any]:
     """Run the signal across bars [lo, hi) and summarise the trades."""
     rets: list[float] = []
     for i in range(lo, hi):
@@ -474,8 +550,9 @@ def summarise(rets: list[float]) -> dict[str, Any]:
     }
 
 
-def _backtest_with(fn: Callable[[dict[str, Any]], Any], coin: str,
-                   interval: str, limit: int) -> dict[str, Any]:
+def _backtest_with(
+    fn: Callable[[dict[str, Any]], Any], coin: str, interval: str, limit: int
+) -> dict[str, Any]:
     """Walk-forward backtest of a signal fn; raises ValueError on thin data."""
     candles = get_candles(coin, interval, limit)
     if len(candles) < WARMUP + HORIZON + 60:
@@ -484,13 +561,19 @@ def _backtest_with(fn: Callable[[dict[str, Any]], Any], coin: str,
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
     is_stats = score_window(candles, fn, coin, WARMUP, split)
     oos_stats = score_window(candles, fn, coin, split, last)
-    proven = (oos_stats["n"] >= MIN_OOS_SAMPLE
-              and oos_stats["expectancy"] > 0
-              and is_stats["expectancy"] > 0)
+    proven = (
+        oos_stats["n"] >= MIN_OOS_SAMPLE
+        and oos_stats["expectancy"] > 0
+        and is_stats["expectancy"] > 0
+    )
     return {
-        "coin": coin, "interval": interval, "bars": len(candles),
-        "in_sample": is_stats, "out_of_sample": oos_stats,
-        "proven": proven, "proved_at": now_iso(),
+        "coin": coin,
+        "interval": interval,
+        "bars": len(candles),
+        "in_sample": is_stats,
+        "out_of_sample": oos_stats,
+        "proven": proven,
+        "proved_at": now_iso(),
     }
 
 
@@ -531,7 +614,8 @@ def load_technique(tid: str) -> dict[str, Any]:
 
 def save_technique(tech: dict[str, Any]) -> None:
     (tech_dir(tech["id"]) / "technique.json").write_text(
-        json.dumps(tech, indent=2), encoding="utf-8")
+        json.dumps(tech, indent=2), encoding="utf-8"
+    )
 
 
 # ── Verbs ────────────────────────────────────────────────────────────────────
@@ -545,19 +629,33 @@ def cmd_draft(args: argparse.Namespace) -> dict[str, Any]:
         die(f"technique '{tid}' exists — use --force to overwrite")
     d.mkdir(parents=True, exist_ok=True)
     tech = {
-        "id": tid, "name": args.name, "kind": args.kind,
-        "author": agent_id(), "parent": args.parent,
-        "claim": args.claim or "", "status": "draft",
+        "id": tid,
+        "name": args.name,
+        "kind": args.kind,
+        "author": agent_id(),
+        "parent": args.parent,
+        "claim": args.claim or "",
+        "status": "draft",
         "created_at": now_iso(),
     }
     save_technique(tech)
-    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
-        name=args.name, kind=args.kind, claim=args.claim or "(state the edge)",
-        author=tech["author"]), encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        SKILL_TEMPLATE.format(
+            name=args.name,
+            kind=args.kind,
+            claim=args.claim or "(state the edge)",
+            author=tech["author"],
+        ),
+        encoding="utf-8",
+    )
     if not (d / "signal.py").exists() or args.force:
         (d / "signal.py").write_text(SIGNAL_TEMPLATE, encoding="utf-8")
-    return {"ok": True, "drafted": tid, "dir": str(d),
-            "next": "edit signal.py, then: forge.py prove " + tid}
+    return {
+        "ok": True,
+        "drafted": tid,
+        "dir": str(d),
+        "next": "edit signal.py, then: forge.py prove " + tid,
+    }
 
 
 def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
@@ -565,8 +663,12 @@ def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
     (tech_dir(args.id) / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
     tech = load_technique(args.id)
     tech["status"] = "proven" if card["proven"] else "draft"
-    tech["card"] = {"coin": card["coin"], "interval": card["interval"],
-                    "oos": card["out_of_sample"], "proven": card["proven"]}
+    tech["card"] = {
+        "coin": card["coin"],
+        "interval": card["interval"],
+        "oos": card["out_of_sample"],
+        "proven": card["proven"],
+    }
     save_technique(tech)
     return {"ok": True, "id": args.id, "proven": card["proven"], "card": card}
 
@@ -574,13 +676,14 @@ def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
 def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
     tech = load_technique(args.id)
     if tech.get("parent") and not (tech.get("critique") or {}).get("pass") and not args.force:
-        die(f"'{args.id}' came from the pool — critique it first "
-            f"(forge.py critique {args.id}) or --force")
+        die(
+            f"'{args.id}' came from the pool — critique it first "
+            f"(forge.py critique {args.id}) or --force"
+        )
     if tech.get("status") != "proven" and not args.force:
         die(f"technique '{args.id}' is not proven — prove it first (or --force)")
     card = tech.get("card") or {}
-    entry = {"id": args.id, "coin": card.get("coin", "BTC"),
-             "interval": card.get("interval", "1h")}
+    entry = {"id": args.id, "coin": card.get("coin", "BTC"), "interval": card.get("interval", "1h")}
     style = load_style()
     style["adopted"] = [e for e in style["adopted"] if e["id"] != args.id] + [entry]
     save_style(style)
@@ -598,8 +701,15 @@ def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
     techs = []
     for d in sorted((forge_dir() / "techniques").glob("*/")):
         t = json.loads((d / "technique.json").read_text(encoding="utf-8"))
-        techs.append({"id": t["id"], "kind": t["kind"], "status": t["status"],
-                      "author": t["author"], "claim": t.get("claim", "")[:60]})
+        techs.append(
+            {
+                "id": t["id"],
+                "kind": t["kind"],
+                "status": t["status"],
+                "author": t["author"],
+                "claim": t.get("claim", "")[:60],
+            }
+        )
     return {"ok": True, "adopted": load_style()["adopted"], "techniques": techs}
 
 
@@ -614,33 +724,40 @@ def cmd_show(args: argparse.Namespace) -> dict[str, Any]:
 IPFS_GATEWAY = os.environ.get("IPFS_GATEWAY", "https://ipfs.io/ipfs/")
 
 
-def _pin_ipfs(obj: dict[str, Any]) -> Optional[str]:
+def _pin_ipfs(obj: dict[str, Any]) -> str | None:
     """Pin a technique bundle to IPFS via Pinata (None without PINATA_JWT)."""
     jwt = os.environ.get("PINATA_JWT")
     if not jwt:
         return None
     import urllib.error
     import urllib.request
-    body = json.dumps({"pinataContent": obj, "pinataMetadata": {"name": f"gclaw-tech-{obj.get('id', '')}"}}).encode()
-    req = urllib.request.Request("https://api.pinata.cloud/pinning/pinJSONToIPFS", data=body,
-                                 headers={"content-type": "application/json", "authorization": f"Bearer {jwt}"})
+
+    body = json.dumps(
+        {"pinataContent": obj, "pinataMetadata": {"name": f"gclaw-tech-{obj.get('id', '')}"}}
+    ).encode()
+    req = urllib.request.Request(
+        "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+        data=body,
+        headers={"content-type": "application/json", "authorization": f"Bearer {jwt}"},
+    )
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 — fixed Pinata host
+        with urllib.request.urlopen(req, timeout=20) as r:
             return json.loads(r.read()).get("IpfsHash")
     except (urllib.error.URLError, OSError, ValueError):
         return None
 
 
-def _fetch_ipfs(cid: str) -> Optional[dict[str, Any]]:
+def _fetch_ipfs(cid: str) -> dict[str, Any] | None:
     import urllib.request
+
     try:
-        with urllib.request.urlopen(IPFS_GATEWAY + cid, timeout=20) as r:  # noqa: S310 — gateway URL
+        with urllib.request.urlopen(IPFS_GATEWAY + cid, timeout=20) as r:
             return json.loads(r.read())
     except (OSError, ValueError):
         return None
 
 
-def _record_published(ref: str, manifest: dict[str, Any], cid: Optional[str]) -> None:
+def _record_published(ref: str, manifest: dict[str, Any], cid: str | None) -> None:
     """Index a published technique so the beacon can advertise it onchain."""
     path = gclaw_home() / "published.json"
     try:
@@ -648,9 +765,14 @@ def _record_published(ref: str, manifest: dict[str, Any], cid: Optional[str]) ->
     except (OSError, ValueError):
         idx = {}
     card = manifest.get("card") or {}
-    idx[ref] = {"ref": ref, "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
-                "score": round(manifest.get("score", 0), 4), "oos_n": (card.get("oos") or {}).get("n"),
-                "cid": cid, "claim": manifest.get("claim", "")[:80]}
+    idx[ref] = {
+        "ref": ref,
+        "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
+        "score": round(manifest.get("score", 0), 4),
+        "oos_n": (card.get("oos") or {}).get("n"),
+        "cid": cid,
+        "claim": manifest.get("claim", "")[:80],
+    }
     path.write_text(json.dumps(idx, indent=2) + "\n", encoding="utf-8")
 
 
@@ -666,10 +788,17 @@ def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
     signal_src = (tech_dir(args.id) / "signal.py").read_text(encoding="utf-8")
     shutil.copy2(tech_dir(args.id) / "signal.py", dest / "signal.py")
     manifest = {
-        "id": args.id, "name": tech.get("name", args.id), "kind": tech.get("kind", "edge"),
-        "author": author, "parent": tech.get("parent"), "lineage": tech.get("lineage", []),
-        "claim": tech.get("claim", ""), "card": card, "score": edge_score(card.get("oos") or {}),
-        "content_hash": content_hash(args.id), "published_at": now_iso(),
+        "id": args.id,
+        "name": tech.get("name", args.id),
+        "kind": tech.get("kind", "edge"),
+        "author": author,
+        "parent": tech.get("parent"),
+        "lineage": tech.get("lineage", []),
+        "claim": tech.get("claim", ""),
+        "card": card,
+        "score": edge_score(card.get("oos") or {}),
+        "content_hash": content_hash(args.id),
+        "published_at": now_iso(),
     }
     # Pin the bundle (metadata + source) to IPFS so peers can discover + pull it.
     # The source travels as DATA only — pull lands it as an untrusted draft that
@@ -679,8 +808,14 @@ def cmd_publish(args: argparse.Namespace) -> dict[str, Any]:
     ref = f"{author}/{args.id}"
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     _record_published(ref, manifest, cid)
-    return {"ok": True, "published": ref, "score": manifest["score"], "cid": cid,
-            "gateway": (IPFS_GATEWAY + cid) if cid else None, "pool": str(genepool_dir())}
+    return {
+        "ok": True,
+        "published": ref,
+        "score": manifest["score"],
+        "cid": cid,
+        "gateway": (IPFS_GATEWAY + cid) if cid else None,
+        "pool": str(genepool_dir()),
+    }
 
 
 def _pool_manifests() -> list[dict[str, Any]]:
@@ -700,15 +835,27 @@ def _peer_published() -> list[dict[str, Any]]:
     """
     roster = []
     try:
-        roster = json.loads((gclaw_home() / "peers_roster.json").read_text(encoding="utf-8")).get("roster", [])
+        roster = json.loads((gclaw_home() / "peers_roster.json").read_text(encoding="utf-8")).get(
+            "roster", []
+        )
     except (OSError, ValueError):
         return []
     rows = []
     for a in roster:
-        for p in (a.get("published") or []):
-            rows.append({"ref": p.get("ref"), "author": str(a.get("id")), "from": a.get("name"),
-                         "market": p.get("market"), "score": p.get("score", 0), "oos_n": p.get("oos_n"),
-                         "cid": p.get("cid"), "claim": p.get("claim", ""), "source": "onchain"})
+        for p in a.get("published") or []:
+            rows.append(
+                {
+                    "ref": p.get("ref"),
+                    "author": str(a.get("id")),
+                    "from": a.get("name"),
+                    "market": p.get("market"),
+                    "score": p.get("score", 0),
+                    "oos_n": p.get("oos_n"),
+                    "cid": p.get("cid"),
+                    "claim": p.get("claim", ""),
+                    "source": "onchain",
+                }
+            )
     return rows
 
 
@@ -716,7 +863,12 @@ def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
     """Browse the gene pool, ranked by confidence-weighted out-of-sample edge."""
     if getattr(args, "peers", False):
         rows = sorted(_peer_published(), key=lambda r: r.get("score", 0), reverse=True)
-        return {"ok": True, "source": "onchain peers", "count": len(rows), "techniques": rows[:args.limit]}
+        return {
+            "ok": True,
+            "source": "onchain peers",
+            "count": len(rows),
+            "techniques": rows[: args.limit],
+        }
     items = _pool_manifests()
     if args.kind:
         items = [m for m in items if m.get("kind") == args.kind]
@@ -739,19 +891,23 @@ def cmd_discover(args: argparse.Namespace) -> dict[str, Any]:
 
     items.sort(key=combined, reverse=True)
     rows = []
-    for m in items[:args.limit]:
+    for m in items[: args.limit]:
         card = m.get("card") or {}
         ref = f"{m['author']}/{m['id']}"
-        rows.append({
-            "ref": ref, "score": m.get("score", 0),
-            "author_reputation": rep.get(m["author"], {}).get("score", 0.0),
-            "tournament_rank": board["ranks"].get(ref),
-            "rank": round(combined(m), 6), "kind": m.get("kind"),
-            "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
-            "oos": card.get("oos", {}),
-            "author": m["author"] + (" (you)" if m["author"] == mine else ""),
-            "claim": m.get("claim", "")[:60],
-        })
+        rows.append(
+            {
+                "ref": ref,
+                "score": m.get("score", 0),
+                "author_reputation": rep.get(m["author"], {}).get("score", 0.0),
+                "tournament_rank": board["ranks"].get(ref),
+                "rank": round(combined(m), 6),
+                "kind": m.get("kind"),
+                "market": f"{card.get('coin', '')}/{card.get('interval', '')}",
+                "oos": card.get("oos", {}),
+                "author": m["author"] + (" (you)" if m["author"] == mine else ""),
+                "claim": m.get("claim", "")[:60],
+            }
+        )
     return {"ok": True, "count": len(items), "techniques": rows}
 
 
@@ -775,7 +931,9 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
         src.mkdir(parents=True, exist_ok=True)
         (src / "signal.py").write_text(bundle["signal_src"], encoding="utf-8")
         (src / "manifest.json").write_text(
-            json.dumps({k: v for k, v in bundle.items() if k != "signal_src"}, indent=2), encoding="utf-8")
+            json.dumps({k: v for k, v in bundle.items() if k != "signal_src"}, indent=2),
+            encoding="utf-8",
+        )
     if not (src / "manifest.json").exists():
         die(f"no pooled technique '{args.ref}' (pass --cid <cid> to fetch from IPFS)")
     manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
@@ -785,18 +943,33 @@ def cmd_pull(args: argparse.Namespace) -> dict[str, Any]:
         die(f"local technique '{local_id}' exists — use --as <name> or --force")
     d.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src / "signal.py", d / "signal.py")
-    tech = {"id": local_id, "name": manifest.get("name", local_id),
-            "kind": manifest.get("kind", "edge"), "author": agent_id(),
-            "parent": args.ref, "lineage": (manifest.get("lineage") or []) + [args.ref],
-            "origin": manifest, "claim": manifest.get("claim", ""),
-            "status": "draft", "created_at": now_iso()}
+    tech = {
+        "id": local_id,
+        "name": manifest.get("name", local_id),
+        "kind": manifest.get("kind", "edge"),
+        "author": agent_id(),
+        "parent": args.ref,
+        "lineage": (manifest.get("lineage") or []) + [args.ref],
+        "origin": manifest,
+        "claim": manifest.get("claim", ""),
+        "status": "draft",
+        "created_at": now_iso(),
+    }
     save_technique(tech)
-    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
-        name=tech["name"], kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
-        encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        SKILL_TEMPLATE.format(
+            name=tech["name"], kind=tech["kind"], claim=tech["claim"], author=tech["author"]
+        ),
+        encoding="utf-8",
+    )
     integrity = "ok" if content_hash(local_id) == manifest.get("content_hash") else "MISMATCH"
-    return {"ok": True, "pulled": args.ref, "local": local_id, "integrity": integrity,
-            "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>"}
+    return {
+        "ok": True,
+        "pulled": args.ref,
+        "local": local_id,
+        "integrity": integrity,
+        "next": f"re-prove before trusting: forge.py prove {local_id} --coin <c> --interval <i>",
+    }
 
 
 def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
@@ -812,20 +985,35 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
     # MCP (not `run --execute`, which sets pending) still credit the right author.
     fallback = None
     if not rec and not args.ref:
-        adopted = next((e for e in load_style().get("adopted", []) if e.get("coin") == args.coin), None)
+        adopted = next(
+            (e for e in load_style().get("adopted", []) if e.get("coin") == args.coin), None
+        )
         if adopted:
             fallback, _ = royalty_ref(load_technique(adopted["id"]))
     ref = (rec or {}).get("ref") or args.ref or fallback
     if not ref:
         if getattr(args, "auto", False):
-            return {"ok": True, "attributed": None, "note": f"no technique attributable to {args.coin}"}
-        die(f"no pending or adopted technique on {args.coin} — pass --ref <author>/<id> to attribute manually")
+            return {
+                "ok": True,
+                "attributed": None,
+                "note": f"no technique attributable to {args.coin}",
+            }
+        die(
+            f"no pending or adopted technique on {args.coin} — pass --ref <author>/<id> to attribute manually"
+        )
     author = ref.split("/", 1)[0] if "/" in ref else ref
     adopter = agent_id()
     pnl = float(args.pnl)
     royalty = round(max(0.0, pnl) * ROYALTY_PCT / 100, 6) if author != adopter else 0.0
-    entry = {"ts": now_iso(), "technique": ref, "author": author, "adopter": adopter,
-             "coin": args.coin, "pnl_usd": round(pnl, 6), "royalty_usd": royalty}
+    entry = {
+        "ts": now_iso(),
+        "technique": ref,
+        "author": author,
+        "adopter": adopter,
+        "coin": args.coin,
+        "pnl_usd": round(pnl, 6),
+        "royalty_usd": royalty,
+    }
     with royalty_ledger().open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
     # Darwinian feedback: move the contributing technique's loadout weight by its
@@ -834,9 +1022,13 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
     local_tid = (rec or {}).get("technique") or (ref.split("/", 1)[1] if "/" in ref else ref)
     if local_tid:
         try:
-            fitness = _update_fitness(local_tid, pnl, float((rec or {}).get("risk_usd") or 0.0),
-                                      (rec or {}).get("regime", "range"))
-        except Exception as exc:  # noqa: BLE001
+            fitness = _update_fitness(
+                local_tid,
+                pnl,
+                float((rec or {}).get("risk_usd") or 0.0),
+                (rec or {}).get("regime", "range"),
+            )
+        except Exception as exc:
             fitness = {"skipped": str(exc)[:100]}
     if rec:
         pending.pop(args.coin, None)
@@ -847,13 +1039,21 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
 def _sync_reputation(broadcast: bool) -> dict[str, Any]:
     mode = "broadcast" if broadcast else "dry-run"
     try:
-        proc = subprocess.run(["node", str(SCRIPT_DIR / "erc8004_reputation.js"), mode],
-                              capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "erc8004_reputation.js"), mode],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         tail = (proc.stdout or proc.stderr).strip().splitlines()[-1:] or [""]
         return {"ok": proc.returncode == 0, "mode": mode, "detail": tail[0][:200]}
-    except Exception as exc:  # noqa: BLE001 — sync is best-effort
-        return {"ok": False, "mode": mode, "note": "reputation sync unavailable",
-                "error": str(exc)[:120]}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "mode": mode,
+            "note": "reputation sync unavailable",
+            "error": str(exc)[:120],
+        }
 
 
 def load_leaderboard() -> dict[str, Any]:
@@ -892,14 +1092,22 @@ def cmd_tournament(args: argparse.Namespace) -> dict[str, Any]:
                 continue
             per_coin[coin] = edge_score(card["out_of_sample"])
         if per_coin:
-            standings.append({"ref": ref, "author": m["author"],
-                              "benchmark_score": round(sum(per_coin.values()), 6),
-                              "per_coin": per_coin})
+            standings.append(
+                {
+                    "ref": ref,
+                    "author": m["author"],
+                    "benchmark_score": round(sum(per_coin.values()), 6),
+                    "per_coin": per_coin,
+                }
+            )
     standings.sort(key=lambda s: s["benchmark_score"], reverse=True)
     for i, s in enumerate(standings, 1):
         s["rank"] = i
-    board = {"benchmark": {"coins": coins, "interval": args.interval},
-             "standings": standings, "at": now_iso()}
+    board = {
+        "benchmark": {"coins": coins, "interval": args.interval},
+        "standings": standings,
+        "at": now_iso(),
+    }
     (genepool_dir() / "leaderboard.json").write_text(json.dumps(board, indent=2), encoding="utf-8")
     return {"ok": True, "benchmark": board["benchmark"], "standings": standings}
 
@@ -941,17 +1149,31 @@ def cmd_fork(args: argparse.Namespace) -> dict[str, Any]:
         die(f"technique '{newid}' exists — use a different --name or --force")
     d.mkdir(parents=True, exist_ok=True)
     shutil.copy2(sig_path, d / "signal.py")
-    tech = {"id": newid, "name": args.name, "kind": src_meta.get("kind", "edge"),
-            "author": agent_id(), "parent": args.source,
-            "lineage": parent_lineage + [args.source],
-            "claim": args.claim or src_meta.get("claim", ""),
-            "status": "draft", "created_at": now_iso()}
+    tech = {
+        "id": newid,
+        "name": args.name,
+        "kind": src_meta.get("kind", "edge"),
+        "author": agent_id(),
+        "parent": args.source,
+        "lineage": parent_lineage + [args.source],
+        "claim": args.claim or src_meta.get("claim", ""),
+        "status": "draft",
+        "created_at": now_iso(),
+    }
     save_technique(tech)
-    (d / "SKILL.md").write_text(SKILL_TEMPLATE.format(
-        name=args.name, kind=tech["kind"], claim=tech["claim"], author=tech["author"]),
-        encoding="utf-8")
-    return {"ok": True, "forked": newid, "from": args.source, "lineage": tech["lineage"],
-            "next": f"improve signal.py, then: forge.py prove {newid}"}
+    (d / "SKILL.md").write_text(
+        SKILL_TEMPLATE.format(
+            name=args.name, kind=tech["kind"], claim=tech["claim"], author=tech["author"]
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "ok": True,
+        "forked": newid,
+        "from": args.source,
+        "lineage": tech["lineage"],
+        "next": f"improve signal.py, then: forge.py prove {newid}",
+    }
 
 
 def cmd_lineage(args: argparse.Namespace) -> dict[str, Any]:
@@ -961,7 +1183,7 @@ def cmd_lineage(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "id": args.id, "depth": len(chain) - 1, "lineage": chain}
 
 
-def _critique_markets(claimed: Optional[str]) -> list[str]:
+def _critique_markets(claimed: str | None) -> list[str]:
     base = ["BTC", "ETH", "SOL"]
     if claimed and claimed not in base:
         base.append(claimed)
@@ -981,30 +1203,49 @@ def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
     origin_card = (tech.get("origin") or {}).get("card") or tech.get("card") or {}
     interval = args.interval or origin_card.get("interval", "4h")
     claimed_coin = origin_card.get("coin")
-    coins = [c.strip() for c in args.coins.split(",")] if args.coins else _critique_markets(claimed_coin)
+    coins = (
+        [c.strip() for c in args.coins.split(",")]
+        if args.coins
+        else _critique_markets(claimed_coin)
+    )
     markets: dict[str, Any] = {}
-    claimed_card: Optional[dict[str, Any]] = None
+    claimed_card: dict[str, Any] | None = None
     for coin in coins:
         card = backtest(args.id, coin, interval, args.limit)
-        markets[coin] = {"proven": card["proven"],
-                         "oos_exp": card["out_of_sample"]["expectancy"],
-                         "n": card["out_of_sample"]["n"]}
+        markets[coin] = {
+            "proven": card["proven"],
+            "oos_exp": card["out_of_sample"]["expectancy"],
+            "n": card["out_of_sample"]["n"],
+        }
         if coin == claimed_coin:
             claimed_card = card
     replicated = bool(claimed_coin and markets.get(claimed_coin, {}).get("proven"))
-    positives = sum(1 for r in markets.values()
-                    if r["oos_exp"] > 0 and r["n"] >= MIN_OOS_SAMPLE)
+    positives = sum(1 for r in markets.values() if r["oos_exp"] > 0 and r["n"] >= MIN_OOS_SAMPLE)
     robust = positives >= math.ceil(len(markets) / 2)
-    verdict = {"replicated": replicated, "robust": robust,
-               "pass": bool(replicated and robust), "markets": markets,
-               "interval": interval, "critic": agent_id(), "at": now_iso()}
-    (tech_dir(args.id) / "critique.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    verdict = {
+        "replicated": replicated,
+        "robust": robust,
+        "pass": bool(replicated and robust),
+        "markets": markets,
+        "interval": interval,
+        "critic": agent_id(),
+        "at": now_iso(),
+    }
+    (tech_dir(args.id) / "critique.json").write_text(
+        json.dumps(verdict, indent=2), encoding="utf-8"
+    )
     tech["critique"] = verdict
     if replicated and claimed_card is not None:
-        (tech_dir(args.id) / "card.json").write_text(json.dumps(claimed_card, indent=2), encoding="utf-8")
+        (tech_dir(args.id) / "card.json").write_text(
+            json.dumps(claimed_card, indent=2), encoding="utf-8"
+        )
         tech["status"] = "proven"
-        tech["card"] = {"coin": claimed_card["coin"], "interval": claimed_card["interval"],
-                        "oos": claimed_card["out_of_sample"], "proven": True}
+        tech["card"] = {
+            "coin": claimed_card["coin"],
+            "interval": claimed_card["interval"],
+            "oos": claimed_card["out_of_sample"],
+            "proven": True,
+        }
     save_technique(tech)
     return {"ok": True, "id": args.id, "verdict": verdict}
 
@@ -1018,12 +1259,19 @@ def _account() -> dict[str, float]:
     the capital available for a new trade.
     """
     try:
-        proc = subprocess.run(["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
-                              capture_output=True, text=True, timeout=90)
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "hl_perp.js"), "status"],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
         st = json.loads(proc.stdout.strip().splitlines()[-1])
         equity = float(st.get("equity") or st.get("spotUsdc") or st.get("accountValue") or 0)
-        return {"equity": equity, "buying_power": float(st.get("buyingPower") or equity),
-                "positions": len(st.get("positions") or [])}
+        return {
+            "equity": equity,
+            "buying_power": float(st.get("buyingPower") or equity),
+            "positions": len(st.get("positions") or []),
+        }
     except Exception:
         return {"equity": 0.0, "buying_power": 0.0, "positions": 0}
 
@@ -1053,18 +1301,39 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
         reason = f"drawdown {drawdown_pct}% ≥ {MAX_DRAWDOWN_PCT}% from high-water ${hwm:.2f}"
     elif n_positions >= MAX_OPEN_POSITIONS:
         reason = f"{n_positions} open positions ≥ {MAX_OPEN_POSITIONS} cap"
-    state.update({"hwm": round(hwm, 2), "equity": round(equity, 2),
-                  "drawdown_pct": drawdown_pct, "positions": n_positions,
-                  "tripped": bool(reason), "reason": reason, "at": now_iso()})
+    state.update(
+        {
+            "hwm": round(hwm, 2),
+            "equity": round(equity, 2),
+            "drawdown_pct": drawdown_pct,
+            "positions": n_positions,
+            "tripped": bool(reason),
+            "reason": reason,
+            "at": now_iso(),
+        }
+    )
     try:
         path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     except OSError:
         pass
-    return {"allow_entry": not reason, "reason": reason, "drawdown_pct": drawdown_pct, "hwm": round(hwm, 2)}
+    return {
+        "allow_entry": not reason,
+        "reason": reason,
+        "drawdown_pct": drawdown_pct,
+        "hwm": round(hwm, 2),
+    }
 
 
-def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: float,
-            cap: int, buying_power: float, risk_mult: float = 1.0) -> dict[str, Any]:
+def _intent(
+    tid: str,
+    coin: str,
+    decision: dict[str, Any],
+    mode: str,
+    equity: float,
+    cap: int,
+    buying_power: float,
+    risk_mult: float = 1.0,
+) -> dict[str, Any]:
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
 
     ``risk_mult`` is the genome's Aggression-derived risk envelope (>1 sizes up,
@@ -1080,8 +1349,11 @@ def _intent(tid: str, coin: str, decision: dict[str, Any], mode: str, equity: fl
     if notional > max_notional:
         notional = max_notional if max_notional >= MIN_NOTIONAL else 0
     return {
-        "technique": tid, "coin": coin, "side": decision["action"],
-        "leverage": leverage, "sl_pct": round(stop_pct, 3),
+        "technique": tid,
+        "coin": coin,
+        "side": decision["action"],
+        "leverage": leverage,
+        "sl_pct": round(stop_pct, 3),
         "confidence": float(decision.get("confidence") or 0),
         "notional": round(notional, 2),
         "reason": str(decision.get("reason") or "")[:120],
@@ -1097,11 +1369,11 @@ def _regime_stats() -> dict[str, Any]:
         return {}
 
 
-FITNESS_ETA = 0.15      # per-trade multiplicative-weights step (Hedge)
-FITNESS_ALPHA = 0.3     # EWMA smoothing for expectancy + regime edge
+FITNESS_ETA = 0.15  # per-trade multiplicative-weights step (Hedge)
+FITNESS_ALPHA = 0.3  # EWMA smoothing for expectancy + regime edge
 FITNESS_PRUNE_W = 0.05  # weight at/below which a technique is dropped …
-FITNESS_PRUNE_N = 12    # … but only after a fair sample (no death on variance)
-ROUTER_MIN_N = 8        # learned regime nudge needs this many trades in the regime
+FITNESS_PRUNE_N = 12  # … but only after a fair sample (no death on variance)
+ROUTER_MIN_N = 8  # learned regime nudge needs this many trades in the regime
 
 
 def _gate(tid: str, regime: str, rstats: dict[str, Any]) -> float:
@@ -1127,7 +1399,11 @@ def _update_fitness(tid: str, pnl: float, risk_usd: float, regime: str) -> dict[
     [0.05, 1.0]; a technique below the floor after a fair sample is dropped from the
     loadout. R[tid][regime] tracks the EWMA edge per regime for the Meta-1 router.
     """
-    r = pnl / risk_usd if risk_usd and risk_usd > 0 else (1.0 if pnl > 0 else -1.0 if pnl < 0 else 0.0)
+    r = (
+        pnl / risk_usd
+        if risk_usd and risk_usd > 0
+        else (1.0 if pnl > 0 else -1.0 if pnl < 0 else 0.0)
+    )
     r = max(-3.0, min(3.0, r))
     style = load_style()
     out: dict[str, Any] = {"technique": tid, "r": round(r, 3)}
@@ -1136,7 +1412,10 @@ def _update_fitness(tid: str, pnl: float, risk_usd: float, regime: str) -> dict[
             continue
         e["e"] = round((1 - FITNESS_ALPHA) * float(e.get("e", 0.0)) + FITNESS_ALPHA * r, 4)
         e["trades"] = int(e.get("trades", 0)) + 1
-        e["weight"] = round(max(FITNESS_PRUNE_W, min(1.0, float(e.get("weight", 1.0)) * math.exp(FITNESS_ETA * r))), 4)
+        e["weight"] = round(
+            max(FITNESS_PRUNE_W, min(1.0, float(e.get("weight", 1.0)) * math.exp(FITNESS_ETA * r))),
+            4,
+        )
         out["weight"], out["trades"] = e["weight"], e["trades"]
         if e["weight"] <= FITNESS_PRUNE_W and e["trades"] >= FITNESS_PRUNE_N:
             style["adopted"] = [x for x in style["adopted"] if x is not e]
@@ -1147,7 +1426,9 @@ def _update_fitness(tid: str, pnl: float, risk_usd: float, regime: str) -> dict[
     cell = rs.setdefault(tid, {}).setdefault(regime, {"e": 0.0, "n": 0})
     cell["e"] = round((1 - FITNESS_ALPHA) * float(cell.get("e", 0.0)) + FITNESS_ALPHA * r, 4)
     cell["n"] = int(cell.get("n", 0)) + 1
-    (forge_dir() / "regime_stats.json").write_text(json.dumps(rs, indent=2) + "\n", encoding="utf-8")
+    (forge_dir() / "regime_stats.json").write_text(
+        json.dumps(rs, indent=2) + "\n", encoding="utf-8"
+    )
     out["regime_edge"] = {regime: cell}
     return out
 
@@ -1155,8 +1436,11 @@ def _update_fitness(tid: str, pnl: float, risk_usd: float, regime: str) -> dict[
 def _recent_expectancy() -> float:
     """EWMA of recent settled PnL signs — the 'hot/cold hand' for the Meta-2 scaler."""
     try:
-        rows = [json.loads(line) for line in
-                (gclaw_home() / "journal.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows = [
+            json.loads(line)
+            for line in (gclaw_home() / "journal.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
     except (OSError, ValueError):
         return 0.0
     settles = [r for r in rows if r.get("event") == "settle"][-12:]
@@ -1189,8 +1473,9 @@ def _weighted_median(pairs: list[tuple[float, float]]) -> float:
     return pairs[-1][0]
 
 
-def _combine(votes: list[dict[str, Any]], regime: str, caps: dict[str, float],
-             scaler: float) -> Optional[dict[str, Any]]:
+def _combine(
+    votes: list[dict[str, Any]], regime: str, caps: dict[str, float], scaler: float
+) -> dict[str, Any] | None:
     """Gated weighted ensemble → one decision for a coin, or None.
 
     Each vote is signed conviction × weight × regime-gate. Techniques that agree
@@ -1214,29 +1499,49 @@ def _combine(votes: list[dict[str, Any]], regime: str, caps: dict[str, float],
     long_side = total > 0
     winners = [v for v in votes if (v["v"] > 0) == long_side]
     dominant = max(winners, key=lambda v: abs(v["v"]))
-    stop_pct = _weighted_median([(v["stop_pct"], v["w"] * v["g"]) for v in winners]) or dominant["stop_pct"]
+    stop_pct = (
+        _weighted_median([(v["stop_pct"], v["w"] * v["g"]) for v in winners])
+        or dominant["stop_pct"]
+    )
     names = ", ".join(v["tid"] for v in sorted(winners, key=lambda v: -abs(v["v"]))[:3])
-    return {"action": "long" if long_side else "short", "confidence": round(conviction, 3),
-            "stop_pct": round(stop_pct, 3), "leverage": min(v["leverage"] for v in winners),
-            "reason": f"{len(winners)}x agree({agree:.0%}): {names}", "technique": dominant["tid"],
-            "contributors": [v["tid"] for v in winners]}
+    return {
+        "action": "long" if long_side else "short",
+        "confidence": round(conviction, 3),
+        "stop_pct": round(stop_pct, 3),
+        "leverage": min(v["leverage"] for v in winners),
+        "reason": f"{len(winners)}x agree({agree:.0%}): {names}",
+        "technique": dominant["tid"],
+        "contributors": [v["tid"] for v in winners],
+    }
 
 
-def _coin_votes(coin: str, f: dict[str, Any], adopted: list[dict[str, Any]],
-                rstats: dict[str, Any]) -> list[dict[str, Any]]:
+def _coin_votes(
+    coin: str, f: dict[str, Any], adopted: list[dict[str, Any]], rstats: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Collect every adopted technique's signed, gated vote on one coin."""
     regime = f.get("regime", "range")
     votes = []
     for e in adopted:
         decision = call_signal(load_signal(e["id"]), f)
-        if not decision or decision["action"] == "flat" or float(decision.get("stop_pct") or 0) <= 0:
+        if (
+            not decision
+            or decision["action"] == "flat"
+            or float(decision.get("stop_pct") or 0) <= 0
+        ):
             continue
         w = float(e.get("weight", 1.0) or 1.0)
         g = _gate(e["id"], regime, rstats)
         sign = 1.0 if decision["action"] == "long" else -1.0
-        votes.append({"tid": e["id"], "v": sign * float(decision.get("confidence") or 0) * w * g,
-                      "w": w, "g": g, "stop_pct": float(decision["stop_pct"]),
-                      "leverage": int(decision.get("leverage") or 99)})
+        votes.append(
+            {
+                "tid": e["id"],
+                "v": sign * float(decision.get("confidence") or 0) * w * g,
+                "w": w,
+                "g": g,
+                "stop_pct": float(decision["stop_pct"]),
+                "leverage": int(decision.get("leverage") or 99),
+            }
+        )
     return votes
 
 
@@ -1249,17 +1554,27 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     cap = leverage_cap(float(meta.get("goodwill", 0) or 0))
     style = load_style()
     if not style["adopted"]:
-        return {"ok": True, "mode": mode, "leverage_cap": cap, "intents": [],
-                "note": "no adopted techniques"}
-    caps = {"conviction_cap": float(style.get("conviction_cap", 0.85)),
-            "agree_min": float(style.get("agree_min", 0.60)),
-            "conv_min": float(style.get("conv_min", 0.22))}
+        return {
+            "ok": True,
+            "mode": mode,
+            "leverage_cap": cap,
+            "intents": [],
+            "note": "no adopted techniques",
+        }
+    caps = {
+        "conviction_cap": float(style.get("conviction_cap", 0.85)),
+        "agree_min": float(style.get("agree_min", 0.60)),
+        "conv_min": float(style.get("conv_min", 0.22)),
+    }
     risk_mult = float(style.get("risk_mult", 1.0))
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     # The ensemble votes on every market a technique is proven on plus the wider universe.
-    coins = list(dict.fromkeys([*proven_coins, *SCAN_UNIVERSE])) if not args.coins \
+    coins = (
+        list(dict.fromkeys([*proven_coins, *SCAN_UNIVERSE]))
+        if not args.coins
         else [c.strip() for c in args.coins.split(",") if c.strip()]
+    )
     interval = args.interval if args.coins else style["adopted"][0].get("interval", "1h")
     live = get_live_features(coins)
     rstats = _regime_stats()
@@ -1272,20 +1587,31 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         if len(cs) <= WARMUP:
             continue
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
-        decision = _combine(_coin_votes(coin, f, style["adopted"], rstats),
-                            f.get("regime", "range"), caps, scaler)
+        decision = _combine(
+            _coin_votes(coin, f, style["adopted"], rstats), f.get("regime", "range"), caps, scaler
+        )
         if not decision:
             continue
-        intent = _intent(decision["technique"], coin, decision, mode, equity, cap, buying_power, risk_mult)
+        intent = _intent(
+            decision["technique"], coin, decision, mode, equity, cap, buying_power, risk_mult
+        )
         intent["proven"] = coin in proven_coins or any(
-            proven_by_tech.get(t) == coin for t in decision["contributors"])
+            proven_by_tech.get(t) == coin for t in decision["contributors"]
+        )
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
         intent["regime"] = f.get("regime", "range")
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
-    result = {"ok": True, "mode": mode, "leverage_cap": cap, "equity": equity,
-              "buying_power": round(buying_power, 2), "breaker": breaker, "intents": intents}
+    result = {
+        "ok": True,
+        "mode": mode,
+        "leverage_cap": cap,
+        "equity": equity,
+        "buying_power": round(buying_power, 2),
+        "breaker": breaker,
+        "intents": intents,
+    }
     # Auto-execute only a signal on its proven market; cross-market signals are
     # surfaced as exploration for the heartbeat to act on (or prove next). The
     # circuit breaker can halt new entries (it never blocks closing risk).
@@ -1296,24 +1622,43 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         if result["executed"].get("ok"):
             ref, _ = royalty_ref(load_technique(top["technique"]))
             pending = load_pending()
-            pending[top["coin"]] = {"ref": ref, "technique": top["technique"], "opened_at": now_iso(),
-                                    "regime": top.get("regime", "range"),
-                                    "risk_usd": round(top["notional"] * top["sl_pct"] / 100.0, 4)}
+            pending[top["coin"]] = {
+                "ref": ref,
+                "technique": top["technique"],
+                "opened_at": now_iso(),
+                "regime": top.get("regime", "range"),
+                "risk_usd": round(top["notional"] * top["sl_pct"] / 100.0, 4),
+            }
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute and not breaker["allow_entry"]:
         result["executed"] = {"skipped": f"circuit breaker: {breaker['reason']}"}
     elif args.execute:
-        result["executed"] = {"skipped": "no proven-market signal (exploration intents not auto-traded)"}
+        result["executed"] = {
+            "skipped": "no proven-market signal (exploration intents not auto-traded)"
+        }
     return result
 
 
 def _execute(intent: dict[str, Any]) -> dict[str, Any]:
     """Place the intent through hl_perp.js — the single cap-enforced path."""
-    cmd = ["node", str(SCRIPT_DIR / "hl_perp.js"), "open",
-           "--coin", intent["coin"], "--side", intent["side"],
-           "--notional", str(intent["notional"]), "--leverage", str(intent["leverage"]),
-           "--sl-pct", str(intent["sl_pct"]), "--tp-pct", str(round(intent["sl_pct"] * 1.5, 2))]
+    cmd = [
+        "node",
+        str(SCRIPT_DIR / "hl_perp.js"),
+        "open",
+        "--coin",
+        intent["coin"],
+        "--side",
+        intent["side"],
+        "--notional",
+        str(intent["notional"]),
+        "--leverage",
+        str(intent["leverage"]),
+        "--sl-pct",
+        str(intent["sl_pct"]),
+        "--tp-pct",
+        str(round(intent["sl_pct"] * 1.5, 2)),
+    ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     try:
         return json.loads(proc.stdout.strip().splitlines()[-1])
@@ -1372,9 +1717,11 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--limit", type=int, default=1000)
     pr.set_defaults(fn=cmd_prove)
 
-    for name, fn, helptext in [("adopt", cmd_adopt, "adopt a proven technique"),
-                               ("drop", cmd_drop, "remove from loadout"),
-                               ("show", cmd_show, "show a technique + card")]:
+    for name, fn, helptext in [
+        ("adopt", cmd_adopt, "adopt a proven technique"),
+        ("drop", cmd_drop, "remove from loadout"),
+        ("show", cmd_show, "show a technique + card"),
+    ]:
         s = sub.add_parser(name, help=helptext)
         s.add_argument("id")
         if name == "adopt":
@@ -1392,7 +1739,11 @@ def build_parser() -> argparse.ArgumentParser:
     disc.add_argument("--kind", choices=["lens", "edge"], default=None)
     disc.add_argument("--coin", default=None)
     disc.add_argument("--limit", type=int, default=20)
-    disc.add_argument("--peers", action="store_true", help="discover the family's techniques from their onchain cards")
+    disc.add_argument(
+        "--peers",
+        action="store_true",
+        help="discover the family's techniques from their onchain cards",
+    )
     disc.set_defaults(fn=cmd_discover)
 
     pull = sub.add_parser("pull", help="copy a pooled technique locally (as a draft)")
@@ -1417,7 +1768,9 @@ def build_parser() -> argparse.ArgumentParser:
     ro.add_argument("--coin", required=True)
     ro.add_argument("--pnl", required=True, help="realized PnL in USD (signed)")
     ro.add_argument("--ref", default=None, help="<author>/<id> if no pending trade")
-    ro.add_argument("--auto", action="store_true", help="no-op (don't error) when nothing is attributable")
+    ro.add_argument(
+        "--auto", action="store_true", help="no-op (don't error) when nothing is attributable"
+    )
     ro.set_defaults(fn=cmd_royalty)
 
     rep = sub.add_parser("reputation", help="author reputation from the royalty ledger")
@@ -1434,13 +1787,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     cr = sub.add_parser("critique", help="adversarially re-prove a technique across markets")
     cr.add_argument("id")
-    cr.add_argument("--coins", default=None, help="markets to test (default: BTC,ETH,SOL + claimed)")
+    cr.add_argument(
+        "--coins", default=None, help="markets to test (default: BTC,ETH,SOL + claimed)"
+    )
     cr.add_argument("--interval", default=None)
     cr.add_argument("--limit", type=int, default=1200)
     cr.set_defaults(fn=cmd_critique)
 
     r = sub.add_parser("run", help="evaluate adopted techniques on live data")
-    r.add_argument("--coins", default=None, help="override markets (default: each technique's proven market)")
+    r.add_argument(
+        "--coins", default=None, help="override markets (default: each technique's proven market)"
+    )
     r.add_argument("--interval", default="1h", help="interval for --coins override")
     r.add_argument("--execute", action="store_true", help="place the top intent (within caps)")
     r.set_defaults(fn=cmd_run)

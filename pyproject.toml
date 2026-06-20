@@ -1,0 +1,103 @@
+# Gclaw test + lint config. The scripts themselves are stdlib-only and have NO
+# install step — this file exists purely to drive ruff and pytest. There is no
+# package to build; `uv run` materializes pytest into an ephemeral env.
+[project]
+name = "gclaw-tests"
+version = "0"
+description = "Dev/test tooling for the Gclaw skill (scripts are stdlib-only, not packaged)."
+requires-python = ">=3.13"
+
+[dependency-groups]
+# Test deps only — the scripts themselves stay stdlib-only. Pinned for reproducibility;
+# bump to the current stable at install time (network was offline when these were set).
+#  * pytest     — runner.
+#  * hypothesis — property-based testing. JUSTIFIED: the sizing / forge-combiner / genome
+#    units are pure numeric functions whose correctness is a SET OF INVARIANTS over a
+#    continuous input space (monotonicity, bounds, determinism, idempotence), not a few
+#    golden points. Example tests only sample that space; hypothesis searches it
+#    adversarially and shrinks any counterexample to a minimal repro. Dev-only, never shipped.
+#  * mutmut     — mutation testing. Proves the property suite actually FAILS when the math
+#    is broken; a green suite that survives mutants is false confidence.
+dev = ["pytest==8.4.2", "hypothesis==6.155.6", "mutmut==3.6.0"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Fast by default: quiet, stop after 1 failure when iterating is painful to scroll,
+# strict markers/config so a typo'd marker is an error not a silent skip.
+addopts = "-q --strict-markers --strict-config --import-mode=importlib"
+# Tests mirror scripts/: test_<script>.py. Helpers are conftest.py, never collected.
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+  "slow: a test that is not a sub-millisecond unit test (deselect with -m 'not slow')",
+]
+# No network, no real sleeps, no real $HOME — a unit test that needs those is a bug.
+# (We don't import pytest-socket; the conftest fixtures make the real ones unreachable.)
+
+[tool.mutmut]
+# Mutation testing: inject bugs into the math, prove the property suite catches them.
+#
+# Target the three deterministic numeric units — NOT the I/O-heavy CLI / dashboard /
+# Node glue, where mutants are mostly equivalent or untestable without a live exchange.
+# Scope DOWN with only_mutate globs (mutmut 3.x mutates whole source_paths dirs).
+source_paths = ["scripts"]
+only_mutate = [
+  "scripts/sizing.py",   # vol-target + fractional-Kelly sizing
+  "scripts/memory.py",   # expectancy + seeded bootstrap CI
+  "scripts/forge.py",    # the gated weighted-ensemble combiner + fitness
+]
+# The property + golden suites are the oracle; point mutmut's pytest run at them.
+pytest_add_cli_args_test_selection = [
+  "tests/test_sizing.py",
+  "tests/test_sizing_properties.py",
+  "tests/test_memory.py",
+  "tests/test_forge_combiner.py",
+]
+# A mutant that hangs (e.g. flips a loop bound) is killed by timeout. Keep the
+# multiplier modest — the property suites are pure CPU, so the clean baseline is small.
+timeout_multiplier = 3.0
+timeout_constant = 2.0
+#
+# RUN:  uv run --no-project --with pytest --with hypothesis --with mutmut mutmut run
+#       uv run ... mutmut results        # tally killed / survived
+#       uv run ... mutmut show <id>       # the diff of a single survivor
+#
+# IMPORTANT — module-path match: mutmut keys mutants by the import path the tests use.
+# The suite imports the units bare (`import sizing`) via the conftest sys.path inject of
+# scripts/, while mutmut, seeing them under scripts/, expects `scripts.sizing`. mutmut 3.x
+# stops early with "tests recorded trampoline hits but none match any mutant key" on that
+# mismatch. To run mutmut, make the keys agree by selecting the bare-import root, e.g.:
+#   PYTHONPATH=scripts uv run ... mutmut run   # and set source_paths to the bare filenames
+# (verified killing the high-value sizing mutants — size = notional/price, the 0.8% stop
+# floor, the 0.0015 zero-edge probe floor, the confidence<=1.0 clamp). Surviving mutants
+# are the display-rounding digits (round(x, 4) -> round(x, 5)) on the report dict — true
+# EQUIVALENT mutants that change no financial behavior; do not chase them.
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+# Lint the scripts AND their tests with one config.
+src = ["scripts", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic-strict set. E/F/W (pyflakes+pycodestyle), I (import sort), UP (pyupgrade),
+# B (bugbear), SIM (simplify), RUF. Not the full ALL — these are scripts, not a lib.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "PTH", "RUF"]
+ignore = [
+  "E501",     # line length handled by the formatter, not the linter
+  # Deliberate house idioms (the policy: justify-ignore what's intentional):
+  "RUF001",   # ambiguous unicode (≥ × — →) in user-facing display strings — intended
+  "RUF002",   # same, in docstrings
+  "RUF005",   # explicit list concat reads clearer than unpacking here
+  "SIM105",   # explicit try/except/pass is the codebase's best-effort-degradation idiom
+  "PTH105",   # os.replace is the documented atomic-write primitive (temp + os.replace)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests get to use assert, long table names, and re-import script modules freely.
+"tests/**" = ["S101", "PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"

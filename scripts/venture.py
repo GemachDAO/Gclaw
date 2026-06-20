@@ -24,7 +24,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ def skill_dir() -> Path:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def load_state() -> dict[str, Any]:
@@ -56,7 +56,9 @@ def load_state() -> dict[str, Any]:
 
 
 def save_state(state: dict[str, Any]) -> None:
-    (home() / "metabolism.json").write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (home() / "metabolism.json").write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def append_journal(entry: dict[str, Any]) -> None:
@@ -66,14 +68,20 @@ def append_journal(entry: dict[str, Any]) -> None:
 
 def require_tier(state: dict[str, Any]) -> None:
     if state.get("goodwill", 0) < VENTURE_THRESHOLD:
-        sys.exit(f"Venture Architect locked: goodwill {state.get('goodwill', 0)} < {VENTURE_THRESHOLD}.")
+        sys.exit(
+            f"Venture Architect locked: goodwill {state.get('goodwill', 0)} < {VENTURE_THRESHOLD}."
+        )
 
 
 def cmd_status(state: dict[str, Any], _: argparse.Namespace) -> None:
     unlocked = state.get("goodwill", 0) >= VENTURE_THRESHOLD
-    print(f"goodwill {state.get('goodwill', 0)} — Venture Architect {'UNLOCKED' if unlocked else 'locked (need 5000)'}")
+    print(
+        f"goodwill {state.get('goodwill', 0)} — Venture Architect {'UNLOCKED' if unlocked else 'locked (need 5000)'}"
+    )
     for v in state.get("ventures", []):
-        print(f"  · {v['name']:<18} kind={v['kind'][:32]:<32} route={v['route_pct']}% → GMAC  [{v['deploy_state']}]")
+        print(
+            f"  · {v['name']:<18} kind={v['kind'][:32]:<32} route={v['route_pct']}% → GMAC  [{v['deploy_state']}]"
+        )
     if not state.get("ventures"):
         print("  no ventures yet")
 
@@ -85,7 +93,9 @@ def cmd_launch(state: dict[str, Any], args: argparse.Namespace) -> None:
     if vdir.exists():
         sys.exit(f"Venture '{name}' already exists at {vdir}.")
     (vdir / "contracts").mkdir(parents=True)
-    shutil.copy(skill_dir() / "contracts" / "GmacBuyAndBurn.sol", vdir / "contracts" / "GmacBuyAndBurn.sol")
+    shutil.copy(
+        skill_dir() / "contracts" / "GmacBuyAndBurn.sol", vdir / "contracts" / "GmacBuyAndBurn.sol"
+    )
 
     manifest = {
         "name": name,
@@ -105,7 +115,12 @@ def cmd_launch(state: dict[str, Any], args: argparse.Namespace) -> None:
     (vdir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     state.setdefault("ventures", []).append(
-        {"name": name, "kind": args.kind, "route_pct": int(args.route), "deploy_state": "scaffolded"}
+        {
+            "name": name,
+            "kind": args.kind,
+            "route_pct": int(args.route),
+            "deploy_state": "scaffolded",
+        }
     )
     save_state(state)
     append_journal({"ts": now_iso(), "event": "venture_launch", "venture": name, "kind": args.kind})
@@ -139,7 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_launch = sub.add_parser("launch")
     p_launch.add_argument("--name", required=True)
     p_launch.add_argument("--kind", required=True, help="what the venture does to make money")
-    p_launch.add_argument("--route", default=str(DEFAULT_ROUTE_PCT), help="%% of revenue → GMAC buy-and-burn")
+    p_launch.add_argument(
+        "--route", default=str(DEFAULT_ROUTE_PCT), help="%% of revenue → GMAC buy-and-burn"
+    )
     p_ready = sub.add_parser("readiness")
     p_ready.add_argument("--name", required=True)
     return parser
@@ -148,7 +165,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
     state = load_state()
-    {"status": cmd_status, "launch": cmd_launch, "readiness": cmd_readiness}[args.command](state, args)
+    {"status": cmd_status, "launch": cmd_launch, "readiness": cmd_readiness}[args.command](
+        state, args
+    )
     return 0
 
 

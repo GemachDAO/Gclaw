@@ -136,4 +136,9 @@ async function main() {
   process.stdout.write(JSON.stringify(out) + '\n');
 }
 
-main();
+// Pure functions are exported for unit testing; main() runs only as a CLI.
+module.exports = { parsePick, identity };
+
+if (require.main === module) {
+  main();
+}

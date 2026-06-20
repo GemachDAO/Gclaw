@@ -10,6 +10,7 @@ prefills the recipient and chain. Idempotent — skips if the output exists, so
 the dashboard can call it every render for ~free. The cached SVG embeds offline;
 the dependency is needed only when (re)generating.
 """
+
 import sys
 from pathlib import Path
 
@@ -29,7 +30,10 @@ def main() -> None:
         qrcode.make(payload, box_size=10, border=2).save(str(out))  # raster (needs pillow)
     else:
         import qrcode.image.svg
-        img = qrcode.make(payload, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+
+        img = qrcode.make(
+            payload, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2
+        )
         img.save(str(out))
     print(str(out))
 

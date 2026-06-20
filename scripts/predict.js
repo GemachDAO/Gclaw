@@ -26,7 +26,9 @@ const path = require('node:path');
 const https = require('node:https');
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
-const { ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers'));
+// Lazy keccak — only the root/roundId paths need ethers, so the file-io helpers
+// (readJson/readJsonl/writeAtomic) and resolve logic stay unit-testable without it.
+const ethers = () => require(path.join(GDEX_DIR, 'node_modules', 'ethers')).ethers;
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p));
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const DIR = path.join(GCLAW_HOME, 'predictions');
@@ -75,7 +77,7 @@ const roundsPath = () => path.join(DIR, 'rounds.json');
 const callsPath = () => path.join(DIR, 'calls.jsonl');
 const predictorsPath = () => path.join(DIR, 'predictors.json');
 
-function roundId(coin, entry) { return ethers.id(`${agentId()}|${coin}|${entry}`).slice(0, 12); }
+function roundId(coin, entry) { return ethers().id(`${agentId()}|${coin}|${entry}`).slice(0, 12); }
 
 // keccak of the open rounds + their calls — anchored onchain so nothing backdates.
 function writeRoot() {
@@ -84,7 +86,7 @@ function writeRoot() {
   const calls = readJsonl(callsPath());
   const payload = open.map((r) => ({ id: r.id, coin: r.coin, side: r.side, entry: r.entry, openedAt: r.openedAt,
     calls: calls.filter((c) => c.roundId === r.id).map((c) => `${c.by}:${c.pick}:${c.ts}`).sort() }));
-  const root = ethers.id(JSON.stringify(payload));
+  const root = ethers().id(JSON.stringify(payload));
   writeAtomic(path.join(DIR, 'root.json'), JSON.stringify({ root, openRounds: open.map((r) => r.id), updatedAt: new Date().toISOString() }, null, 2) + '\n');
   return root;
 }
@@ -215,4 +217,9 @@ async function main() {
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
 
-main().then(() => process.exit(0)).catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+// Pure / file-io helpers exported for unit testing; main() runs only as a CLI.
+module.exports = { readJson, readJsonl, writeAtomic, cmdCall, cmdResolve };
+
+if (require.main === module) {
+  main().then(() => process.exit(0)).catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+}

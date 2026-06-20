@@ -187,4 +187,13 @@ function main() {
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
 
-main();
+// Pure / file-only functions + the hard caps exported for unit testing;
+// main() runs only as a CLI.
+module.exports = {
+  stopFor, assess, breakerCheck, pruneState, enforce, hl,
+  RISK_CAP_PCT, PORTFOLIO_CAP_PCT, TOLERANCE, MIN_NOTIONAL,
+};
+
+if (require.main === module) {
+  main();
+}

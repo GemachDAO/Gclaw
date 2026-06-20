@@ -24,7 +24,8 @@ const { execFileSync } = require('node:child_process');
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
-const SDK = require(path.join(GDEX_DIR, 'dist'));
+// Lazy SDK so the cursor/selection logic stays unit-testable with no SDK, no network.
+const loadSdk = () => require(path.join(GDEX_DIR, 'dist'));
 
 const CURSOR_PATH = path.join(GCLAW_HOME, 'autosettle.json');
 const DUST = 0.01; // carry remainders below 1 cent rather than spam tiny settles
@@ -66,6 +67,7 @@ function managedAddress() {
 }
 
 async function fetchFills(address) {
+  const SDK = loadSdk();
   const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
   skill.loginWithApiKey(process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY);
   const h = await skill.getHlTradeHistory(address);
@@ -195,11 +197,16 @@ async function main() {
   process.stdout.write(JSON.stringify(summary) + '\n');
 }
 
+// Pure / file-only functions exported for unit testing; main() runs only as a CLI.
+module.exports = { selectNew, loadCursor, saveCursor, writeAtomic, readJson, CURSOR_PATH, DUST };
+
 // The GDEX/HL SDK keeps a connection open that holds the event loop, so exit
 // explicitly once the work is done instead of hanging until a timeout.
-main()
-  .then(() => process.exit(0))
-  .catch((e) => {
-    process.stdout.write(JSON.stringify({ ok: false, error: e.message || String(e) }) + '\n');
-    process.exit(1);
-  });
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      process.stdout.write(JSON.stringify({ ok: false, error: e.message || String(e) }) + '\n');
+      process.exit(1);
+    });
+}
