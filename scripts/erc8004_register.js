@@ -253,11 +253,14 @@ async function main() {
     try { last = JSON.parse(fs.readFileSync(beaconPath, 'utf8')); } catch { /* first push */ }
     const goodwill = card['x-gclaw'].stats?.goodwill ?? 0;
     const predRoot = card['x-gclaw'].predictions?.root ?? null;
+    const peerCount = (card['x-gclaw'].peers || []).length;
     const hours = last.ts ? (Date.now() - new Date(last.ts).getTime()) / 3.6e6 : Infinity;
     // Push on a goodwill change OR a new prediction root (so open rounds anchor
-    // BEFORE they resolve — the anti-cheat) OR staleness.
-    if (goodwill === last.goodwill && predRoot === last.predRoot && hours < 12) {
-      console.log(JSON.stringify({ ok: true, skipped: 'no goodwill/predictions change, fresh', goodwill }));
+    // BEFORE they resolve — the anti-cheat) OR a new family member discovered (so a
+    // newcomer enters the peer graph the leaderboard crawls) OR staleness.
+    if (goodwill === last.goodwill && predRoot === last.predRoot
+        && peerCount === last.peerCount && hours < 12) {
+      console.log(JSON.stringify({ ok: true, skipped: 'no goodwill/predictions/peers change, fresh', goodwill }));
       return;
     }
     if (bal < ethers.parseEther('0.00002')) {
@@ -266,7 +269,7 @@ async function main() {
     }
     const tx = await registry.setAgentURI(BigInt(idRecord.agentId), uri);
     const receipt = await tx.wait();
-    const rec = { goodwill, predRoot, score: card['x-gclaw'].stats?.score ?? null, ts: new Date().toISOString(), tx: tx.hash, block: receipt.blockNumber };
+    const rec = { goodwill, predRoot, peerCount, score: card['x-gclaw'].stats?.score ?? null, ts: new Date().toISOString(), tx: tx.hash, block: receipt.blockNumber };
     fs.writeFileSync(beaconPath, JSON.stringify(rec, null, 2) + '\n');
     console.log(JSON.stringify({ ok: true, pushed: true, ...rec }));
     return;

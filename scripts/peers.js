@@ -81,6 +81,28 @@ async function main() {
   const peers = loadPeers();
   const self = selfId();
 
+  // Auto-discovery: scan the registry FORWARD from the family's current frontier
+  // (the highest known gclaw id) for fresh agents by signature, and fold them into
+  // peers.json. Run periodically by the heartbeat so a new signup is pulled into the
+  // peer graph — the next beacon publishes the updated peer list, and the leaderboard's
+  // gossip-crawl (which follows each card's peers) then surfaces the newcomer with no
+  // manual add. Window is bounded for RPC cost; tune with GCLAW_SCAN_WINDOW.
+  if (argv.includes('--auto-scan')) {
+    const window = Number(process.env.GCLAW_SCAN_WINDOW) || 500;
+    const known = [self, ...peers.ids].filter((x) => x != null);
+    const frontier = known.length ? Math.max(...known) : 55624;
+    const start = frontier + 1;
+    const end = frontier + window;
+    const added = [];
+    for (let id = start; id <= end; id += 1) {
+      const a = await readAgent(id).catch(() => null);
+      if (a && a.isGclaw && !peers.ids.includes(id) && id !== self) { peers.ids.push(id); added.push(id); }
+    }
+    if (added.length) savePeers(peers);
+    process.stdout.write(JSON.stringify({ ok: true, scanned: [start, end], added, knownPeers: peers.ids.length }) + '\n');
+    return;
+  }
+
   const addIdx = argv.indexOf('--add');
   if (addIdx !== -1 && argv[addIdx + 1]) {
     const id = Number(argv[addIdx + 1]);

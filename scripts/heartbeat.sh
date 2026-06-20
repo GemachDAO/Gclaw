@@ -114,6 +114,18 @@ fi
   echo "$(ts) predict-open: $(node "$SKILL_DIR/scripts/predict.js" open --announce 2>&1)" >>"$LOG"
 } || true
 
+# Auto-discover new family members: periodically scan the registry frontier for fresh
+# gclaw agents (by signature) and fold them into the peer graph — so a new signup just
+# pops up on everyone's leaderboard. Runs BEFORE the render so the render's beacon
+# publishes the updated peer list onchain; the board's gossip-crawl then follows it.
+# Throttled (default 6h) to bound RPC; a discovered peer also triggers the beacon.
+DISCOVER_INTERVAL_H="${GCLAW_DISCOVER_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
+LAST_DISCOVER="$(cat "$GCLAW_HOME/last_discover" 2>/dev/null || echo 0)"
+if [[ -f "$SKILL_DIR/scripts/peers.js" && $((NOW - LAST_DISCOVER)) -ge $((DISCOVER_INTERVAL_H * 3600)) ]]; then
+  echo "$(ts) discover: $(timeout 200 node "$SKILL_DIR/scripts/peers.js" --auto-scan 2>&1 | tail -c 200)" >>"$LOG"
+  date +%s >"$GCLAW_HOME/last_discover"
+fi
+
 # Always refresh the dashboard — this also publishes stats + the DNA avatar to
 # IPFS, anchors the predictions root onchain, and recomputes the leaderboards.
 [[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
