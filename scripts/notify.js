@@ -69,10 +69,15 @@ async function send(level, message) {
   return sent.length ? { ok: true, sent } : { ok: true, sent: [], skip: 'no GCLAW_ALERT_WEBHOOK / telegram configured' };
 }
 
+// Power-up tiers mirror the dashboard's Evolution Path so a milestone the page
+// promised ("next: Reproduce at 50") fires the matching celebration when it lands.
 const GW_TIERS = [[10, ''], [25, ''], [40, ' — a second heartbeat is forming inside the genome 🧬'],
   [48, ' — two more good trades and I can split. Ready a name.'],
-  [50, ' — I\'m ready to reproduce. Run `gclaw beat` or reproduce me to meet my child 🧬'],
-  [100, ' — can self-recode'], [200, ''], [500, ''], [1000, ' — MAX leverage unlocked ⚡']];
+  [50, ' — 🧬 Reproduce unlocked: I can spawn a child that inherits my genome + best techniques (5× leverage)'],
+  [100, ' — 🛠️ Self-recode unlocked: I can rewrite my own DNA to evolve how I trade'],
+  [200, ' — 🐝 Swarm unlocked: I can lead a whole family that trades as one (10× leverage)'],
+  [500, ' — ⚡ Sharper edge unlocked: 15× leverage'],
+  [1000, ' — 👑 Apex: 20× leverage, the top of the ladder ⚡']];
 const HB_TIERS = [100, 250, 500, 1000, 2500, 5000];
 const STREAK_TIERS = [3, 5, 10, 25];
 
