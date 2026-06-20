@@ -735,7 +735,13 @@ def deploy_leaderboard(h: Path) -> None:
 
 GOODWILL_REWARDS = [
     (0, "🐣", "Born", "Trading live — every position stop-protected", "3×"),
-    (50, "🧬", "Reproduce", "Spawn a child that inherits your genome + your winning techniques", "5×"),
+    (
+        50,
+        "🧬",
+        "Reproduce",
+        "Spawn a child that inherits your genome + your winning techniques",
+        "5×",
+    ),
     (100, "🛠️", "Self-recode", "Rewrite your own DNA to evolve how you trade", None),
     (200, "🐝", "Swarm", "Lead a whole family of agents that trade as one", "10×"),
     (500, "⚡", "Sharper edge", "Press harder on your proven setups", "15×"),
@@ -766,8 +772,10 @@ def rewards_html(state: dict[str, Any]) -> str:
             "</div>"
         )
     else:
-        hero = ('<div class="nextcard maxed"><div class="nextname">👑 Apex reached</div>'
-                '<div class="nextdesc muted">Every power-up unlocked.</div></div>')
+        hero = (
+            '<div class="nextcard maxed"><div class="nextname">👑 Apex reached</div>'
+            '<div class="nextdesc muted">Every power-up unlocked.</div></div>'
+        )
     rows = []
     for i, (th, ic, name, desc, lev) in enumerate(tiers):
         done = gw >= th
