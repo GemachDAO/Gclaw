@@ -26,15 +26,60 @@ const RPC = process.env.BASE_RPC || 'https://mainnet.base.org';
 const SIGNATURE = 'trade to survive'; // shared gclaw description marker
 const pad = (n) => BigInt(n).toString(16).padStart(64, '0');
 
-async function ethCall(data) {
+async function rpc(method, params) {
   const res = await fetch(RPC, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: REGISTRY, data }, 'latest'] }),
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
   const j = await res.json();
   if (j.error) throw new Error(j.error.message);
   return j.result;
+}
+const ethCall = (data) => rpc('eth_call', [{ to: REGISTRY, data }, 'latest']);
+
+// The registry emits this event on register AND setAgentURI, with the agentId indexed
+// in topic1 and the full agent URI in the log data. So we discover EVERY gclaw agent
+// from the event stream by the shared description signature — regardless of where its
+// token id lands in the shared registry — instead of guessing an id window.
+const REGISTER_TOPIC = '0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a';
+const GENESIS_BLOCK = Number(process.env.GCLAW_GENESIS_BLOCK) || 47435383; // first gclaw mint
+const LOG_CHUNK = 10000; // public Base RPC caps eth_getLogs at a 10k block range
+
+function isGclawUri(uri) {
+  if (!uri) return false;
+  if (uri.includes('base64,')) {
+    try {
+      const card = JSON.parse(Buffer.from(uri.split('base64,')[1], 'base64').toString('utf8'));
+      return typeof card.description === 'string' && card.description.includes(SIGNATURE);
+    } catch { return false; }
+  }
+  return uri.includes(SIGNATURE);
+}
+
+// Event-sourced discovery: replay the registry's URI events from the gclaw genesis
+// block (or the saved cursor) forward, keep the ones whose card carries the signature,
+// and fold them into peers.json. Incremental via peers.lastBlock — steady state only
+// reads the handful of new blocks since the last run.
+async function discover(peers, self) {
+  const latest = parseInt(await rpc('eth_blockNumber', []), 16);
+  const start = peers.lastBlock ? peers.lastBlock + 1 : GENESIS_BLOCK;
+  const added = [];
+  for (let lo = start; lo <= latest; lo += LOG_CHUNK) {
+    const hi = Math.min(lo + LOG_CHUNK - 1, latest);
+    const logs = await rpc('eth_getLogs', [{
+      address: REGISTRY, topics: [REGISTER_TOPIC],
+      fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16),
+    }]).catch(() => []);
+    for (const log of logs || []) {
+      const id = Number(BigInt(log.topics[1]));
+      if (id === self || peers.ids.includes(id)) continue;
+      if (isGclawUri(decodeString(log.data))) { peers.ids.push(id); added.push(id); }
+    }
+  }
+  peers.lastBlock = latest;
+  savePeers(peers);
+  return { ok: true, from: start, to: latest, added, knownPeers: peers.ids.length };
 }
 
 function decodeString(hex) {
@@ -81,25 +126,13 @@ async function main() {
   const peers = loadPeers();
   const self = selfId();
 
-  // Auto-discovery: scan the registry FORWARD from the family's current frontier
-  // (the highest known gclaw id) for fresh agents by signature, and fold them into
-  // peers.json. Run periodically by the heartbeat so a new signup is pulled into the
-  // peer graph — the next beacon publishes the updated peer list, and the leaderboard's
-  // gossip-crawl (which follows each card's peers) then surfaces the newcomer with no
-  // manual add. Window is bounded for RPC cost; tune with GCLAW_SCAN_WINDOW.
-  if (argv.includes('--auto-scan')) {
-    const window = Number(process.env.GCLAW_SCAN_WINDOW) || 500;
-    const known = [self, ...peers.ids].filter((x) => x != null);
-    const frontier = known.length ? Math.max(...known) : 55624;
-    const start = frontier + 1;
-    const end = frontier + window;
-    const added = [];
-    for (let id = start; id <= end; id += 1) {
-      const a = await readAgent(id).catch(() => null);
-      if (a && a.isGclaw && !peers.ids.includes(id) && id !== self) { peers.ids.push(id); added.push(id); }
-    }
-    if (added.length) savePeers(peers);
-    process.stdout.write(JSON.stringify({ ok: true, scanned: [start, end], added, knownPeers: peers.ids.length }) + '\n');
+  // Discover the whole family from the registry's event log — every gclaw agent that
+  // ever registered or beaconed, by signature, regardless of token id. Run by the
+  // heartbeat so a new signup is pulled into the peer graph automatically; the next
+  // beacon publishes the updated peers, and the leaderboard's crawl surfaces it.
+  if (argv.includes('--discover')) {
+    const out = await discover(peers, self).catch((e) => ({ ok: false, error: e.message }));
+    process.stdout.write(JSON.stringify(out) + '\n');
     return;
   }
 

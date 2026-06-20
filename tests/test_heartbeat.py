@@ -116,34 +116,30 @@ def test_explicit_model_override_wins(metabolism_fixture, gclaw_home):
     assert out.stdout.strip() == "opus"  # manual override beats the idle default
 
 
-def test_auto_scan_scans_window_from_the_family_frontier(gclaw_home, metabolism_fixture):
-    # New-family-member discovery scans FORWARD from the highest known gclaw id. Point
-    # it at a dead RPC so it can't touch the network — we're asserting the range logic
-    # and that it degrades cleanly (nothing found, no crash), not real onchain reads.
+def test_discover_degrades_cleanly_offline(gclaw_home, metabolism_fixture):
+    # Event-sourced discovery replays the registry's URI events. Point it at a dead RPC
+    # so it can't touch the network — it must fail closed (ok:false, no crash, no garbage
+    # peers), never throw. (The happy path is covered by the live family graph.)
     metabolism_fixture()
     (gclaw_home / "peers.json").write_text(json.dumps({"ids": [55671]}), encoding="utf-8")
     out = subprocess.run(
-        ["node", str(SCRIPTS / "peers.js"), "--auto-scan"],
+        ["node", str(SCRIPTS / "peers.js"), "--discover"],
         capture_output=True,
         text=True,
         timeout=30,
-        env={
-            "GCLAW_HOME": str(gclaw_home),
-            "PATH": _PATH,
-            "GCLAW_SCAN_WINDOW": "3",
-            "BASE_RPC": "http://127.0.0.1:1",  # closed port → fast-fail, hermetic
-        },
+        env={"GCLAW_HOME": str(gclaw_home), "PATH": _PATH, "BASE_RPC": "http://127.0.0.1:1"},
     )
     res = json.loads(out.stdout.strip())
-    assert res["scanned"] == [55672, 55674]  # frontier(55671)+1 .. +window
-    assert res["added"] == []  # offline → discovers nothing, but never throws
+    assert res["ok"] is False  # dead RPC → degrades, doesn't throw
+    # the known peer is untouched — a failed discovery never corrupts the roster
+    assert json.loads((gclaw_home / "peers.json").read_text())["ids"] == [55671]
 
 
 def test_heartbeat_runs_periodic_discovery(gclaw_home):
     # The loop must actually invoke discovery (throttled), or newcomers never get
     # folded into the peer graph the leaderboard crawls.
-    assert "--auto-scan" in HEARTBEAT
-    assert HEARTBEAT.index("--auto-scan") < HEARTBEAT.index("dashboard.py")  # before the beacon
+    assert "--discover" in HEARTBEAT
+    assert HEARTBEAT.index("--discover") < HEARTBEAT.index("dashboard.py")  # before the beacon
 
 
 def test_status_cache_keeps_cadence_hermetic(gclaw_home):

@@ -122,7 +122,7 @@ fi
 DISCOVER_INTERVAL_H="${GCLAW_DISCOVER_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
 LAST_DISCOVER="$(cat "$GCLAW_HOME/last_discover" 2>/dev/null || echo 0)"
 if [[ -f "$SKILL_DIR/scripts/peers.js" && $((NOW - LAST_DISCOVER)) -ge $((DISCOVER_INTERVAL_H * 3600)) ]]; then
-  echo "$(ts) discover: $(timeout 200 node "$SKILL_DIR/scripts/peers.js" --auto-scan 2>&1 | tail -c 200)" >>"$LOG"
+  echo "$(ts) discover: $(timeout 200 node "$SKILL_DIR/scripts/peers.js" --discover 2>&1 | tail -c 200)" >>"$LOG"
   date +%s >"$GCLAW_HOME/last_discover"
 fi
 
