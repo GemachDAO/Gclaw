@@ -114,12 +114,13 @@ fi
   echo "$(ts) predict-open: $(node "$SKILL_DIR/scripts/predict.js" open --announce 2>&1)" >>"$LOG"
 } || true
 
-# Auto-discover new family members: periodically scan the registry frontier for fresh
-# gclaw agents (by signature) and fold them into the peer graph — so a new signup just
-# pops up on everyone's leaderboard. Runs BEFORE the render so the render's beacon
+# Auto-discover new family members: replay the registry's URI events for fresh gclaw
+# agents (by signature) and fold them into the peer graph — so a new signup pops up on
+# everyone's leaderboard within the hour. Runs BEFORE the render so the render's beacon
 # publishes the updated peer list onchain; the board's gossip-crawl then follows it.
-# Throttled (default 6h) to bound RPC; a discovered peer also triggers the beacon.
-DISCOVER_INTERVAL_H="${GCLAW_DISCOVER_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
+# Hourly by default — cheap because discovery is incremental (a block cursor, so each
+# run only reads the new blocks since the last). A discovered peer also triggers a beacon.
+DISCOVER_INTERVAL_H="${GCLAW_DISCOVER_INTERVAL_H:-1}"; NOW="${NOW:-$(date +%s)}"
 LAST_DISCOVER="$(cat "$GCLAW_HOME/last_discover" 2>/dev/null || echo 0)"
 if [[ -f "$SKILL_DIR/scripts/peers.js" && $((NOW - LAST_DISCOVER)) -ge $((DISCOVER_INTERVAL_H * 3600)) ]]; then
   echo "$(ts) discover: $(timeout 200 node "$SKILL_DIR/scripts/peers.js" --discover 2>&1 | tail -c 200)" >>"$LOG"
