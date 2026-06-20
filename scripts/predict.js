@@ -39,7 +39,15 @@ const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8'))
 // writeFileSync truncates-then-writes, so a concurrent reader can catch a half-file
 // and drop a call. temp + rename is atomic on the same filesystem.
 const writeAtomic = (p, data) => { const t = `${p}.tmp${process.pid}`; fs.writeFileSync(t, data); fs.renameSync(t, p); };
-const readJsonl = (p) => { try { return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
+// Parse a JSONL ledger line-by-line, SKIPPING any torn/partial line rather than losing
+// the whole file (an append-only log can have one half-written tail line after a crash).
+const readJsonl = (p) => {
+  let lines;
+  try { lines = fs.readFileSync(p, 'utf8').split('\n'); } catch { return []; }
+  const out = [];
+  for (const l of lines) { if (!l.trim()) continue; try { out.push(JSON.parse(l)); } catch { /* skip the torn line */ } }
+  return out;
+};
 const agentId = () => String(readJson(path.join(GCLAW_HOME, 'metabolism.json'), {}).onchain_identity?.agentId || '0');
 const managed = () => JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8')).managed?.['Arbitrum (HyperLiquid)']?.address;
 

@@ -74,14 +74,13 @@ describe('readJsonl — tolerant of blank lines and a torn last line', () => {
   test('missing file returns []', () => {
     expect(readJsonl(path.join(tmp, 'none.jsonl'))).toEqual([]);
   });
-  test('a torn final line (crash mid-append) degrades to [] rather than throwing', () => {
-    // readJsonl wraps the parse in try/catch -> []. A half-written final line makes the
-    // whole read fall back to empty: the engine treats the corrupt log as "no calls"
-    // (fail-conservative) instead of crashing the heartbeat. Appends are O_APPEND so
-    // this is rare, but the read still must never throw.
+  test('a torn final line (crash mid-append) is skipped — valid records survive', () => {
+    // An append-only log can have one half-written tail line after a crash. The reader
+    // skips just that line and keeps every valid record, instead of losing the whole
+    // ledger (returning [] would treat real prior calls as "none" and mis-resolve rounds).
     const p = path.join(tmp, 'torn.jsonl');
-    fs.writeFileSync(p, `${JSON.stringify({ a: 1 })}\n{"a": 2`); // last line torn
-    expect(readJsonl(p)).toEqual([]);
+    fs.writeFileSync(p, `${JSON.stringify({ a: 1 })}\n${JSON.stringify({ a: 2 })}\n{"a": 3`);
+    expect(readJsonl(p)).toEqual([{ a: 1 }, { a: 2 }]);
   });
 });
 
