@@ -190,11 +190,12 @@ async function scan(coins) {
     info({ type: 'metaAndAssetCtxs' }),
     ...builders.map((dex) => info({ type: 'metaAndAssetCtxs', dex })),
   ]);
+  // Universe names are bare on the default dex (BTC) and already dex-prefixed on
+  // builder dexes (xyz:TSLA), so key the context map straight off u.name for both.
   const ctxByName = new Map();
-  ctxResps.forEach((resp, di) => {
+  ctxResps.forEach((resp) => {
     if (!Array.isArray(resp) || !resp[0]?.universe) return;
-    const prefix = di === 0 ? '' : `${builders[di - 1]}:`;
-    resp[0].universe.forEach((u, i) => ctxByName.set(prefix + u.name, resp[1][i]));
+    resp[0].universe.forEach((u, i) => ctxByName.set(u.name, resp[1][i]));
   });
   const btc = (await candles('BTC', '1h', CORR_WINDOW + 25)).slice(0, -1); // closed bars only
   const btcReturns = returns(btc.map((k) => k.c)).slice(-CORR_WINDOW);
