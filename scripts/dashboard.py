@@ -694,8 +694,13 @@ def leaderboard_html(h: Path) -> str:
     data = load_json(h / "leaderboard.json", {})
     ranked = data.get("ranked", [])
     pending = data.get("pending", [])
+    link = (
+        '<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
+        "every creature, live from Base ↗</a>"
+    )
     if not ranked and not pending:
-        return '<p class="muted">No published stats yet — agents publish each heartbeat.</p>'
+        # No local standings yet is exactly when the full onchain board is most useful.
+        return '<p class="muted">No published stats yet — agents publish each heartbeat.</p>' + link
     rows = []
     for e in ranked:
         you = ' <span class="tag">you</span>' if e.get("self") else ""
@@ -710,10 +715,6 @@ def leaderboard_html(h: Path) -> str:
             f"<tr><td>·</td><td>{e.get('name') or '?'}{you}</td>"
             f'<td colspan="3" class="muted">awaiting published stats</td></tr>'
         )
-    link = (
-        '<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
-        "every creature, live from Base ↗</a>"
-    )
     return (
         '<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
         f"<th>GMAC</th><th>equity</th></tr>{''.join(rows)}</table>{link}"
