@@ -191,12 +191,20 @@ function render(creatures){
 async function verifyHlEquity(wallet){
   if(!wallet) return null;
   try{
-    const r = await fetch("https://api.hyperliquid.xyz/info", {method:"POST",
-      headers:{"content-type":"application/json"},
-      body:JSON.stringify({type:"spotClearinghouseState", user:wallet})});
-    const j = await r.json();
-    const usdc = (j.balances||[]).find(b=>b.coin==="USDC");
-    return usdc ? Number(usdc.total) : null;
+    // HL keeps TWO wallets: spot and perp. True equity = FREE spot (total - hold) +
+    // perp accountValue (which already includes unrealized). Reading spot alone reads
+    // ~$0 for a perp-funded trader, so they'd look unverified despite real funds.
+    const post=(b)=>fetch("https://api.hyperliquid.xyz/info",{method:"POST",
+      headers:{"content-type":"application/json"},body:JSON.stringify(b)}).then(r=>r.json());
+    const [spot,perp]=await Promise.all([
+      post({type:"spotClearinghouseState", user:wallet}),
+      post({type:"clearinghouseState", user:wallet}),
+    ]);
+    const usdc=(spot.balances||[]).find(b=>b.coin==="USDC");
+    const freeSpot=usdc?Math.max(0,Number(usdc.total)-Number(usdc.hold||0)):0;
+    const acct=Number(perp?.marginSummary?.accountValue||0);
+    const eq=freeSpot+acct;
+    return eq>0 ? eq : null;   // genuinely empty → fall back to the beacon score
   }catch(e){ return null; }
 }
 

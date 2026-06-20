@@ -161,6 +161,18 @@ def test_sigil_is_a_clean_glyph(gclaw_home):
         assert g["sigil"] not in tofu
 
 
+def test_leaderboard_verifier_counts_the_perp_wallet():
+    # Regression: the leaderboard verifies equity straight from HyperLiquid. It must
+    # count the PERP wallet, not spot alone — else a perp-funded agent reads ~$0 and
+    # looks unverified despite real funds (the spot-vs-perp bug we fixed everywhere).
+    src = (Path(__file__).resolve().parent.parent / "leaderboard" / "leaderboard.html").read_text(
+        encoding="utf-8"
+    )
+    assert "clearinghouseState" in src  # the perp wallet (accountValue), not just spot
+    assert "accountValue" in src
+    assert "hold" in src  # free spot = total - hold, so the margin isn't double-counted
+
+
 def test_cmd_render_writes_a_valid_page(metabolism_fixture, gclaw_home):
     # The heartbeat's terminal step: render --no-live must produce a real dashboard.
     metabolism_fixture()
