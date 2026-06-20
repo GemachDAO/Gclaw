@@ -625,24 +625,6 @@ def refresh_roster(h: Path) -> None:
         pass  # keep the last good cache; the page renders offline regardless
 
 
-def roster_html(h: Path) -> str:
-    data = load_json(h / "peers_roster.json", {})
-    roster = data.get("roster", [])
-    if not roster:
-        return '<p class="muted">No peers discovered yet — scanning the Base registry.</p>'
-    rows = []
-    for a in roster:
-        you = ' <span class="tag">you</span>' if a.get("self") else ""
-        avatar = " 🖼" if a.get("image") else ""
-        scan = f"https://basescan.org/nft/{data.get('registry', '')}/{a['id']}"
-        rows.append(
-            f'<li><a href="{scan}" target="_blank">#{a["id"]}</a> '
-            f"<b>{a.get('name') or '?'}</b>{avatar}{you} "
-            f'<span class="muted">{(a.get("owner") or "?")[:10]}…</span></li>'
-        )
-    return f'<ul class="family">{"".join(rows)}</ul>'
-
-
 def refresh_leaderboard(h: Path) -> None:
     """Best-effort: pull peer stats and recompute the family leaderboard."""
     try:
@@ -671,28 +653,39 @@ def leaderboard_html(h: Path) -> str:
     pending = data.get("pending", [])
     link = (
         '<a class="link lb-full" href="leaderboard.html">See the full leaderboard — '
-        "every creature, live from Base ↗</a>"
+        "verified equity, every creature, live from Base ↗</a>"
     )
     if not ranked and not pending:
         # No local standings yet is exactly when the full onchain board is most useful.
         return '<p class="muted">No published stats yet — agents publish each heartbeat.</p>' + link
+
+    def member(e: dict) -> str:
+        nm = html.escape(str(e.get("name") or "?"))
+        you = ' <span class="tag">you</span>' if e.get("self") else ""
+        aid = e.get("agentId")
+        if aid:  # each member links to its onchain ERC-8004 card (folds in the old roster)
+            nm = (
+                f'<a href="https://basescan.org/nft/{IDENTITY_REGISTRY}/{aid}" '
+                f'target="_blank" rel="noopener">{nm}</a>'
+            )
+        return f"{nm}{you}"
+
     rows = []
     for e in ranked:
-        you = ' <span class="tag">you</span>' if e.get("self") else ""
         rows.append(
-            f"<tr><td>{e.get('rank')}</td><td><b>{e.get('name') or '?'}</b>{you}</td>"
-            f"<td>{e.get('goodwill', 0)}</td><td>{e.get('gmac', 0)}</td>"
-            f"<td>${e.get('equityUsd', 0)}</td></tr>"
+            f"<tr><td>{e.get('rank')}</td><td><b>{member(e)}</b></td>"
+            f"<td>{e.get('goodwill', 0)}</td><td>{e.get('gmac', 0)}</td></tr>"
         )
     for e in pending:
-        you = ' <span class="tag">you</span>' if e.get("self") else ""
         rows.append(
-            f"<tr><td>·</td><td>{e.get('name') or '?'}{you}</td>"
-            f'<td colspan="3" class="muted">awaiting published stats</td></tr>'
+            f"<tr><td>·</td><td>{member(e)}</td>"
+            f'<td colspan="2" class="muted">awaiting published stats</td></tr>'
         )
+    # Equity lives on the full board (verified live from HL) — the local beacon stat is
+    # stale/unreliable, so don't show a misleading number here; link to the real one.
     return (
         '<table class="lb"><tr><th>#</th><th>agent</th><th>goodwill</th>'
-        f"<th>GMAC</th><th>equity</th></tr>{''.join(rows)}</table>{link}"
+        f"<th>GMAC</th></tr>{''.join(rows)}</table>{link}"
     )
 
 
@@ -1070,7 +1063,6 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         onchain=onchain_html(state),
         techniques=techniques_html(),
         positions=positions_html(home()),
-        roster=roster_html(home()),
         leaderboard=leaderboard_html(home()),
         achievements=achievements_html(state),
         rewards=rewards_html(state),
@@ -1460,8 +1452,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 </div>
 
 <div class="pane" id="social">
-  <div class="card decent"><h2>👥 Family roster · onchain (Base)</h2>{roster}</div>
-  <div class="card decent"><h2>🏆 Leaderboard</h2>{leaderboard}</div>
+  <div class="card decent full"><h2>🏆 Family leaderboard · onchain (Base)</h2>{leaderboard}</div>
   <div class="card decent full"><h2>🎯 Call it · predictions (free · onchain-anchored)</h2>{predictions}</div>
   <div class="card full"><h2>The Show · family chatter</h2>{telepathy}</div>
 </div>
