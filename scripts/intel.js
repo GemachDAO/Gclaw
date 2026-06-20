@@ -182,13 +182,25 @@ function applyOiDelta(out) {
 }
 
 async function scan(coins) {
-  const ctxResp = await info({ type: 'metaAndAssetCtxs' });
+  // Pull asset context for the default dex AND each builder dex present in the scan
+  // (xyz:NVDA lives under the `xyz` dex), so stock/commodity markets get OI + premium
+  // too — not just the majors. Builder universe names are prefixed back to `dex:NAME`.
+  const builders = [...new Set(coins.filter((c) => c.includes(':')).map((c) => c.split(':')[0].toLowerCase()))];
+  const ctxResps = await Promise.all([
+    info({ type: 'metaAndAssetCtxs' }),
+    ...builders.map((dex) => info({ type: 'metaAndAssetCtxs', dex })),
+  ]);
   const ctxByName = new Map();
-  if (Array.isArray(ctxResp) && ctxResp[0]?.universe) ctxResp[0].universe.forEach((u, i) => ctxByName.set(u.name, ctxResp[1][i]));
+  ctxResps.forEach((resp, di) => {
+    if (!Array.isArray(resp) || !resp[0]?.universe) return;
+    const prefix = di === 0 ? '' : `${builders[di - 1]}:`;
+    resp[0].universe.forEach((u, i) => ctxByName.set(prefix + u.name, resp[1][i]));
+  });
   const btc = (await candles('BTC', '1h', CORR_WINDOW + 25)).slice(0, -1); // closed bars only
   const btcReturns = returns(btc.map((k) => k.c)).slice(-CORR_WINDOW);
-  const out = {};
-  for (const coin of coins) out[coin] = await coinIntel(coin, ctxByName.get(coin), btcReturns);
+  // Scan every market concurrently so the full universe reads as fast as one coin.
+  const entries = await Promise.all(coins.map(async (c) => [c, await coinIntel(c, ctxByName.get(c), btcReturns)]));
+  const out = Object.fromEntries(entries);
   applyOiDelta(out);
   return out;
 }
@@ -198,7 +210,11 @@ function parseArgs(a) { const o = {}; for (let i = 0; i < a.length; i += 1) if (
 async function main() {
   const cmd = process.argv[2] || 'scan';
   const args = parseArgs(process.argv.slice(3));
-  const coins = String(args.coins || 'BTC,ETH,SOL').split(',').map((s) => s.trim()).filter(Boolean);
+  // Default to the full tradeable universe (keep in sync with forge.py SCAN_UNIVERSE):
+  // majors + the deepest xyz stock/commodity perps, so the regime panel sees everything
+  // the agent can actually trade, not just BTC/ETH/SOL.
+  const universe = 'BTC,ETH,SOL,xyz:NVDA,xyz:TSLA,xyz:SPCX,xyz:AAPL,xyz:AMZN,xyz:GOLD';
+  const coins = String(args.coins || universe).split(',').map((s) => s.trim()).filter(Boolean);
   fs.mkdirSync(GCLAW_HOME, { recursive: true });
   const intel = await scan(coins);
   if (cmd === 'regime') {
