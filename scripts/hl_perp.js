@@ -25,6 +25,23 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const https = require('node:https');
+
+// HL's PUBLIC info API — authoritative, auth-free state read. We use it for equity
+// because the authenticated SDK's clearinghouseState returns the shared account
+// collateral as `accountValue` when FLAT (which then double-counts against spot), and
+// because it can't be throttled by the GDEX sign-in rate limit.
+function hlInfo(body) {
+  return new Promise((resolve) => {
+    const d = JSON.stringify(body);
+    const req = https.request('https://api.hyperliquid.xyz/info',
+      { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(d) }, timeout: 15000 },
+      (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => { try { resolve(JSON.parse(b)); } catch { resolve(null); } }); });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.write(d); req.end();
+  });
+}
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
@@ -117,21 +134,22 @@ async function builderDexes(skill) {
 // "…StateAll" endpoint is stale (omits xyz), so query each dex explicitly via the
 // object form `{ userAddress, dex }` — the only reliable way to see migrated collateral.
 async function fullState(skill, managed) {
-  const dexes = await builderDexes(skill);
+  const dexes = await builderDexes(skill).catch(() => []);
+  // Public API per dex: accountValue is the REAL perp-wallet value (0 when flat,
+  // the deployed margin + unrealized when positioned) — not the spot-mirrored value
+  // the SDK returns when flat. builderDexes still comes from the SDK asset list.
   const [def, ...rest] = await Promise.all([
-    skill.getHlClearinghouseState(managed).catch(() => null),
-    ...dexes.map((dex) => skill.getHlClearinghouseState({ userAddress: managed, dex }).catch(() => null)),
+    hlInfo({ type: 'clearinghouseState', user: managed }),
+    ...dexes.map((dex) => hlInfo({ type: 'clearinghouseState', user: managed, dex })),
   ]);
-  const defRoot = def?.state || def || {};
-  let accountValue = Number(defRoot.marginSummary?.accountValue || 0);
-  const positions = mapPositions(defRoot.assetPositions);
-  for (const cs of rest) {
-    const root = cs?.state || cs;
+  let accountValue = Number(def?.marginSummary?.accountValue || 0);
+  const positions = mapPositions(def?.assetPositions);
+  for (const root of rest) {
     if (!root) continue;
     accountValue += Number(root.marginSummary?.accountValue || 0);
     positions.push(...mapPositions(root.assetPositions));
   }
-  return { accountValue, positions, withdrawable: Number(defRoot.withdrawable || 0) };
+  return { accountValue, positions, withdrawable: Number(def?.withdrawable || 0) };
 }
 
 function die(msg) {

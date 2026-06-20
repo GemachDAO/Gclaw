@@ -161,6 +161,19 @@ def test_sigil_is_a_clean_glyph(gclaw_home):
         assert g["sigil"] not in tofu
 
 
+def test_hl_perp_reads_perp_state_from_public_api():
+    # Regression: the authenticated SDK returns the shared collateral as accountValue
+    # when FLAT, which double-counts against spot (equity read ~2x, e.g. $404 vs $202).
+    # fullState must read perp state from HL's public info API (hlInfo), which is
+    # authoritative (accountValue 0 when flat).
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "hl_perp.js").read_text(
+        encoding="utf-8"
+    )
+    fs = src[src.index("async function fullState") : src.index("async function fullState") + 700]
+    assert "hlInfo(" in fs  # perp state comes from the public API, not the SDK
+    assert "skill.getHlClearinghouseState" not in fs  # not the flat-double-counting SDK read
+
+
 def test_leaderboard_verifier_counts_the_perp_wallet():
     # Regression: the leaderboard verifies equity straight from HyperLiquid. It must
     # count the PERP wallet, not spot alone — else a perp-funded agent reads ~$0 and
