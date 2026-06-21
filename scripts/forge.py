@@ -1294,7 +1294,13 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
     # high-water mark) on a bad read — that would falsely flatten / alert at 100%.
     if equity <= 0:
         return {**state, "tripped": bool(state.get("tripped")), "skipped": "no equity read"}
-    hwm = max(float(state.get("hwm", 0) or 0), equity)
+    # Cap how fast the high-water mark can climb from a SINGLE read: real equity can't
+    # jump >20% in one heartbeat (per-trade risk is a few %), so a larger spike is almost
+    # certainly a bad/duplicated read. Capping the rise stops one transient mis-read from
+    # poisoning the HWM and permanently false-tripping the breaker — exactly what a brief
+    # equity double-count (2x) did. Legit growth catches up over reads.
+    prev_hwm = float(state.get("hwm", 0) or 0)
+    hwm = max(prev_hwm, min(equity, prev_hwm * 1.20)) if prev_hwm > 0 else equity
     drawdown_pct = round((1 - equity / hwm) * 100, 2) if hwm > 0 else 0.0
     reason = None
     if drawdown_pct >= MAX_DRAWDOWN_PCT:

@@ -148,6 +148,19 @@ class TestCircuitBreakerTrips:
         out = forge.circuit_breaker(1000.0, n_positions)
         assert out["allow_entry"] is False
 
+    def test_transient_2x_spike_cannot_poison_the_hwm(self, home: Path) -> None:
+        # Regression: a brief equity double-count (2x) once set the high-water mark to a
+        # phantom $404, which then read as a permanent 50% drawdown and locked the agent
+        # out of all trading. A single read can't raise the HWM more than ~20%, so the
+        # spike is absorbed and a return to the real equity never trips the breaker.
+        _fresh_breaker(home)
+        forge.circuit_breaker(200.0, 0)  # establish a real $200 high-water mark
+        spike = forge.circuit_breaker(400.0, 0)  # a transient 2x mis-read
+        assert spike["hwm"] <= 200.0 * 1.21  # capped, not jumped to 400
+        real = forge.circuit_breaker(200.0, 0)  # back to the true equity
+        assert real["allow_entry"] is True
+        assert real["drawdown_pct"] < forge.MAX_DRAWDOWN_PCT
+
 
 # A decision dict an attacker-controlled signal might return, fed straight into _intent.
 def _decision(action: str, stop_pct: float, confidence: float, leverage: int) -> dict[str, object]:
