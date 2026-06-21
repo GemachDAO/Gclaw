@@ -70,6 +70,13 @@ cd "$HOME"
 [[ -f "$SKILL_DIR/scripts/intel.js" ]] &&
   node "$SKILL_DIR/scripts/intel.js" scan >"$GCLAW_HOME/intel.json" 2>>"$LOG" &&
   echo "$(ts) intel: $(uv run --no-project python3 -c 'import json;d=json.load(open("'"$GCLAW_HOME"'/intel.json"));print({k:(v["regime"] if v else None) for k,v in d.get("intel",{}).items()})' 2>/dev/null)" >>"$LOG" || true
+# Auto-prove: backtest the arsenal across the freshly-discovered liquid universe and
+# register the (technique, market) pairs with real out-of-sample edge — so the agent can
+# actually TRADE the new markets it discovers, not just watch them. Budgeted + cooldown'd,
+# so once the universe is covered it idles. Runs AFTER intel (needs the universe) and
+# BEFORE the cycle (so the fresh proofs are available to the forge's execute gate).
+[[ -f "$SKILL_DIR/scripts/forge.py" ]] &&
+  echo "$(ts) autoprove: $(uv run --no-project python3 "$SKILL_DIR/scripts/forge.py" autoprove 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
 
 # Adaptive cadence + hybrid model. "active" = a position to manage or a live setup.
 # When active: run every heartbeat on Opus. When idle (flat + quiet): run the LLM

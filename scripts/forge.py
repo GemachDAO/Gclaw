@@ -717,6 +717,100 @@ def cmd_drop(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "adopted": style["adopted"]}
 
 
+# ── Auto-prove: grow the tradeable surface to match the discovered universe ───────
+# Arsenal techniques are STRATEGIES, not coin-specific models — a funding-fade proven on
+# BTC may also have edge on oil. Without this, execution stays locked to the birth arsenal's
+# coins while the agent watches the rest of its (dynamically discovered) universe light up
+# but can't trade it. This registry decouples "validated to trade" from the adopted list,
+# so the proven surface grows as backtests confirm edge on new markets.
+PROVEN_MARKETS_FILE = "proven_markets.json"
+AUTOPROVE_BUDGET = 6  # backtests per heartbeat — bounded cost
+AUTOPROVE_COOLDOWN_H = 12.0  # don't re-attempt a failing (technique, coin) for this long
+AUTOPROVE_LIMIT = 1000  # candles per backtest (matches `prove`)
+
+
+def _proven_markets_path() -> Path:
+    return gclaw_home() / "forge" / PROVEN_MARKETS_FILE
+
+
+def load_proven_markets() -> dict[str, Any]:
+    """Validated (technique, coin) pairs the agent may trade beyond its native arsenal
+    coins, plus a cooldown ledger of recent backtest attempts."""
+    try:
+        data = json.loads(_proven_markets_path().read_text(encoding="utf-8"))
+        return {"pairs": data.get("pairs", []), "attempts": data.get("attempts", {})}
+    except (OSError, ValueError):
+        return {"pairs": [], "attempts": {}}
+
+
+def proven_pairs(reg: dict[str, Any] | None = None) -> set[tuple[str, str]]:
+    """The set of (technique, coin) pairs proven on markets outside the native arsenal."""
+    reg = reg if reg is not None else load_proven_markets()
+    return {(p["technique"], p["coin"]) for p in reg.get("pairs", [])}
+
+
+def _attempt_age_h(iso: str | None) -> float:
+    if not iso:
+        return 1e9
+    try:
+        return (datetime.now(UTC) - datetime.fromisoformat(iso)).total_seconds() / 3600.0
+    except ValueError:
+        return 1e9
+
+
+def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
+    """Backtest each adopted strategy across the freshly-discovered liquid markets and
+    register the pairs with real out-of-sample edge — so the agent can TRADE what it
+    discovers, not just watch it. Budgeted per run, with a cooldown so a failing pair
+    isn't re-tried every cycle. The native arsenal coins are already tradeable, so skip them."""
+    adopted = load_style().get("adopted", [])
+    intel = _intel_features()
+    universe = [c for c in intel if intel.get(c)]
+    if not adopted or not universe:
+        return {"ok": True, "skipped": "no adopted techniques or no intel scan yet"}
+    reg = load_proven_markets()
+    have = proven_pairs(reg)
+    attempts = reg["attempts"]
+    native = {e["coin"] for e in adopted}
+    cooldown = float(os.environ.get("GCLAW_AUTOPROVE_COOLDOWN_H") or AUTOPROVE_COOLDOWN_H)
+    gap: list[tuple[bool, str, str, str]] = []
+    for e in adopted:
+        tid, interval = e["id"], e.get("interval", "1h")
+        for coin in universe:
+            if coin in native or (tid, coin) in have:
+                continue  # native coins already tradeable; proven pairs already done
+            if _attempt_age_h(attempts.get(f"{tid}|{coin}")) < cooldown:
+                continue  # still cooling down from a recent failed attempt
+            tradeable = intel.get(coin, {}).get("regime") not in (None, "chop")
+            gap.append((not tradeable, tid, interval, coin))  # tradeable-now first
+    gap.sort(key=lambda g: g[0])
+    budget = int(getattr(args, "budget", None) or AUTOPROVE_BUDGET)
+    tried, proved = 0, []
+    for _pri, tid, interval, coin in gap[:budget]:
+        attempts[f"{tid}|{coin}"] = now_iso()  # record the attempt regardless of outcome
+        try:
+            card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT)
+        except (ValueError, OSError, KeyError):
+            continue  # thin data / bad market — skip, the cooldown stops a re-try storm
+        tried += 1
+        if card.get("proven"):
+            reg["pairs"].append(
+                {
+                    "technique": tid,
+                    "coin": coin,
+                    "interval": interval,
+                    "oos_n": card["out_of_sample"]["n"],
+                    "expectancy": round(card["out_of_sample"]["expectancy"], 6),
+                    "at": now_iso(),
+                }
+            )
+            proved.append(f"{tid}@{coin}")
+    reg["attempts"] = attempts
+    _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
+    _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
+    return {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+
+
 def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
     techs = []
     for d in sorted((forge_dir() / "techniques").glob("*/")):
@@ -1607,6 +1701,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     risk_mult = float(style.get("risk_mult", 1.0)) * _health_size_mult(meta)
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
+    proven_mkts = proven_pairs()  # (technique, coin) pairs auto-proven on the wider universe
     # The ensemble votes on every market a technique is proven on plus the wider universe.
     coins = (
         list(dict.fromkeys([*proven_coins, *_scan_universe()]))
@@ -1634,7 +1729,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             decision["technique"], coin, decision, mode, equity, cap, buying_power, risk_mult
         )
         intent["proven"] = coin in proven_coins or any(
-            proven_by_tech.get(t) == coin for t in decision["contributors"]
+            proven_by_tech.get(t) == coin or (t, coin) in proven_mkts
+            for t in decision["contributors"]
         )
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
         intent["regime"] = f.get("regime", "range")
@@ -1754,6 +1850,10 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--interval", default="1h")
     pr.add_argument("--limit", type=int, default=1000)
     pr.set_defaults(fn=cmd_prove)
+
+    ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
+    ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
+    ap.set_defaults(fn=cmd_autoprove)
 
     for name, fn, helptext in [
         ("adopt", cmd_adopt, "adopt a proven technique"),
