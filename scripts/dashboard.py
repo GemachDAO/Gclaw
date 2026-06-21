@@ -717,11 +717,11 @@ GOODWILL_REWARDS = [
 ]
 
 
-def rewards_html(state: dict[str, Any]) -> str:
+def rewards_html(state: dict[str, Any], full: bool = True) -> str:
     """The goodwill → power-up ladder — the loop. Goodwill is earned ONLY from real
     profitable trades, and each tier unlocks a concrete new ability (reproduce, recode,
-    swarm) plus more leverage, so there's always a next reward to climb toward: the page
-    leads with how close the NEXT unlock is, then shows the whole path beyond it."""
+    swarm) plus more leverage. Overview shows just the NEXT-unlock hero card (full=False);
+    the Genome tab shows the whole path beyond it (full=True)."""
     gw = float(state.get("goodwill", 0) or 0)
     tiers = GOODWILL_REWARDS
     nxt = next((i for i, t in enumerate(tiers) if gw < t[0]), None)
@@ -744,6 +744,8 @@ def rewards_html(state: dict[str, Any]) -> str:
             '<div class="nextcard maxed"><div class="nextname">👑 Apex reached</div>'
             '<div class="nextdesc muted">Every power-up unlocked.</div></div>'
         )
+    if not full:
+        return hero  # Overview: just the next unlock, at a glance
     # The hero card above fully describes the NEXT unlock, so the ladder is just the map:
     # one tight line per tier (no repeated paragraphs) — the path at a glance, not a wall.
     rows = []
@@ -810,8 +812,10 @@ def global_predictors(h: Path) -> list[dict]:
     return sorted(board, key=lambda e: (-e["acc"], -e["correct"]))
 
 
-def intel_html(h: Path) -> str:
-    """Market intelligence panel — the regime + key features the agent now trades on."""
+def intel_html(h: Path, full: bool = False) -> str:
+    """Market intelligence. Overview gets a glanceable summary — which markets have a setup
+    (as chips) and how many are sitting out in chop. The Trading tab gets the full table with
+    every market and its indicators. Progressive disclosure: the glance up front, detail one tab over."""
     intel = load_json(h / "intel.json", {}).get("intel", {})
     if not intel:
         return '<p class="muted">No market scan yet — the intel engine runs each heartbeat.</p>'
@@ -823,14 +827,32 @@ def intel_html(h: Path) -> str:
         "range": ("#a9d6ff", "rgba(97,184,255,.14)"),
         "chop": ("var(--muted)", "rgba(105,112,131,.14)"),
     }
-    # Lead with what the agent can ACT on: trend/range markets (sorted tradeable-first),
-    # and collapse the chop board — usually most of the universe — into one quiet line, so
-    # the panel reads as "here are the setups", not a wall of "chop · —" rows.
     live = [(c, f) for c, f in intel.items() if f and f.get("regime") != "chop"]
-    chop = [c for c, f in intel.items() if f and f.get("regime") == "chop"]
+    chop = [(c, f) for c, f in intel.items() if f and f.get("regime") == "chop"]
     live.sort(key=lambda kv: (not kv[1].get("tradeable"), kv[0]))
+
+    if not full:
+        # Overview — glanceable: the setups as chips, the chop board as a count.
+        if live:
+            chips = "".join(
+                f'<span class="mchip" style="border-color:{chip.get(f.get("regime"), ("", ""))[0]}">'
+                f'<b>{html.escape(c)}</b> <i>{f.get("regime")}</i>'
+                f'{" ✓" if f.get("tradeable") else ""}</span>'
+                for c, f in live
+            )
+            body = f'<div class="msum">{chips}</div>'
+        else:
+            body = '<p class="muted">Whole board is chop right now — sitting out.</p>'
+        tail = (
+            f'<p class="muted chopline">💤 {len(chop)} in chop · full table on the Trading tab →</p>'
+            if chop
+            else ""
+        )
+        return body + tail
+
+    # Trading — the full table: setups first, then the chop board, every indicator.
     rows = []
-    for coin, f in live:
+    for coin, f in live + chop:
         reg = f.get("regime", "?")
         fg, bg = chip.get(reg, ("var(--silver)", "transparent"))
         rows.append(
@@ -840,17 +862,12 @@ def intel_html(h: Path) -> str:
             f"<td>{f.get('rsi', '?')}</td><td>{f.get('atr_pct', '?')}%</td>"
             f"<td>{f.get('funding_z', '?')}</td><td>{'✓' if f.get('tradeable') else '—'}</td></tr>"
         )
-    table = (
+    return (
         f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
         f"<th>fund-z</th><th>trade?</th></tr>{''.join(rows)}</table>"
-        if rows
-        else '<p class="muted">Whole board is chop right now — no setup, sitting out.</p>'
+        f'<p class="muted" style="margin-top:6px">Chop = sit out · trend = ride ema_stack · '
+        f"range = fade extremes. Sized by ATR + Kelly, only on regime-proven edge.</p>"
     )
-    chopline = ""
-    if chop:
-        names = ", ".join(html.escape(c) for c in sorted(chop))
-        chopline = f'<p class="muted chopline">💤 <b>{len(chop)} in chop</b> · sitting out: {names}</p>'
-    return table + chopline
 
 
 def predictions_html(h: Path) -> str:
@@ -1075,8 +1092,10 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         positions=positions_html(home()),
         leaderboard=leaderboard_html(home()),
         achievements=achievements_html(state),
-        rewards=rewards_html(state),
+        rewards=rewards_html(state, full=False),
+        rewards_full=rewards_html(state, full=True),
         intel=intel_html(home()),
+        intel_full=intel_html(home(), full=True),
         predictions=predictions_html(home()),
         topup=topup_html(home()),
         recodes=state.get("recodes", 0),
@@ -1386,6 +1405,9 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .ladder{{display:flex;flex-direction:column}}
 .rstep{{display:flex;align-items:center;gap:12px;padding:7px 2px;border-top:1px solid var(--line)}}.rstep:first-child{{border-top:none}}
 .chopline{{font-size:12px;margin-top:10px;line-height:1.5}}.chopline b{{color:var(--silver)}}
+.msum{{display:flex;flex-wrap:wrap;gap:7px}}
+.mchip{{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;background:rgba(255,255,255,.02)}}
+.mchip b{{color:var(--ink);font-weight:600}}.mchip i{{color:var(--muted);font-style:normal;font-size:11px}}
 .rnode{{width:22px;height:22px;flex:0 0 22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:1px solid var(--line);color:var(--muted)}}
 .rstep.done .rnode{{background:var(--emerald);border-color:var(--emerald);color:#06210f}}
 .rstep.next .rnode{{border-color:var(--emerald);color:var(--emerald);box-shadow:0 0 0 4px rgba(73,184,117,.16)}}
@@ -1453,11 +1475,12 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
   <div class="card decent"><h2>📈 Live positions · HyperLiquid</h2>{positions}</div>
   <div class="card decent"><h2>🧠 Market intelligence · regime</h2>{intel}</div>
   <div class="card"><h2>Life-state</h2>{gauges}</div>
-  <div class="card decent full"><h2>🧬 Evolution path · earn goodwill, unlock power-ups</h2>{rewards}</div>
+  <div class="card decent"><h2>🧬 Next power-up</h2>{rewards}</div>
   <div class="card decent"><h2>⛓ Onchain identity</h2>{onchain}</div>
 </div>
 
 <div class="pane" id="trading">
+  <div class="card decent full"><h2>🧠 Market intelligence · full board</h2>{intel_full}</div>
   <div class="card decent full"><h2>⚔ Arsenal · offensive loadout</h2>{techniques}</div>
   <div class="card"><h2>🏅 Milestones</h2>{achievements}</div>
   <div class="card"><h2>Life events</h2>{events}</div>
@@ -1472,6 +1495,7 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 <div class="pane" id="genome">
   <div class="card hero"><div class="brandrow"><span class="lionmark">{lion}</span><span class="eyebrow">// DNA</span></div><div id="dna3d" class="dna3d">{helix}</div><div class="fp">genome {fingerprint} · born {born}</div><button class="cardbtn" onclick="window.downloadDNACard&&window.downloadDNACard()">↓ Save shareable DNA card</button></div>
   <div class="card"><h2>Genome traits</h2>{traits}</div>
+  <div class="card decent full"><h2>🧬 Evolution path · earn goodwill, unlock power-ups</h2>{rewards_full}</div>
   <div class="card"><h2>Family · {children} children · {recodes} recodes</h2>{family}</div>
   <div class="card"><h2>🦁 Run your own</h2><div class="ghqr"><img src="{github_qr}" alt="GitHub QR" width="98" height="98"><div><div class="qlabel">Clone Gclaw</div><div class="addr" style="max-width:none">github.com/GemachDAO/Gclaw</div><div class="muted">Scan or visit — births your own living agent in ~3 commands.</div></div></div></div>
   <div class="card decent full"><h2>💰 Top up your bot</h2><div class="topup">{topup}</div></div>
