@@ -1457,12 +1457,22 @@ def _recent_expectancy() -> float:
     return e
 
 
-def _conviction_scaler(meta: dict[str, Any]) -> float:
-    """Meta-2: breathe size with survival (GMAC) + recent edge ∈ [0.3, 1.3]."""
+def _conviction_scaler(_meta: dict[str, Any]) -> float:
+    """Meta-2 entry breath: ease off a cold hand, press a hot one ∈ [0.7, 1.3]. Recent
+    edge ONLY — survival (GMAC) scales SIZE, not whether to take an edge. Gating entry on
+    low life-energy was pro-cyclical (low GMAC → higher floor → fewer trades → can't earn
+    → lower GMAC), a death spiral; a low-energy creature should keep taking its +EV
+    setups, just smaller (Kelly bets a fraction of bankroll, it doesn't sit out)."""
+    return max(0.7, min(1.3, 1.0 + 0.3 * math.tanh(_recent_expectancy())))
+
+
+def _health_size_mult(meta: dict[str, Any]) -> float:
+    """Survival sizing: shrink position SIZE as life energy (GMAC) falls ∈ [0.5, 1.0].
+    Applied to risk, never to the entry decision — bet smaller when low, never refuse."""
     seed = float(meta.get("seed", 1000) or 1000)
-    health = 0.5 + 0.5 * (float(meta.get("gmac_balance", seed) or seed) / seed) if seed else 1.0
-    streak = 1.0 + 0.3 * math.tanh(_recent_expectancy())
-    return max(0.3, min(1.3, health * streak))
+    if not seed:
+        return 1.0
+    return max(0.5, min(1.0, 0.5 + 0.5 * (float(meta.get("gmac_balance", seed) or seed) / seed)))
 
 
 def _weighted_median(pairs: list[tuple[float, float]]) -> float:
@@ -1572,7 +1582,9 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "agree_min": float(style.get("agree_min", 0.60)),
         "conv_min": float(style.get("conv_min", 0.22)),
     }
-    risk_mult = float(style.get("risk_mult", 1.0))
+    # Size = genome aggression × survival health (shrink when low on GMAC); the entry
+    # gate (conviction) is NOT touched by life-energy, so recovery stays possible.
+    risk_mult = float(style.get("risk_mult", 1.0)) * _health_size_mult(meta)
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     # The ensemble votes on every market a technique is proven on plus the wider universe.
