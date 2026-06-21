@@ -93,6 +93,25 @@ async function main() {
   const summary = { ok: true, mode, arbitrumEth: ethBal, gasReserve: GAS_RESERVE_ETH, swapEth: Number(swapEth.toFixed(6)) };
 
   if (swapEth < MIN_SWAP_ETH) {
+    // No new ETH to swap — but a prior cycle may have swapped and then failed to
+    // deposit, stranding USDC on Arbitrum. With the ETH already spent, the swap-gated
+    // path never retries that deposit, so the funds sit out of the trading account
+    // until the next top-up. Recover them here (run mode). Idempotent by balance: once
+    // deposited the balance drops, so a re-run is a no-op — the same guard the swap uses.
+    if (mode === 'run') {
+      const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
+      skill.loginWithApiKey(process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY);
+      const creds = await signIn(skill, wallet);
+      const stranded = await usdcBalance(provider, wallet.managed);
+      if (stranded >= MIN_DEPOSIT_USDC) {
+        const dep = await skill.perpDeposit({ amount: String(Math.floor(stranded)), tokenAddress: ARB_USDC, chainId: ARB_CHAIN, ...creds });
+        if (dep && dep.isSuccess === false) throw new Error(`deposit rejected: ${JSON.stringify(dep)}`);
+        summary.deposited = `${Math.floor(stranded)} USDC → HyperLiquid (recovered stranded)`;
+        summary.action = 'recovered stranded USDC — no new ETH to swap';
+        console.log(JSON.stringify(summary, null, 2));
+        return;
+      }
+    }
     summary.action = swapEth <= 0
       ? 'nothing to convert (ETH at or below gas reserve)'
       : `holding ${swapEth.toFixed(6)} ETH dust (below ${MIN_SWAP_ETH} min swap — would not clear the HL deposit min)`;

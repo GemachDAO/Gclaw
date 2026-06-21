@@ -28,9 +28,35 @@ const SDK = require(path.join(GDEX_DIR, 'dist'));
 const ETH_CHAIN = 1;
 const GMAC = '0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea';
 const SLIPPAGE = 3;
+const SENTINEL = path.join(GCLAW_HOME, 'gmac_unreconciled.json');
 
 function state() {
   return JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'metabolism.json'), 'utf8'));
+}
+
+// Record a confirmed buy against the metabolism treasury (decrement + ledger entry).
+// Returns true on success; the caller persists a sentinel on failure so the spend
+// can't be silently dropped (and re-spent next cycle).
+function recordSpend(usd, tokens, tx) {
+  try {
+    require('node:child_process').execFileSync('uv', ['run', '--no-project', 'python3',
+      path.join(__dirname, 'metabolism.py'), 'gmac', '--spend', String(usd),
+      '--tokens', String(tokens), '--tx', String(tx)],
+    { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'inherit'] });
+    return true;
+  } catch (e) { console.error('WARN: treasury decrement failed —', e.message); return false; }
+}
+
+// A prior buy that confirmed but failed to record leaves a sentinel. Retry the
+// decrement; clear it only on success. If it still won't record, THROW — buying
+// again would double-spend the ETH the last buy already cost (the treasury never
+// went down, so a repeated --usd <treasury> spends it twice). record is injectable
+// for testing.
+function reconcileSentinel(record = recordSpend) {
+  if (!fs.existsSync(SENTINEL)) return { reconciled: false };
+  const p = JSON.parse(fs.readFileSync(SENTINEL, 'utf8'));
+  if (record(p.usd, p.tokens, p.tx)) { fs.unlinkSync(SENTINEL); return { reconciled: true, ...p }; }
+  throw new Error(`unreconciled prior GMAC buy ($${p.usd}, tx ${p.tx}) — resolve ${SENTINEL} before buying again`);
 }
 
 async function tokenInfo(skill) {
@@ -93,6 +119,7 @@ async function main() {
   }
   if (mode === 'buy') {
     if (!plan.safe) throw new Error('refusing to buy: token failed safety gate');
+    reconcileSentinel(); // clear (or refuse on) any unrecorded prior buy first
     if (usd <= 0) throw new Error('nothing to spend (treasury empty; --usd 0)');
     // GMAC liquidity is the Ethereum GMAC/WETH pool, so the managed buy spends
     // native ETH. Convert the USD budget to an ETH amount; buyToken routes EVM +
@@ -111,17 +138,15 @@ async function main() {
     });
     const ok = res?.isSuccess !== false;
     // Decrement the treasury HERE on a confirmed buy — never rely on the model to
-    // record it later (a forgotten or duplicated manual step double-spends the ETH).
+    // record it later. If the decrement fails, persist a sentinel so the next buy
+    // reconciles it instead of re-spending against an un-decremented treasury.
     let recorded = false;
     if (ok) {
       const tx = res?.txHash || res?.hash || res?.transactionHash || '';
-      try {
-        require('node:child_process').execFileSync('uv', ['run', '--no-project', 'python3',
-          path.join(__dirname, 'metabolism.py'), 'gmac', '--spend', String(usd),
-          '--tokens', String(plan.expectedTokens), '--tx', String(tx)],
-        { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'inherit'] });
-        recorded = true;
-      } catch (e) { console.error('WARN: buy confirmed but treasury decrement failed —', e.message); }
+      recorded = recordSpend(usd, plan.expectedTokens, tx);
+      if (!recorded) {
+        fs.writeFileSync(SENTINEL, JSON.stringify({ usd, tokens: plan.expectedTokens, tx, at: new Date().toISOString() }) + '\n');
+      }
     }
     console.log(JSON.stringify({ ok, recorded, spendEth: ethAmount, ethPrice, result: res, ...plan }));
     return;
@@ -129,7 +154,12 @@ async function main() {
   throw new Error('usage: gmac_buy.js <plan|buy> [--usd N]');
 }
 
-main().catch((e) => {
-  console.error('ERROR', e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e));
-  process.exit(1);
-});
+// Exported for unit testing; main() runs only as a CLI.
+module.exports = { recordSpend, reconcileSentinel, SENTINEL };
+
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('ERROR', e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e));
+    process.exit(1);
+  });
+}
