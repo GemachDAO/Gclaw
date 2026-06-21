@@ -1416,7 +1416,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .tab.active{{background:var(--card);color:var(--ink);border-color:#2c6e4a;box-shadow:0 0 0 1px rgba(73,184,117,.22)}}
 .pane{{display:none;max-width:1080px;margin:0 auto;grid-template-columns:1fr 1fr;gap:18px;align-items:start}}
 .pane.active{{display:grid}}.pane .full{{grid-column:1/-1}}
-@media(max-width:760px){{.grid2{{grid-template-columns:1fr}}.pane.active{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.vitals{{gap:22px}}.trend{{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px;width:100%}}}}
+@media(max-width:760px){{.grid2{{grid-template-columns:1fr}}.pane.active{{grid-template-columns:1fr}}.topbar{{flex-direction:column;align-items:flex-start;gap:18px}}.toprow{{flex-direction:column;align-items:flex-start;gap:14px}}.ident{{flex-wrap:wrap}}.vitals{{width:100%;gap:16px 20px}}.trend{{border-left:none;padding-left:0;border-top:1px solid var(--line);padding-top:14px;width:100%}}}}
+@media(max-width:420px){{.lb,.market{{font-size:12px}}.lb td,.lb th{{padding:5px 4px}}.sval.lead{{font-size:28px}}}}
 </style></head><body>
 <div class="topbar">
   <div class="toprow">

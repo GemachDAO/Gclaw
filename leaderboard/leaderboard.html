@@ -222,8 +222,12 @@ async function main(){
   const params = new URLSearchParams(location.search);
   let seed = (params.get("agents")||"").split(",").map(s=>s.trim()).filter(Boolean).map(Number);
   if(!seed.length){
-    try{ const r = await fetch("agents.json"); seed = (await r.json()).agents; }
-    catch(e){ seed = [55624]; }                     // fallback to the genesis creature
+    // fetch() is CORS-blocked under file:// (origin null) and only logs a noisy error;
+    // the gossip-crawl from the genesis seed finds the family anyway, so skip it there.
+    if(location.protocol !== "file:"){
+      try{ const r = await fetch("agents.json"); seed = (await r.json()).agents; }catch(e){}
+    }
+    if(!seed.length) seed = [55624];               // fallback to the genesis creature
   }
   // Gossip-crawl: start from the seed, then follow each card's onchain peer list.
   // No registry index, no server — the family graph is discovered entirely from chain.
