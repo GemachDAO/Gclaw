@@ -61,20 +61,35 @@ function isGclawUri(uri) {
 // block (or the saved cursor) forward, keep the ones whose card carries the signature,
 // and fold them into peers.json. Incremental via peers.lastBlock — steady state only
 // reads the handful of new blocks since the last run.
+// Pull the fresh gclaw agent ids out of a batch of registry logs. A single malformed
+// record (missing topic1, junk data) must NEVER abort the crawl — the loop body is
+// after the cursor bump, so a throw here would leave lastBlock un-advanced and re-hit
+// the same bad log every heartbeat, stalling discovery forever. Skip the bad one instead.
+function gclawIdsFromLogs(logs, self, known) {
+  const out = [];
+  for (const log of logs || []) {
+    try {
+      const id = Number(BigInt(log.topics[1]));
+      if (id === self || known.has(id) || out.includes(id)) continue;
+      if (isGclawUri(decodeString(log.data))) out.push(id);
+    } catch { /* malformed log — skip it, keep crawling */ }
+  }
+  return out;
+}
+
 async function discover(peers, self) {
   const latest = parseInt(await rpc('eth_blockNumber', []), 16);
   const start = peers.lastBlock ? peers.lastBlock + 1 : GENESIS_BLOCK;
   const added = [];
+  const known = new Set(peers.ids);
   for (let lo = start; lo <= latest; lo += LOG_CHUNK) {
     const hi = Math.min(lo + LOG_CHUNK - 1, latest);
     const logs = await rpc('eth_getLogs', [{
       address: REGISTRY, topics: [REGISTER_TOPIC],
       fromBlock: '0x' + lo.toString(16), toBlock: '0x' + hi.toString(16),
     }]).catch(() => []);
-    for (const log of logs || []) {
-      const id = Number(BigInt(log.topics[1]));
-      if (id === self || peers.ids.includes(id)) continue;
-      if (isGclawUri(decodeString(log.data))) { peers.ids.push(id); added.push(id); }
+    for (const id of gclawIdsFromLogs(logs, self, known)) {
+      known.add(id); peers.ids.push(id); added.push(id);
     }
   }
   peers.lastBlock = latest;
@@ -162,4 +177,9 @@ async function main() {
   process.stdout.write(JSON.stringify({ ok: true, registry: REGISTRY, chain: 'base:8453', count: roster.length, roster }, null, 2) + '\n');
 }
 
-main().catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+// Exported for unit testing; main() runs only as a CLI.
+module.exports = { gclawIdsFromLogs, decodeString, isGclawUri };
+
+if (require.main === module) {
+  main().catch((e) => { process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n'); process.exit(1); });
+}

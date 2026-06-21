@@ -130,10 +130,17 @@ function helix(fp){
   return p+"</svg>";
 }
 
+// Card fields (name, species, soul, traits…) are UNTRUSTED — anyone can register a
+// gclaw agent, so they are injected into innerHTML only after escaping. esc() HTML-
+// escapes strings; num() coerces to a finite number (0 otherwise) so a string payload
+// can't slip through a numeric slot or break .toLocaleString().
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function num(x){ const n=Number(x); return Number.isFinite(n)?n:0; }
+
 function traitBars(traits, fp){
-  const hue = (parseInt(fp.substr(0,2),16)||0)/255*360;
+  const hue = (parseInt(String(fp).substr(0,2),16)||0)/255*360;
   return Object.entries(traits||{}).map(([k,v])=>
-    `<div class="trait"><span>${k}</span><div class="tbar"><div class="tfill" style="width:${v}%;background:hsl(${hue},70%,55%)"></div></div><b>${v}</b></div>`
+    `<div class="trait"><span>${esc(k)}</span><div class="tbar"><div class="tfill" style="width:${num(v)}%;background:hsl(${hue},70%,55%)"></div></div><b>${num(v)}</b></div>`
   ).join("");
 }
 
@@ -158,29 +165,29 @@ function equityHero(g){
 
 function statsLine(g){
   const s = g.stats; if(!s) return "";
-  return `<div class="stats"><span title="goodwill — won from profitable trades">⭐ ${s.goodwill??0} goodwill</span>`
-    + `<span class="muted" title="GMAC life energy">${Math.round(s.gmac||0).toLocaleString()} GMAC</span></div>`;
+  return `<div class="stats"><span title="goodwill — won from profitable trades">⭐ ${num(s.goodwill)} goodwill</span>`
+    + `<span class="muted" title="GMAC life energy">${Math.round(num(s.gmac)).toLocaleString()} GMAC</span></div>`;
 }
 
 function render(creatures){
   creatures.sort((a,b)=>score(b.g)-score(a.g));
   document.getElementById("grid").innerHTML = creatures.map((c,i)=>{
-    const g=c.g, lineage = g.parentAgentId ? `<span class="pill">child of #${g.parentAgentId} · ${g.role||""}</span>` : `<span class="pill">genesis</span>`;
-    const soul = g.soul ? `<div class="species">${g.species||"unknown"} · ${g.soul.archetype}</div>
-        <div class="muted" style="font-style:italic;margin:2px 0 6px">“${g.soul.catchphrase}”</div>` :
-        `<div class="species">${g.species||"unknown"}</div>`;
+    const g=c.g, lineage = g.parentAgentId ? `<span class="pill">child of #${num(g.parentAgentId)} · ${esc(g.role||"")}</span>` : `<span class="pill">genesis</span>`;
+    const soul = g.soul ? `<div class="species">${esc(g.species||"unknown")} · ${esc(g.soul.archetype)}</div>
+        <div class="muted" style="font-style:italic;margin:2px 0 6px">“${esc(g.soul.catchphrase)}”</div>` :
+        `<div class="species">${esc(g.species||"unknown")}</div>`;
     const champ = i===0 ? " champion" : "";
     const tag = i===0 ? '<span class="leadtag">👑 Leader</span>' : "";
     return `<div class="card${champ}"><span class="rank">#${i+1}</span>${tag}
       <div>${helix(g.genomeFingerprint||"000000000000")}</div>
       <div style="flex:1">
         ${soul}
-        <h2>${c.name||"Gclaw"} <span class="muted">#${c.id}</span></h2>
+        <h2>${esc(c.name||"Gclaw")} <span class="muted">#${num(c.id)}</span></h2>
         ${equityHero(g)}
         ${statsLine(g)}
         ${traitBars(g.traits,g.genomeFingerprint||"000000")}
         ${lineage}
-        <div class="fp">genome ${g.genomeFingerprint||"—"} · goodwill ${g.goodwill??0}</div>
+        <div class="fp">genome ${esc(g.genomeFingerprint||"—")} · goodwill ${num(g.goodwill)}</div>
       </div></div>`;
   }).join("");
 }
