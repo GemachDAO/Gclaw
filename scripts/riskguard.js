@@ -104,7 +104,13 @@ function breakerCheck(eq, positions, dry) {
   const bpath = path.join(GCLAW_HOME, 'breaker.json');
   const dd = Number(process.env.GCLAW_BREAKER_DD) || 0.25;
   const prev = readJson(bpath, {});
-  const hwm = Math.max(Number(prev.hwm) || eq, eq);
+  // Cap each read's HWM rise to 20% so a single transient high equity read (e.g. a
+  // double-counted balance) can't poison the high-water mark and trip a false drawdown
+  // halt — which here FLATTENS the whole book. MUST match forge.py's circuit_breaker:
+  // both write this same file, so if the logic differs one re-poisons what the other
+  // corrected (the un-capped Math.max here silently undid forge's fix every heartbeat).
+  const prevHwm = Number(prev.hwm) || 0;
+  const hwm = prevHwm > 0 ? Math.max(prevHwm, Math.min(eq, prevHwm * 1.20)) : eq;
   const drawdown = hwm > 0 ? (hwm - eq) / hwm : 0;
   const tripped = drawdown >= dd;
   if (!dry) {

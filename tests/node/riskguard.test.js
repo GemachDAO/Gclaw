@@ -198,6 +198,22 @@ describe('drawdown breaker', () => {
     expect(tripped).toBe(false);
     expect(drawdown).toBe(0);
   });
+
+  // REGRESSION: a single transient high equity read (e.g. a double-counted balance)
+  // must NOT poison the high-water mark and trip a false drawdown halt next read —
+  // the un-capped Math.max here used to re-poison what forge.py's 20%-cap corrected,
+  // and a tripped breaker FLATTENS the whole book. Each read may raise the hwm <=20%.
+  test('a transient 2x equity spike cannot poison the hwm into a false flatten', () => {
+    const rg = loadWith(statusResponder(makeStatus(200, [])));
+    fs.writeFileSync(path.join(tmpHome, 'breaker.json'), JSON.stringify({ hwm: 200 }));
+    // a phantom $404 read arrives (real equity is $200) — persist it (dry=false)
+    const spike = rg.breakerCheck(404, [], false);
+    expect(spike.hwm).toBeCloseTo(240, 5);   // capped to +20%, NOT 404
+    // the real $200 read returns next cycle: drawdown from 240 is 16.7% < 25% → safe
+    const real = rg.breakerCheck(200, [], true);
+    expect(real.tripped).toBe(false);
+    // contrast: an un-capped hwm of 404 would read 50% drawdown and flatten everything
+  });
 });
 
 describe('fail-safe reads', () => {
