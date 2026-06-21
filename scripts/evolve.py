@@ -107,6 +107,15 @@ def cmd_replicate(args: argparse.Namespace) -> None:
         sys.exit(f"Goodwill {state['goodwill']} < {REPLICATE_THRESHOLD}: replication locked.")
     if len(state["children"]) >= MAX_CHILDREN:
         sys.exit(f"Child cap reached ({MAX_CHILDREN}). Cannot replicate further.")
+    # Anti-storm gate: each birth must be backed by goodwill EARNED since the last one,
+    # so the same earned goodwill can't spawn child after child on consecutive heartbeats.
+    # Deterministic — the "one per threshold crossing" pacing can't be left to the prompt.
+    last_gw = state.get("last_replicate_goodwill", 0)
+    if last_gw and state["goodwill"] <= last_gw:
+        sys.exit(
+            f"No new goodwill since the last birth (goodwill {state['goodwill']} <= "
+            f"{last_gw}). Earn more before spawning another child."
+        )
 
     if args.role not in ROLES:
         sys.exit(f"--role must be one of {sorted(ROLES)}")
@@ -140,6 +149,7 @@ def cmd_replicate(args: argparse.Namespace) -> None:
                 "blend": blend.get("born_with") if blend else None,
             }
         )
+        state["last_replicate_goodwill"] = state["goodwill"]  # gate the next birth on fresh goodwill
         save_state(state)
     except Exception:
         # A half-built child must not strand its directory: the exists() guard above

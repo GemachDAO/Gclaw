@@ -51,6 +51,33 @@ def test_replication_is_locked_below_the_goodwill_threshold(metabolism_fixture, 
     assert not (gclaw_home / "children" / "early").exists()
 
 
+def _bump_goodwill(home, value):
+    """Raise goodwill without disturbing children / last_replicate_goodwill."""
+    st = json.loads((home / "metabolism.json").read_text(encoding="utf-8"))
+    st["goodwill"] = value
+    (home / "metabolism.json").write_text(json.dumps(st), encoding="utf-8")
+
+
+def test_anti_storm_gate_requires_fresh_goodwill_between_births(metabolism_fixture, gclaw_home):
+    # The same earned goodwill must not spawn child after child on consecutive cycles.
+    metabolism_fixture(goodwill=60)
+    _seed_dna(gclaw_home)
+    evolve.cmd_replicate(Namespace(name="first", role="scout", mutation="a"))
+    # birth #1 recorded the gate at goodwill 60
+    state = json.loads((gclaw_home / "metabolism.json").read_text(encoding="utf-8"))
+    assert state["last_replicate_goodwill"] == 60
+
+    # a second spawn at the SAME goodwill is refused — nothing new earned since birth #1
+    with pytest.raises(SystemExit, match="No new goodwill"):
+        evolve.cmd_replicate(Namespace(name="second", role="analyst", mutation="b"))
+    assert not (gclaw_home / "children" / "second").exists()
+
+    # once goodwill grows, the next birth is allowed again
+    _bump_goodwill(gclaw_home, 72)
+    evolve.cmd_replicate(Namespace(name="third", role="analyst", mutation="c"))
+    assert (gclaw_home / "children" / "third").is_dir()
+
+
 def test_a_partial_failure_rolls_back_the_child_dir(metabolism_fixture, gclaw_home, monkeypatch):
     metabolism_fixture(goodwill=60)
     _seed_dna(gclaw_home)
