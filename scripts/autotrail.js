@@ -27,8 +27,13 @@ const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const SKILL_DIR = path.join(os.homedir(), '.claude', 'skills', 'gclaw', 'scripts');
 const TRAILS_PATH = path.join(GCLAW_HOME, 'trails.json');
 
-const ARM_PROFIT_PCT = 1.0;  // arm the trail once a position is +1% in profit
-const TRAIL_PCT = 0.6;       // then trail the soft-stop 0.6% below the high-water mark
+// Let winners RUN to their take-profit. Arming at +1% and trailing 0.6% choked every
+// winner to ~break-even (avg +$0.14) while losers ran to the full hard stop (avg -$1.42)
+// — a structurally -EV asymmetry. The hard SL/TP set at open are the primary brackets;
+// this soft trail only protects a position that has run solidly into profit (~1R) and
+// then reverses hard, so it can't fire on ordinary hourly noise before the TP is reached.
+const ARM_PROFIT_PCT = 2.5;  // arm only once a position is +2.5% (well past noise, near 1R)
+const TRAIL_PCT = 1.5;       // then trail 1.5% below the high-water — wider than a normal pullback
 
 const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
 
