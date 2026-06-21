@@ -51,7 +51,9 @@ def load_state() -> dict[str, Any]:
     path = gclaw_home() / "metabolism.json"
     if not path.exists():
         sys.exit(f"No metabolism state at {path}. Run metabolism.py init first.")
-    return json.loads(path.read_text(encoding="utf-8"))
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state.setdefault("children", [])  # a legacy/hand-edited state may predate this key
+    return state
 
 
 def save_state(state: dict[str, Any]) -> None:
@@ -114,30 +116,37 @@ def cmd_replicate(args: argparse.Namespace) -> None:
         sys.exit(f"Child '{name}' already exists at {child_dir}.")
     shutil.copytree(dna_source(), child_dir)
 
-    strategy = child_dir / "TRADING_STRATEGY.md"
-    mutation = (
-        f"\n\n## Mutation (child: {name})\n\n"
-        f"- Role: **{args.role}** — {ROLES[args.role]}\n"
-        f"- Differentiation: {args.mutation}\n"
-        f"- Born from parent at {now_iso()} with parent goodwill {state['goodwill']}.\n"
-        f"- Identity: set GCLAW_AGENT={name} when this child acts so telepathy is attributed.\n"
-    )
-    strategy.write_text(strategy.read_text(encoding="utf-8") + mutation, encoding="utf-8")
+    try:
+        strategy = child_dir / "TRADING_STRATEGY.md"
+        mutation = (
+            f"\n\n## Mutation (child: {name})\n\n"
+            f"- Role: **{args.role}** — {ROLES[args.role]}\n"
+            f"- Differentiation: {args.mutation}\n"
+            f"- Born from parent at {now_iso()} with parent goodwill {state['goodwill']}.\n"
+            f"- Identity: set GCLAW_AGENT={name} when this child acts so telepathy is attributed.\n"
+        )
+        strategy.write_text(strategy.read_text(encoding="utf-8") + mutation, encoding="utf-8")
 
-    born = now_iso()
-    child_genome = breed_child(state, name, args.role)
-    blend = seed_child_arsenal(child_dir, state, child_genome, args.role)
-    state["children"].append(
-        {
-            "name": name,
-            "born_at": born,
-            "role": args.role,
-            "mutation": args.mutation,
-            "genome": child_genome,
-            "blend": blend.get("born_with") if blend else None,
-        }
-    )
-    save_state(state)
+        born = now_iso()
+        child_genome = breed_child(state, name, args.role)
+        blend = seed_child_arsenal(child_dir, state, child_genome, args.role)
+        state["children"].append(
+            {
+                "name": name,
+                "born_at": born,
+                "role": args.role,
+                "mutation": args.mutation,
+                "genome": child_genome,
+                "blend": blend.get("born_with") if blend else None,
+            }
+        )
+        save_state(state)
+    except Exception:
+        # A half-built child must not strand its directory: the exists() guard above
+        # would then block a retry with the same name, and dead DNA would linger on
+        # disk. Roll the copytree back so replicate is all-or-nothing.
+        shutil.rmtree(child_dir, ignore_errors=True)
+        raise
     append_journal(
         {
             "ts": born,
