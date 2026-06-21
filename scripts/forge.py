@@ -52,6 +52,9 @@ MIN_NOTIONAL = 11
 # builder dex (USDC-collateralized, 24h). A technique auto-executes only on the
 # market it was proven on; signals on the rest are surfaced as exploration for
 # the heartbeat's judgment (and as candidates to prove next). Override --coins.
+# Fallback universe — used only if intel.json has no live-discovered set. intel.js
+# discovers the real universe from the venue (liquidity-filtered) each scan; forge reads
+# that via _scan_universe() so the two never diverge and new listings are picked up.
 SCAN_UNIVERSE = (
     "BTC",
     "ETH",
@@ -62,6 +65,8 @@ SCAN_UNIVERSE = (
     "xyz:AAPL",
     "xyz:AMZN",
     "xyz:GOLD",
+    "xyz:SILVER",
+    "xyz:BRENTOIL",
 )
 
 # Evidence gate.
@@ -356,6 +361,21 @@ def _intel_features() -> dict[str, Any]:
         except (OSError, ValueError):
             _INTEL = {}
     return _INTEL
+
+
+def _scan_universe() -> tuple[str, ...]:
+    """The markets the ensemble votes on. intel.js discovers these live from the venue
+    (majors + liquid xyz commodity/stock perps) and writes them to intel.json, so the
+    set tracks new listings like xyz:BRENTOIL without a hand-kept list. Falls back to
+    the static SCAN_UNIVERSE only when intel.json has no discovered universe."""
+    try:
+        d = json.loads((gclaw_home() / "intel.json").read_text(encoding="utf-8"))
+        universe = d.get("universe")
+        if isinstance(universe, list) and universe:
+            return tuple(str(c) for c in universe)
+    except (OSError, ValueError):
+        pass
+    return SCAN_UNIVERSE
 
 
 # ── Feature engineering ──────────────────────────────────────────────────────
@@ -1589,7 +1609,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     # The ensemble votes on every market a technique is proven on plus the wider universe.
     coins = (
-        list(dict.fromkeys([*proven_coins, *SCAN_UNIVERSE]))
+        list(dict.fromkeys([*proven_coins, *_scan_universe()]))
         if not args.coins
         else [c.strip() for c in args.coins.split(",") if c.strip()]
     )

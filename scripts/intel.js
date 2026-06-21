@@ -208,28 +208,59 @@ async function scan(coins) {
 
 function parseArgs(a) { const o = {}; for (let i = 0; i < a.length; i += 1) if (a[i].startsWith('--')) { o[a[i].slice(2)] = a[i + 1] && !a[i + 1].startsWith('--') ? a[i += 1] : true; } return o; }
 
+const MAJORS = ['BTC', 'ETH', 'SOL']; // always scanned — the strategy's "majors first"
+const DISCOVERY_DEX = 'xyz'; // stocks/commodities/indices — no memecoins list here
+const LIQ_FLOOR = Number(process.env.GCLAW_LIQ_FLOOR) || 1_000_000; // min daily $ notional
+const UNIVERSE_CAP = Number(process.env.GCLAW_UNIVERSE_CAP) || 18; // cap the scan breadth
+// Fallback if the venue read fails — majors + the deepest commodity/stock perps.
+const STATIC_UNIVERSE = ['BTC', 'ETH', 'SOL', 'xyz:NVDA', 'xyz:TSLA', 'xyz:SPCX',
+  'xyz:AAPL', 'xyz:AMZN', 'xyz:GOLD', 'xyz:SILVER', 'xyz:BRENTOIL'];
+
+// Build the tradeable universe FROM THE VENUE instead of a hand-kept list: the majors,
+// plus every xyz stock/commodity perp with real liquidity (daily notional >= floor),
+// top-N by volume. A newly listed liquid market (e.g. xyz:BRENTOIL) is picked up
+// automatically and dust/illiquid perps are skipped — opportunity without a fixed list
+// and without churning through everything. Returns null on a venue read failure.
+// Pure: rank a dex universe by liquidity and return majors + the top liquid names.
+// Separated from the fetch so the floor/cap logic is unit-testable without the network.
+function pickLiquid(univ, ctxs) {
+  if (!Array.isArray(univ) || !Array.isArray(ctxs)) return null;
+  const liquid = univ
+    .map((u, i) => ({ name: u.name, vol: Number(ctxs[i] && ctxs[i].dayNtlVlm) || 0 }))
+    .filter((m) => m.vol >= LIQ_FLOOR)
+    .sort((a, b) => b.vol - a.vol)
+    .slice(0, Math.max(0, UNIVERSE_CAP - MAJORS.length))
+    .map((m) => m.name);
+  return [...MAJORS, ...liquid];
+}
+
+async function discoverUniverse() {
+  const resp = await info({ type: 'metaAndAssetCtxs', dex: DISCOVERY_DEX }).catch(() => null);
+  return resp ? pickLiquid(resp[0] && resp[0].universe, resp[1]) : null;
+}
+
 async function main() {
   const cmd = process.argv[2] || 'scan';
   const args = parseArgs(process.argv.slice(3));
-  // Default to the full tradeable universe (keep in sync with forge.py SCAN_UNIVERSE):
-  // majors + the deepest xyz stock/commodity perps, so the regime panel sees everything
-  // the agent can actually trade, not just BTC/ETH/SOL.
-  const universe = 'BTC,ETH,SOL,xyz:NVDA,xyz:TSLA,xyz:SPCX,xyz:AAPL,xyz:AMZN,xyz:GOLD';
-  const coins = String(args.coins || universe).split(',').map((s) => s.trim()).filter(Boolean);
+  // No hand-kept universe: discover it live (liquidity-filtered), fall back to the
+  // static set only if the venue read fails. An explicit --coins still overrides.
+  const coins = args.coins
+    ? String(args.coins).split(',').map((s) => s.trim()).filter(Boolean)
+    : (await discoverUniverse()) || STATIC_UNIVERSE;
   fs.mkdirSync(GCLAW_HOME, { recursive: true });
   const intel = await scan(coins);
   if (cmd === 'regime') {
     const out = Object.fromEntries(Object.entries(intel).map(([k, v]) => [k, v ? { regime: v.regime, efficiency: v.efficiency, tradeable: v.tradeable } : null]));
-    process.stdout.write(JSON.stringify({ ok: true, regimes: out }) + '\n');
+    process.stdout.write(JSON.stringify({ ok: true, universe: coins, regimes: out }) + '\n');
   } else {
-    process.stdout.write(JSON.stringify({ ok: true, intel }) + '\n');
+    process.stdout.write(JSON.stringify({ ok: true, universe: coins, intel }) + '\n');
   }
 }
 
 // Pure functions are exported for unit testing; main() runs only as a CLI.
 module.exports = {
   mean, stdev, sma, ema, rsi, atrPct, efficiencyRatio, correlation, returns,
-  classifyRegime, coinIntel, scan,
+  classifyRegime, coinIntel, scan, pickLiquid,
 };
 
 if (require.main === module) {
