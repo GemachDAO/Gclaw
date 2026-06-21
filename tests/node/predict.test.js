@@ -154,4 +154,25 @@ describe('cmdCall idempotency + round-state guards', () => {
     seedRound('open');
     expect(predict.cmdCall({ round: 'r1', pick: 'MAYBE', by: 'dave' }).ok).toBe(false);
   });
+
+  test('resolve prunes terminal rounds past the TTL — and the prune is not starved by the no-open early return', async () => {
+    // With NO open rounds, resolve still runs the prune (no network: position()/fills
+    // are only reached when there IS an open round). rounds.json is a working set; old
+    // resolved/expired rounds must not accumulate forever (and must free their roundId
+    // so a re-entry at the same price can open a fresh round).
+    const predict = loadScript('predict.js');
+    const old = new Date(Date.now() - 30 * 864e5).toISOString(); // 30d ago — past the 14d TTL
+    const recent = new Date(Date.now() - 1 * 864e5).toISOString(); // 1d ago — keep
+    const rounds = {
+      stale_res: { id: 'stale_res', coin: 'ETH', status: 'resolved', openedAt: old, resolvedAt: old },
+      stale_exp: { id: 'stale_exp', coin: 'SOL', status: 'expired', openedAt: old, resolvedAt: old },
+      fresh_res: { id: 'fresh_res', coin: 'BTC', status: 'resolved', openedAt: recent, resolvedAt: recent },
+    };
+    fs.writeFileSync(path.join(tmp, 'predictions', 'rounds.json'), JSON.stringify(rounds));
+    const r = await predict.cmdResolve({});
+    expect(r.ok).toBe(true);
+    expect(r.pruned).toBe(2); // both stale terminal rounds dropped
+    const kept = JSON.parse(fs.readFileSync(path.join(tmp, 'predictions', 'rounds.json'), 'utf8'));
+    expect(Object.keys(kept).sort()).toEqual(['fresh_res']); // recent terminal round survives
+  });
 });

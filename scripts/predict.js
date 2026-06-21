@@ -139,15 +139,29 @@ function cmdCall(args) {
 
 async function cmdResolve(args) {
   const rounds = readJson(roundsPath(), {});
+  const ttlMs = (Number(process.env.GCLAW_ROUND_TTL_DAYS) || 14) * 24 * 3600 * 1000;
+  // Prune terminal rounds past the TTL so rounds.json can't grow unbounded — and so a
+  // re-entry at the same price isn't blocked by a stale same-id round (roundId is keyed
+  // on entry price). The durable record is the predictors ladder + calls.jsonl, not this
+  // working set. Runs before the open-rounds early return so it can't be starved.
+  const cutoff = Date.now() - ttlMs;
+  let pruned = 0;
+  for (const [id, r] of Object.entries(rounds)) {
+    if (r.status !== 'open' && new Date(r.resolvedAt || r.openedAt).getTime() < cutoff) {
+      delete rounds[id]; pruned += 1;
+    }
+  }
   const open = Object.values(rounds).filter((r) => r.status === 'open');
-  if (!open.length) return { ok: true, resolved: [] };
+  if (!open.length) {
+    if (pruned) writeAtomic(roundsPath(), JSON.stringify(rounds, null, 2));
+    return { ok: true, resolved: [], ...(pruned ? { pruned } : {}) };
+  }
   const live = new Set((position().positions || []).map((p) => p.coin));
   const fills = (await hlInfo({ type: 'userFills', user: managed() })) || [];
   const calls = readJsonl(callsPath());
   const predictors = readJson(predictorsPath(), {});
   const resolved = [];
   const expired = [];
-  const ttlMs = (Number(process.env.GCLAW_ROUND_TTL_DAYS) || 14) * 24 * 3600 * 1000;
   for (const r of open) {
     if (live.has(r.coin)) {
       // A coin that's still (or perpetually) a live position can't resolve. Expire
@@ -178,7 +192,7 @@ async function cmdResolve(args) {
   writeAtomic(roundsPath(), JSON.stringify(rounds, null, 2));
   writeAtomic(predictorsPath(), JSON.stringify(predictors, null, 2));
   writeRoot();
-  return { ok: true, resolved, ...(expired.length ? { expired } : {}) };
+  return { ok: true, resolved, ...(expired.length ? { expired } : {}), ...(pruned ? { pruned } : {}) };
 }
 
 function cmdLeaderboard() {
