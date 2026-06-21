@@ -1582,7 +1582,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "agree_min": float(style.get("agree_min", 0.60)),
         "conv_min": float(style.get("conv_min", 0.22)),
     }
-    # Size = genome aggression × survival health (shrink when low on GMAC); the entry
+    # Size = genome aggression x survival health (shrink when low on GMAC); the entry
     # gate (conviction) is NOT touched by life-energy, so recovery stays possible.
     risk_mult = float(style.get("risk_mult", 1.0)) * _health_size_mult(meta)
     proven_coins = {e["coin"] for e in style["adopted"]}
