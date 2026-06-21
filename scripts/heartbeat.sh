@@ -56,6 +56,11 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Economics checkpoint: after every 5 REAL position closes, audit the true edge (win
+# rate, expectancy) and Telegram a verdict — the honest "is the strategy +EV?" answer,
+# on a clean batch, not contaminated by the buggy period or funding noise.
+[[ -f "$SKILL_DIR/scripts/audit_economics.py" ]] &&
+  echo "$(ts) economics: $(uv run --no-project python3 "$SKILL_DIR/scripts/audit_economics.py" check 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
 # Born with an arsenal (the "new zero"): seed a genome-weighted blend of offensive
 # techniques into the forge loadout once, if it hasn't been birth-blended yet.
 [[ -f "$SKILL_DIR/scripts/blend.py" ]] && ! grep -q '"blend_source": "birth"' "$GCLAW_HOME/forge/style.json" 2>/dev/null &&
