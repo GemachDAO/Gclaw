@@ -19,7 +19,15 @@ the family only when balance and edge justify it.
    DEFAULT dex. For the 24/7 `xyz` stock/commodity perps use `node scripts/forge_data.js features
    --coins xyz:SPCX,xyz:NVDA,xyz:TSLA` — a 0 from the default tools is NOT a closed market. For
    events: `hl_outcomes`.
-4. **Act** only on a clear thesis, sized by the risk limit and free `buyingPower`, always with TP/SL. At most one or two moves.
+4. **Act** only on a clear thesis, sized by the risk limit and free `buyingPower`, always with TP/SL.
+   **Open via the local SDK signer, NOT the MCP:** `node scripts/hl_perp.js open --coin <SYM>
+   --side <long|short> --notional <USD> --leverage <N> --sl-pct <P> --tp-pct <P>` (it places the
+   entry + the stop + the take-profit in one signed order). The MCP `open_perp_position` tool
+   currently returns **`Unauthorized`** (a known live-auth gotcha) — do not waste the cycle on it.
+   `coin`, `side`, and `notional` are all REQUIRED (no defaults), so never run a bare/`--help`
+   `open` to "inspect" it — that used to fire a real trade; pass the full command or nothing.
+   To act on an arsenal signal instead, `node scripts/forge.py run --execute` opens the top
+   proven-market intent through the same signed path. At most one or two moves.
 5. **Settle** realized PnL into the metabolism. Charge a discovery cost if the cycle did heavy intel.
 6. **Evolve** if a goodwill threshold is newly crossed.
 7. **Chatter** one short line to the family in your own voice (see your persona) — this is the show people watch.

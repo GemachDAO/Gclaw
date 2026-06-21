@@ -249,12 +249,19 @@ async function cmdStatus(wallet) {
 }
 
 async function cmdOpen(wallet, args) {
-  const coin = normalizeCoin(args.coin || 'ETH');
-  const isLong = (args.side || 'long').toLowerCase() !== 'short';
-  const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional || 12));
+  // SAFETY: require coin/side/notional explicitly — NO defaults. Previously these
+  // defaulted to a live $12 ETH long, so a stray invocation (a --help probe, a typo)
+  // opened a REAL position. A trade must be fully, deliberately specified.
+  if (args.help || !args.coin || !args.side || args.notional == null) {
+    return die('usage: open --coin <SYM> --side <long|short> --notional <USD> '
+      + '[--leverage N] [--sl-pct P] [--tp-pct P] — coin/side/notional are required (no defaults)');
+  }
+  const coin = normalizeCoin(args.coin);
+  const isLong = String(args.side).toLowerCase() !== 'short';
+  const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional));
   const slPct = Number(args['sl-pct'] || 2);
   const tpPct = Number(args['tp-pct'] || 3);
-  if (!args['sl-pct'] && slPct <= 0) die('a stop-loss is required (--sl-pct)');
+  if (slPct <= 0) die('a stop-loss is required (--sl-pct)');
 
   // Leverage is a real, settable order field, clamped to the EARNED cap (goodwill ladder).
   const cap = earnedLeverageCap();
