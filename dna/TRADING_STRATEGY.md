@@ -90,7 +90,12 @@ You have a perception + risk stack. **Use it; do not trade on a raw price glance
 4. **Demand proven, regime-matched edge** — `node scripts/memory.py query --regime <regime>` ranks
    your techniques by expectancy *in this regime*. Open only if a technique shows `edge_real: true`
    for the current regime, **or** (cold start, no history) the intel gives a high-conviction,
-   regime-aligned setup. A coin-flip signal (confidence < 0.6) is not a setup — wait.
+   regime-aligned setup. **Calibrate the bar to YOUR genome, not a fixed number:** the
+   forge caps conviction at your `conviction_cap` (a low-Vitality creature's cap can sit
+   near 0.6, a high-Vitality one near 0.95). So treat a *proven-market* arsenal signal at
+   **≥ ~75% of your `conviction_cap`** (shown in the `forge.py run` output) as a real
+   setup and act on it; below that it's a coin-flip — wait. A fixed 0.6 floor would lock a
+   low-cap creature out of every trade it's calibrated to take.
    - **Lean on the family.** `node scripts/memory.py swarm` pools every creature's onchain-published
      `technique × regime → edge` into one collective table — a result proven across many creatures is
      stronger than your own small sample. Prefer techniques with collective `edge_real`.
