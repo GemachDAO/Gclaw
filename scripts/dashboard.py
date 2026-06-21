@@ -744,8 +744,10 @@ def rewards_html(state: dict[str, Any]) -> str:
             '<div class="nextcard maxed"><div class="nextname">👑 Apex reached</div>'
             '<div class="nextdesc muted">Every power-up unlocked.</div></div>'
         )
+    # The hero card above fully describes the NEXT unlock, so the ladder is just the map:
+    # one tight line per tier (no repeated paragraphs) — the path at a glance, not a wall.
     rows = []
-    for i, (th, ic, name, desc, lev) in enumerate(tiers):
+    for i, (th, ic, name, _desc, lev) in enumerate(tiers):
         done = gw >= th
         cls = "rstep " + ("done" if done else ("next" if i == nxt else "locked"))
         node = "✓" if done else ("◆" if i == nxt else "○")
@@ -753,8 +755,7 @@ def rewards_html(state: dict[str, Any]) -> str:
         rows.append(
             f'<div class="{cls}"><span class="rnode">{node}</span>'
             f'<div class="rbody"><div class="rtop"><b>{ic} {html.escape(name)}</b>'
-            f'<span class="rgw">{th} GW</span></div>'
-            f'<div class="rdesc muted">{html.escape(desc)}</div></div>{levtag}</div>'
+            f'<span class="rgw">{th} GW</span></div></div>{levtag}</div>'
         )
     return hero + '<div class="ladder">' + "".join(rows) + "</div>"
 
@@ -822,10 +823,14 @@ def intel_html(h: Path) -> str:
         "range": ("#a9d6ff", "rgba(97,184,255,.14)"),
         "chop": ("var(--muted)", "rgba(105,112,131,.14)"),
     }
+    # Lead with what the agent can ACT on: trend/range markets (sorted tradeable-first),
+    # and collapse the chop board — usually most of the universe — into one quiet line, so
+    # the panel reads as "here are the setups", not a wall of "chop · —" rows.
+    live = [(c, f) for c, f in intel.items() if f and f.get("regime") != "chop"]
+    chop = [c for c, f in intel.items() if f and f.get("regime") == "chop"]
+    live.sort(key=lambda kv: (not kv[1].get("tradeable"), kv[0]))
     rows = []
-    for coin, f in intel.items():
-        if not f:
-            continue
+    for coin, f in live:
         reg = f.get("regime", "?")
         fg, bg = chip.get(reg, ("var(--silver)", "transparent"))
         rows.append(
@@ -835,12 +840,17 @@ def intel_html(h: Path) -> str:
             f"<td>{f.get('rsi', '?')}</td><td>{f.get('atr_pct', '?')}%</td>"
             f"<td>{f.get('funding_z', '?')}</td><td>{'✓' if f.get('tradeable') else '—'}</td></tr>"
         )
-    return (
+    table = (
         f'<table class="lb"><tr><th>coin</th><th>regime</th><th>rsi</th><th>atr</th>'
         f"<th>fund-z</th><th>trade?</th></tr>{''.join(rows)}</table>"
-        f'<p class="muted" style="margin-top:6px">Chop = sit out · trend = ride ema_stack · '
-        f"range = fade extremes. Sized by ATR + Kelly, only on regime-proven edge.</p>"
+        if rows
+        else '<p class="muted">Whole board is chop right now — no setup, sitting out.</p>'
     )
+    chopline = ""
+    if chop:
+        names = ", ".join(html.escape(c) for c in sorted(chop))
+        chopline = f'<p class="muted chopline">💤 <b>{len(chop)} in chop</b> · sitting out: {names}</p>'
+    return table + chopline
 
 
 def predictions_html(h: Path) -> str:
@@ -1374,7 +1384,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .nbar i{{display:block;height:100%;background:linear-gradient(90deg,#2c6e4a,var(--emerald));border-radius:999px;box-shadow:0 0 12px rgba(73,184,117,.55);transition:width .6s ease}}
 .nfoot{{display:flex;justify-content:space-between;margin-top:6px;font-size:12px;font-variant-numeric:tabular-nums}}.nfoot b{{color:var(--emerald);font-weight:700}}
 .ladder{{display:flex;flex-direction:column}}
-.rstep{{display:flex;align-items:center;gap:12px;padding:11px 2px;border-top:1px solid var(--line)}}.rstep:first-child{{border-top:none}}
+.rstep{{display:flex;align-items:center;gap:12px;padding:7px 2px;border-top:1px solid var(--line)}}.rstep:first-child{{border-top:none}}
+.chopline{{font-size:12px;margin-top:10px;line-height:1.5}}.chopline b{{color:var(--silver)}}
 .rnode{{width:22px;height:22px;flex:0 0 22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:1px solid var(--line);color:var(--muted)}}
 .rstep.done .rnode{{background:var(--emerald);border-color:var(--emerald);color:#06210f}}
 .rstep.next .rnode{{border-color:var(--emerald);color:var(--emerald);box-shadow:0 0 0 4px rgba(73,184,117,.16)}}
