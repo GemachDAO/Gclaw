@@ -150,11 +150,27 @@ async function check() {
   const cur = conditions();
   const seenPath = path.join(GCLAW_HOME, 'alerts.json');
   const seen = readJson(seenPath, {});
+  const remindMs = (Number(process.env.GCLAW_ALERT_REMIND_H) || 24) * 3600 * 1000;
+  const now = Date.now();
+  const next = {};
   const fired = [];
   for (const [k, msg] of Object.entries(cur)) {
-    if (!seen[k]) { await send(k === 'hibernate' || k === 'breaker' ? 'critical' : 'warning', msg); fired.push(k); }
+    const critical = k === 'hibernate' || k === 'breaker';
+    const prev = seen[k];  // {msg, lastFired} (or a bare string from the old format)
+    const prevMsg = prev && typeof prev === 'object' ? prev.msg : prev;
+    const lastFired = prev && typeof prev === 'object' ? prev.lastFired || 0 : 0;
+    // Re-alert when the condition is new, its message escalated (e.g. a deeper
+    // drawdown), or a CRITICAL one has sat unreminded past the re-remind window —
+    // so a trading-blocking state (breaker/hibernate) can't go silent for days.
+    const stale = critical && now - lastFired >= remindMs;
+    if (prevMsg !== msg || stale) {
+      await send(critical ? 'critical' : 'warning', msg); fired.push(k);
+      next[k] = { msg, lastFired: now };
+    } else {
+      next[k] = { msg, lastFired };
+    }
   }
-  fs.writeFileSync(seenPath, JSON.stringify(cur) + '\n');  // current = new baseline (clears resolved)
+  fs.writeFileSync(seenPath, JSON.stringify(next) + '\n');  // current = new baseline (clears resolved)
   return { ok: true, fired, active: Object.keys(cur) };
 }
 
@@ -168,4 +184,7 @@ async function main() {
   process.stdout.write(JSON.stringify(out) + '\n');
 }
 
-main();
+// Exported for unit testing; main() runs only as a CLI.
+module.exports = { check, conditions };
+
+if (require.main === module) main();
