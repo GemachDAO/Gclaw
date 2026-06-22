@@ -103,13 +103,23 @@ else
   # (open_perp_position/place_perp_order/limit_*) stay allowed — riskguard caps their
   # risk deterministically. GMAC + funding moves are deterministic scripts, not the model.
   DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token mcp__gdex__buy_token mcp__gdex__managed_purchase mcp__gdex__execute_spot mcp__gdex__execute_cross_perp mcp__gdex__execute_isolated_perp mcp__gdex__create_copy_trade mcp__gdex__create_hl_copy_trade"
-  if printf '%s' "$PROMPT" | timeout 600 claude --print --permission-mode bypassPermissions \
+  # The Opus cycle gets a generous budget — an active board (many non-chop setups to
+  # weigh) takes longer to reason over, and a timeout here is benign: every deterministic
+  # safety/settlement step already ran ABOVE, and the next cycle retries. So treat a
+  # timeout (124) as "ran long, will retry" — NOT a critical failure that pages the human.
+  CYCLE_TIMEOUT="${GCLAW_CYCLE_TIMEOUT:-900}"
+  if printf '%s' "$PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
       --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
   else
-    echo "===== $(ts) heartbeat exited non-zero ($?) =====" >>"$LOG"
-    [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
-      node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero" >>"$LOG" 2>&1 || true
+    rc=$?  # capture BEFORE any other command (a command substitution would reset $?)
+    if [[ "$rc" -eq 124 ]]; then
+      echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
+    else
+      echo "===== $(ts) heartbeat exited non-zero (rc=$rc) =====" >>"$LOG"
+      [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+        node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero (rc=$rc)" >>"$LOG" 2>&1 || true
+    fi
   fi
 fi
 
