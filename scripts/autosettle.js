@@ -129,6 +129,12 @@ async function main() {
   const fundingPnl = freshFunding.reduce((s, x) => s + x.usdc, 0);
   const net = Math.round((closedPnl - fees + fundingPnl + (cursor.residual || 0)) * 1e6) / 1e6;
   const closes = fresh.filter((f) => Number(f.closedPnl || 0) !== 0).length;
+  // A close booked here came from an EXCHANGE trigger (TP/SL) the agent didn't fire through
+  // hl_perp.js, so the status cache wasn't invalidated at the source — drop it now so the
+  // briefing / model_select don't read the just-closed position as still open this cycle.
+  if (closes > 0) {
+    try { fs.unlinkSync(path.join(GCLAW_HOME, 'status_cache.json')); } catch { /* nothing to clear */ }
+  }
   const maxFundingTime = freshFunding.reduce((m, x) => Math.max(m, x.time), cursor.lastFundingTime || 0);
 
   const summary = {

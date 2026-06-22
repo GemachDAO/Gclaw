@@ -51,7 +51,10 @@ def gather() -> dict:
     return {
         "meta": _read_json(h / "metabolism.json", {}),
         "intel": (_read_json(h / "intel.json", {}) or {}).get("intel", {}),
-        "account": _run_json(["node", str(scripts / "hl_perp.js"), "status", "--cache"], {}),
+        # LIVE read, NOT --cache: the briefing is the LLM's authoritative state, and the 90s
+        # status cache can still report a position that closed within the window (a phantom).
+        # This also refreshes the cache for cheaper downstream consumers.
+        "account": _run_json(["node", str(scripts / "hl_perp.js"), "status"], {}),
         "forge": _run_json(["uv", "run", "--no-project", "python3", str(scripts / "forge.py"), "run"], {}),
         "economics": _run_json(
             ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"], {}

@@ -131,6 +131,19 @@ describe('status cache is best-effort and never crashes the heartbeat', () => {
     expect(m.readStatusCache()).toBeNull();
   });
 
+  test('invalidate drops a fresh entry — a closed position is never served as a phantom', () => {
+    const m = fresh();
+    m.writeStatusCache({ ok: true, positions: [{ coin: 'xyz:MU' }], equity: 200 });
+    expect(m.readStatusCache()).toMatchObject({ equity: 200 }); // within TTL, served
+    m.invalidateStatusCache(); // a position just closed — the cache must not keep reporting it
+    expect(m.readStatusCache()).toBeNull(); // gone → the next read refetches live state
+  });
+
+  test('invalidate on a missing cache is a no-op (never throws)', () => {
+    const m = fresh();
+    expect(() => m.invalidateStatusCache()).not.toThrow();
+  });
+
   test('writeStatusCache to an unwritable path is swallowed (no throw)', () => {
     process.env.GCLAW_HOME = path.join(tmp, 'does', 'not', 'exist'); // parent missing
     const m = fresh();

@@ -371,6 +371,13 @@ function writeStatusCache(data) {
   } catch { /* cache is best-effort */ }
 }
 
+// Drop the cache the instant the position set changes (open/close), so a --cache read
+// can't keep reporting a position that just closed (a phantom) — or miss one just opened —
+// for the rest of the 90s TTL. The next read does a fresh fetch.
+function invalidateStatusCache() {
+  try { fs.unlinkSync(STATUS_CACHE); } catch { /* nothing to clear */ }
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
@@ -384,13 +391,14 @@ async function main() {
   if (!handler) die(`unknown command '${cmd}'. Use: status | open | close`);
   const result = await handler(wallet, args);
   if (cmd === 'status' && result.ok) writeStatusCache(result); // never cache a failed/partial read
+  if ((cmd === 'open' || cmd === 'close') && result && result.ok !== false) invalidateStatusCache();
   process.stdout.write(JSON.stringify(result) + '\n');
 }
 
 // Pure functions are exported for unit testing; main() runs only as a CLI.
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
-  readStatusCache, writeStatusCache, parseArgs,
+  readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
