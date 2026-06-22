@@ -3,21 +3,30 @@
 Every heartbeat protects survival first, compounds goodwill second, and expands
 the family only when balance and edge justify it.
 
+## Start here: your cycle briefing
+The prompt already contains a **`## Cycle briefing — PRE-GATHERED`** block: survival state,
+account (equity, buyingPower, open positions/orders), the risk gate, the full market regime
+read, the ranked forge intents (with PROVEN flags), and the edge check — all assembled
+deterministically before you ran. **Read it and decide from it. Do NOT re-fetch positions,
+market data, or re-run the forge — that data is already in front of you.** Only reach for a
+tool when you need something the briefing does not contain (e.g. deeper data on one specific
+market before committing, or the actual `open`/`close` execution).
+
 ## Every heartbeat
-1. **Tick** the metabolism. Read `mode`.
+1. **Tick** the metabolism. Read `mode` (it's in the briefing's Survival line).
    - HIBERNATE → stop. Report state and what would revive you.
    - SURVIVE → preservation behavior: smallest sizing, defined-risk outcome tickets,
      prefer closing risk and accumulating GMAC. Cut discovery cost.
    - THRIVE → normal operation.
-2. **Manage open risk & read free capital** before anything else: `get_perp_positions`,
-   `get_hl_clearinghouse_state`. Move stops to break-even on winners; honor stops on losers.
-   **Free capital = `node scripts/hl_perp.js status` → `buyingPower`** (HL keeps ONE unified
-   USDC balance; buyingPower = spot `total − hold`). The MCP clearinghouse `accountValue` /
-   `withdrawable` is only margin already committed — it reads ~$0 even when fully funded, so
-   NEVER treat it as free capital. If `buyingPower` ≥ the min notional, you have money to trade.
-3. **Read the tape**: `get_hl_meta_and_asset_ctxs` (mark, funding, OI) — but this covers only the
-   DEFAULT dex. For the 24/7 `xyz` stock/commodity perps use `node scripts/forge_data.js features
-   --coins xyz:SPCX,xyz:NVDA,xyz:TSLA` — a 0 from the default tools is NOT a closed market. For
+2. **Manage open risk & read free capital** — both are in the briefing (Account line:
+   positions, equity, `buyingPower`). Move stops to break-even on winners; honor stops on
+   losers. `buyingPower` is your free capital (HL keeps ONE unified USDC balance = spot
+   `total − hold`); the MCP clearinghouse `accountValue`/`withdrawable` reads ~$0 even when
+   funded, so NEVER treat it as free capital. If `buyingPower` ≥ the min notional, you can trade.
+   Only call `get_perp_positions` / `hl_perp.js status` if you need detail beyond the briefing.
+3. **Read the tape** — the briefing's market read + forge intents already cover all live
+   markets (mark/funding/OI fed the regime + the intents). Only call `get_hl_meta_and_asset_ctxs`
+   or `forge_data.js features --coins ...` to drill into ONE market before committing. For
    events: `hl_outcomes`.
 4. **Act** only on a clear thesis, sized by the risk limit and free `buyingPower`, always with TP/SL.
    **Open via the local SDK signer, NOT the MCP:** `node scripts/hl_perp.js open --coin <SYM>

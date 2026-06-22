@@ -108,7 +108,13 @@ else
   # safety/settlement step already ran ABOVE, and the next cycle retries. So treat a
   # timeout (124) as "ran long, will retry" — NOT a critical failure that pages the human.
   CYCLE_TIMEOUT="${GCLAW_CYCLE_TIMEOUT:-900}"
-  if printf '%s' "$PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
+  # Pre-gather the cycle briefing (positions, market regimes, forge intents, risk, edge)
+  # and inject it into the prompt — so the LLM decides from ONE read instead of ~8 sequential
+  # tool round-trips, the real cycle-time driver. Best-effort: the cycle still runs if empty.
+  BRIEF="$(uv run --no-project python3 "$SKILL_DIR/scripts/briefing.py" 2>>"$LOG" || true)"
+  FULL_PROMPT="$PROMPT"
+  [[ -n "$BRIEF" ]] && FULL_PROMPT="$PROMPT"$'\n\n'"$BRIEF"
+  if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
       --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
   else
