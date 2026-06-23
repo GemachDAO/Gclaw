@@ -1627,6 +1627,12 @@ def _combine(
     if agree < caps["agree_min"] or conviction < caps["conv_min"]:
         return None
     long_side = total > 0
+    # Trend-alignment (DNA invariant): never fade a trend. The live record proved
+    # counter-trend entries are the -EV leak — 12/12 losing longs in trend_down
+    # (p < 0.001). In a trend, take it with the move or stand aside; don't buy a
+    # falling market or short a rising one.
+    if (regime == "trend_down" and long_side) or (regime == "trend_up" and not long_side):
+        return None
     winners = [v for v in votes if (v["v"] > 0) == long_side]
     dominant = max(winners, key=lambda v: abs(v["v"]))
     stop_pct = (
@@ -1792,6 +1798,12 @@ def _execute(intent: dict[str, Any]) -> dict[str, Any]:
         str(intent["sl_pct"]),
         "--tp-pct",
         str(round(intent["sl_pct"] * 1.5, 2)),
+        # The proven, regime-matched basis + live regime so the executor's
+        # entry gate can verify this is not a discretionary or counter-trend open.
+        "--basis",
+        intent["technique"],
+        "--regime",
+        intent.get("regime", "range"),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     try:

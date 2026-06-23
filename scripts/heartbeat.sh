@@ -99,10 +99,13 @@ else
   # (autofund/gmac_buy) with HARD-CODED destinations, never by the model.
   # shellcheck disable=SC2086  # intentional word-split: --disallowedTools is variadic
   # Deny every tool that moves funds to an arbitrary destination, buys an arbitrary
-  # token, or hands the wallet to a third party. The legit HL-perp trading tools
-  # (open_perp_position/place_perp_order/limit_*) stay allowed — riskguard caps their
-  # risk deterministically. GMAC + funding moves are deterministic scripts, not the model.
-  DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token mcp__gdex__buy_token mcp__gdex__managed_purchase mcp__gdex__execute_spot mcp__gdex__execute_cross_perp mcp__gdex__execute_isolated_perp mcp__gdex__create_copy_trade mcp__gdex__create_hl_copy_trade"
+  # token, or hands the wallet to a third party. Perp ENTRY tools (open_perp_position/
+  # place_perp_order) are ALSO denied: every entry must flow through hl_perp.js open,
+  # whose deterministic gate refuses counter-trend and un-proven discretionary opens.
+  # That gate is the -EV fix from the trade-record audit, and it only binds if the
+  # model can't open a position by another door. GMAC + funding moves are deterministic
+  # scripts, not the model.
+  DENY="mcp__gdex__transfer_native mcp__gdex__transfer_token mcp__gdex__execute_bridge mcp__gdex__perp_withdraw mcp__gdex__hl_swap_collateral mcp__gdex__managed_sell mcp__gdex__sell_token mcp__gdex__buy_token mcp__gdex__managed_purchase mcp__gdex__execute_spot mcp__gdex__execute_cross_perp mcp__gdex__execute_isolated_perp mcp__gdex__open_perp_position mcp__gdex__place_perp_order mcp__gdex__create_copy_trade mcp__gdex__create_hl_copy_trade"
   # The Opus cycle gets a generous budget — an active board (many non-chop setups to
   # weigh) takes longer to reason over, and a timeout here is benign: every deterministic
   # safety/settlement step already ran ABOVE, and the next cycle retries. So treat a

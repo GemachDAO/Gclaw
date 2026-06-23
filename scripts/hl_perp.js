@@ -79,6 +79,67 @@ function normalizeCoin(coin) {
   return i === -1 ? coin.toUpperCase() : coin.slice(0, i).toLowerCase() + ':' + coin.slice(i + 1).toUpperCase();
 }
 
+function gclawHome() {
+  return process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
+}
+
+// The set of (technique|coin) pairs this creature is allowed to open on, read from
+// the same files the forge writes: adopted techniques (style.json) supply native
+// pairs and blanket-trust their adopted coins; proven_markets.json adds pairs
+// auto-proven on the wider universe. Returns { coins:Set, pairs:Set } so the gate
+// can mirror forge's proven-definition exactly (a closed cache reads as empty).
+function loadProvenPairs(home = gclawHome()) {
+  const coins = new Set();
+  const pairs = new Set();
+  try {
+    const style = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'style.json'), 'utf8'));
+    for (const e of style.adopted || []) {
+      const c = normalizeCoin(String(e.coin || ''));
+      if (c) { coins.add(c); if (e.id) pairs.add(`${e.id}|${c}`); }
+    }
+  } catch { /* no style yet → nothing adopted */ }
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'proven_markets.json'), 'utf8'));
+    for (const p of reg.pairs || []) {
+      if (p.technique && p.coin) pairs.add(`${p.technique}|${normalizeCoin(String(p.coin))}`);
+    }
+  } catch { /* no proven markets yet */ }
+  return { coins, pairs };
+}
+
+// The live regime for a coin from the heartbeat's freshest perception snapshot.
+// null when unknown (missing/corrupt intel) — the gate treats unknown as "can't
+// prove counter-trend" and leans on the explicit --regime forge passes instead.
+function liveRegime(coin, home = gclawHome()) {
+  try {
+    const intel = JSON.parse(fs.readFileSync(path.join(home, 'intel.json'), 'utf8'));
+    return intel.intel?.[normalizeCoin(coin)]?.regime || null;
+  } catch { return null; }
+}
+
+// Deterministic entry gate — the single chokepoint every signed open flows through.
+// The live record proved two -EV leaks the model talked itself into: (1) counter-trend
+// entries (12/12 losing longs in trend_down, p<0.001) and (2) discretionary opens with
+// no proven, regime-matched basis (the -7R "discretionary" cluster). Enforcing here, in
+// the executor, makes the fix code the model cannot skip — not a prompt it can rationalize
+// past. Pure for unit testing; returns { ok } or { ok:false, reason }.
+function entryGate({ side, regime, coin, basis, proven }) {
+  const isLong = String(side).toLowerCase() !== 'short';
+  // #1 Trend alignment. Unknown regime (null) can't prove a violation, so it passes
+  // here — forge always supplies --regime, and chop is already vetoed upstream.
+  if (regime === 'chop') return { ok: false, reason: 'no entries in chop (DNA invariant)' };
+  if (regime === 'trend_down' && isLong) return { ok: false, reason: 'counter-trend blocked: long in trend_down' };
+  if (regime === 'trend_up' && !isLong) return { ok: false, reason: 'counter-trend blocked: short in trend_up' };
+  // #2 Discretionary block — an open must name a proven, regime-matched basis.
+  if (!basis) {
+    return { ok: false, reason: 'discretionary entry blocked: --basis <proven technique> required (route entries through forge.py run --execute)' };
+  }
+  const c = normalizeCoin(coin);
+  const allowed = proven.coins.has(c) || proven.pairs.has(`${basis}|${c}`);
+  if (!allowed) return { ok: false, reason: `basis '${basis}' is not proven for ${c} — prove it before trading it` };
+  return { ok: true };
+}
+
 async function findAsset(skill, coin) {
   const a = await skill.getHlAllAssets();
   const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
@@ -258,6 +319,13 @@ async function cmdOpen(wallet, args) {
   }
   const coin = normalizeCoin(args.coin);
   const isLong = String(args.side).toLowerCase() !== 'short';
+
+  // Deterministic entry gate BEFORE any network call — refuse counter-trend and
+  // discretionary entries at the executor, the single path every signed open takes.
+  const regime = args.regime || liveRegime(coin);
+  const gate = entryGate({ side: args.side, regime, coin, basis: args.basis, proven: loadProvenPairs() });
+  if (!gate.ok) die(`entry refused — ${gate.reason}`);
+
   const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional));
   const slPct = Number(args['sl-pct'] || 2);
   const tpPct = Number(args['tp-pct'] || 3);
@@ -399,6 +467,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
+  entryGate, loadProvenPairs, liveRegime,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
