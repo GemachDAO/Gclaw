@@ -44,7 +44,13 @@ from typing import Any
 # proves it can survive. Keep this ladder in sync with hl_perp.js.
 MAX_LEVERAGE = 20  # absolute ceiling at the top of the ladder
 LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
-RISK_PCT = {"thrive": 5, "survive": 2, "hibernate": 0}
+# Per-trade risk ceiling, in % of equity. MUST equal riskguard.js RISK_CAP_PCT —
+# riskguard physically trims any position above it, so if the sizer targets MORE
+# (it used to target 5%), every trade is opened over-cap and clawed back ~68% the
+# next heartbeat: churn, double fees, and orphaned over-sized brackets. They are one
+# number now. The mode gradient below scales risk UNDER this ceiling, never past it.
+RISK_CAP_PCT = 1.5
+RISK_PCT = {"thrive": 1.5, "survive": 0.75, "hibernate": 0}
 MIN_NOTIONAL = 11
 
 # Default markets each adopted technique is scanned across every run: majors on
@@ -1147,7 +1153,17 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
     if rec:
         pending.pop(args.coin, None)
         save_pending(pending)
-    return {"ok": True, "attributed": entry, "fitness": fitness}
+    # Surface the local technique + the REAL sized risk and entry regime at top level so
+    # the settler can record an accurate R-multiple (pnl / real risk) to trade-memory,
+    # instead of re-deriving a fabricated risk from a file nothing writes.
+    return {
+        "ok": True,
+        "attributed": entry,
+        "fitness": fitness,
+        "technique": local_tid or "",
+        "risk_usd": float((rec or {}).get("risk_usd") or 0.0),
+        "regime": (rec or {}).get("regime", ""),
+    }
 
 
 def _sync_reputation(broadcast: bool) -> dict[str, Any]:
@@ -1457,12 +1473,14 @@ def _intent(
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
 
     ``risk_mult`` is the genome's Aggression-derived risk envelope (>1 sizes up,
-    <1 down); the per-trade risk cap that riskguard.js enforces is unchanged.
+    <1 down) applied UNDER the shared ceiling: the effective per-trade risk is
+    clamped to RISK_CAP_PCT, the same cap riskguard.js enforces, so a sized intent
+    is never trimmed after the fact.
     """
     leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
     stop_pct = float(decision.get("stop_pct") or 0)
-    risk_pct = RISK_PCT.get(mode, 0)
-    risk_usd = equity * risk_pct / 100.0 * max(0.3, min(2.0, risk_mult))
+    risk_pct = min(RISK_CAP_PCT, RISK_PCT.get(mode, 0) * max(0.3, min(2.0, risk_mult)))
+    risk_usd = equity * risk_pct / 100.0
     notional = max(MIN_NOTIONAL + 1, risk_usd / (stop_pct / 100.0)) if stop_pct > 0 else 0
     # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
     max_notional = max(0.0, buying_power * 0.95) * leverage

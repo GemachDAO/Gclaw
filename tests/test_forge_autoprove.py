@@ -25,6 +25,35 @@ def _card(proven, n=50, exp=0.01):
     return {"proven": proven, "out_of_sample": {"n": n, "expectancy": exp}}
 
 
+def test_royalty_surfaces_real_risk_technique_regime_for_the_settler(gclaw_home):
+    """cmd_royalty must return the local technique, the REAL sized risk_usd, and the entry
+    regime at TOP level so the settler records an honest R-multiple (pnl / real risk).
+
+    The bug: autosettle read `.technique` but royalty nested it under `.attributed`, so
+    every forge trade was mis-tagged 'discretionary' and its risk fabricated from a dead
+    open_risk.json. These three fields are what make the trade-memory accurate.
+    """
+    forge.save_pending({
+        "SOL": {"ref": "55624/stop-hunt-revert", "technique": "stop-hunt-revert",
+                "risk_usd": 3.12, "regime": "range", "opened_at": "x"},
+    })
+    out = forge.cmd_royalty(Namespace(coin="SOL", pnl=5.0, auto=True, ref=None))
+    assert out["ok"] is True
+    assert out["technique"] == "stop-hunt-revert"
+    assert out["risk_usd"] == 3.12
+    assert out["regime"] == "range"
+    assert "SOL" not in forge.load_pending()  # consumed on close, can't re-attribute
+
+
+def test_royalty_auto_on_unknown_coin_returns_empty_attribution(gclaw_home):
+    """No pending + no adopted technique → auto mode returns cleanly (no real risk to
+    surface), so the settler falls back to its stop estimate rather than crashing."""
+    out = forge.cmd_royalty(Namespace(coin="DOGE", pnl=1.0, auto=True, ref=None))
+    assert out["ok"] is True
+    assert out.get("technique", "") == ""
+    assert out.get("risk_usd", 0.0) == 0.0
+
+
 def test_autoprove_registers_only_pairs_with_out_of_sample_edge(gclaw_home, monkeypatch):
     universe = {"ETH": {"regime": "range"}, "xyz:MU": {"regime": "range"}, "xyz:DUST": {"regime": "range"}}
 

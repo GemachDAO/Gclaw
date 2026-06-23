@@ -167,6 +167,55 @@ def _decision(action: str, stop_pct: float, confidence: float, leverage: int) ->
     return {"action": action, "stop_pct": stop_pct, "confidence": confidence, "leverage": leverage}
 
 
+class TestSizedRiskNeverExceedsTheEnforcedCap:
+    """The sizer (forge) and the enforcer (riskguard) share ONE per-trade risk ceiling.
+
+    The bug this pins: forge used to target 5% while riskguard trimmed at 1.5%, so every
+    trade was opened ~3x over cap and clawed back ~68% the next heartbeat (churn, double
+    fees, orphaned brackets). _intent must now size at or below RISK_CAP_PCT for any mode
+    and any genome risk_mult, so a sized intent is never trimmed.
+    """
+
+    # Equity large enough that the $11 MIN_NOTIONAL floor never has to lift a sub-cap
+    # trade above the cap (that floor is the one legitimate over-cap case).
+    @settings(parent=_FIXTURE_OK, max_examples=400)
+    @given(
+        mode=st.sampled_from(["thrive", "survive"]),
+        stop_pct=st.floats(min_value=0.5, max_value=20.0, allow_nan=False),
+        risk_mult=st.floats(min_value=0.1, max_value=5.0, allow_nan=False),
+        equity=st.floats(min_value=5_000.0, max_value=1e6, allow_nan=False),
+    )
+    def test_intent_risk_within_cap(self, home, mode, stop_pct, risk_mult, equity) -> None:
+        intent = forge._intent(
+            "t", "BTC", _decision("long", stop_pct, 1.0, 5),
+            mode, equity, cap=10, buying_power=equity, risk_mult=risk_mult,
+        )
+        # $ at risk = notional * stop_pct/100 — the same quantity riskguard computes.
+        risk_usd = intent["notional"] * intent["sl_pct"] / 100.0
+        cap_usd = equity * forge.RISK_CAP_PCT / 100.0
+        # Tolerate sub-cent notional rounding (notional is round(_, 2)); the slack is
+        # ~150x tighter than riskguard's 15% trim band, so "at the cap" still never trims.
+        tol = max(0.02, cap_usd * 1e-3)
+        assert risk_usd <= cap_usd + tol, (
+            f"{mode} risk_mult={risk_mult} sized to ${risk_usd:.2f} > cap ${cap_usd:.2f}"
+        )
+
+    def test_thrive_targets_the_full_cap_and_survive_sits_below(self, home) -> None:
+        kw = dict(buying_power=1e6, cap=10, risk_mult=1.0)
+        thrive = forge._intent("t", "BTC", _decision("long", 2.0, 1.0, 5), "thrive", 10_000, **kw)
+        survive = forge._intent("t", "BTC", _decision("long", 2.0, 1.0, 5), "survive", 10_000, **kw)
+        thrive_risk = thrive["notional"] * thrive["sl_pct"] / 100.0
+        survive_risk = survive["notional"] * survive["sl_pct"] / 100.0
+        assert thrive_risk == pytest.approx(10_000 * forge.RISK_CAP_PCT / 100.0, rel=1e-3)
+        assert survive_risk < thrive_risk  # the mode gradient survives, under the ceiling
+
+    def test_cap_constant_matches_thrive_target(self) -> None:
+        # The shared-ceiling invariant: thrive's nominal target IS the cap (so a healthy
+        # creature sizes right at it), and hibernate is zero (no entries).
+        assert forge.RISK_PCT["thrive"] == forge.RISK_CAP_PCT
+        assert forge.RISK_PCT["hibernate"] == 0
+
+
 class TestEveryPerpCarriesAStop:
     """No stop -> no executable size. The stop is the safety floor; it can't be optional."""
 

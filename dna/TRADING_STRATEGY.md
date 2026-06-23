@@ -53,7 +53,7 @@ efficiency/regime gate) — never fade a freight train. `forge.py run` consults 
 features each cycle; trust a high-confidence arsenal signal on its proven market.
 
 ## Risk controls (hard limits)
-- **Max risk per trade:** 5% of current GMAC balance. In SURVIVE mode, 2%.
+- **Max risk per trade:** 1.5% of equity — the hard cap riskguard.js enforces (it trims anything above it). In SURVIVE mode, 0.75%. Size to it, never past it.
 - **Max leverage is EARNED, gated by goodwill** (won from profitable trades). The cap rises as the
   organism proves it can survive — start careful, earn your rope:
   | goodwill | leverage cap |

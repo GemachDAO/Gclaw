@@ -168,31 +168,32 @@ async function main() {
     settled = true;
     const closers = fresh.filter((x) => Number(x.closedPnl || 0) !== 0);
     const regimes = fetchRegimes([...new Set(closers.map((f) => f.coin))]);
-    const openRisk = readJson(path.join(GCLAW_HOME, 'open_risk.json'), {});
-    // Auto-attribute each closing fill to its technique's author (royalty) AND
+    // Auto-attribute each closing fill to its technique's author (royalty), which
+    // also returns the REAL sized risk + entry regime forge recorded at open, AND
     // record the outcome to the trade-memory (technique x regime -> R) so the agent
     // learns which techniques actually work in which conditions.
     for (const f of closers) {
-      let technique = '';
+      let attrib = {};
       try {
         const out = execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'forge.py'),
           'royalty', '--coin', String(f.coin), '--pnl', String(f.closedPnl), '--auto'],
         { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'pipe', 'ignore'] });
-        technique = JSON.parse(out.toString()).technique || '';
+        attrib = JSON.parse(out.toString()) || {};
       } catch { /* attribution is best-effort */ }
       try {
-        // open_risk.json entry may be a bare risk number or {risk, technique} the
-        // agent labelled at entry. Fall back to "discretionary" (a learnable bucket).
-        const orec = openRisk[f.coin];
-        const labelled = orec && typeof orec === 'object' ? orec : { risk: orec };
+        // Use the real risk forge sized this trade to (pending.risk_usd, surfaced by
+        // royalty); only estimate from the stop when there is no forge record (e.g. an
+        // exchange-triggered close with no pending). A real risk denominator keeps the
+        // learned R-multiple honest.
         const notional = Math.abs(Number(f.sz || 0)) * Number(f.px || 0);
-        const risk = labelled.risk || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
-        const tech = technique || labelled.technique || 'discretionary';
+        const risk = Number(attrib.risk_usd) > 0 ? Number(attrib.risk_usd) : (notional * 0.015 || 0.25);
+        const tech = attrib.technique || 'discretionary';
+        const regime = attrib.regime || regimes[f.coin] || 'unknown';
         const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
         const netPnl = Number(f.closedPnl) - Number(f.fee || 0); // expectancy must be net of fees, not gross
         execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'memory.py'),
           'record', '--coin', String(f.coin), '--technique', String(tech),
-          '--regime', regimes[f.coin] || 'unknown', '--side', side,
+          '--regime', regime, '--side', side,
           '--pnl', String(netPnl), '--risk', String(risk)],
         { env: { ...process.env, GCLAW_HOME }, stdio: ['ignore', 'ignore', 'ignore'] });
       } catch { /* memory record is best-effort */ }

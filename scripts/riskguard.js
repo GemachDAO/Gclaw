@@ -76,25 +76,17 @@ function assess(st) {
 const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
 const writeAtomic = (p, data) => { const t = `${p}.tmp${process.pid}`; fs.writeFileSync(t, data); fs.renameSync(t, p); };
 
-// Janitor: position-keyed state files (open_risk, riskguard_exempt) are written at
-// entry but never cleaned, so a stale entry mis-attributes the next trade or
-// silently exempts a re-entry from the cap. Drop any entry with no matching live
-// position so each only ever describes trades that actually exist.
+// Janitor: the grandfather list (riskguard_exempt.json) is written at entry but never
+// cleaned, so a stale entry would silently exempt a later re-entry from the cap. Drop
+// any entry with no matching live position so it only describes trades that exist.
 function pruneState(positions) {
   const liveAt = (coin, entry) => positions.some((p) => p.coin === coin
     && Math.abs(Number(p.entryPx) - Number(entry)) / Number(p.entryPx) < 0.001);
-  const liveCoin = new Set(positions.map((p) => p.coin));
   const exPath = path.join(GCLAW_HOME, 'riskguard_exempt.json');
   const exempt = readJson(exPath, null);
   if (Array.isArray(exempt)) {
     const kept = exempt.filter((e) => liveAt(e.coin, e.entry));
     if (kept.length !== exempt.length) writeAtomic(exPath, JSON.stringify(kept));
-  }
-  const orPath = path.join(GCLAW_HOME, 'open_risk.json');
-  const orisk = readJson(orPath, null);
-  if (orisk && typeof orisk === 'object') {
-    const kept = Object.fromEntries(Object.entries(orisk).filter(([coin]) => liveCoin.has(coin)));
-    if (Object.keys(kept).length !== Object.keys(orisk).length) writeAtomic(orPath, JSON.stringify(kept));
   }
 }
 
