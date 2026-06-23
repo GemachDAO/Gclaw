@@ -19,11 +19,14 @@ const require = createRequire(import.meta.url);
 const os = require('node:os');
 const fs = require('node:fs');
 
-const { entryGate, loadProvenPairs, liveRegime } = loadScript('hl_perp.js');
+const { entryGate, loadProvenSurface, liveRegime } = loadScript('hl_perp.js');
 
-// A proven set with one adopted coin (SOL, blanket-trusted) and one auto-proven
-// (technique, coin) pair (vol-momentum on xyz:MU).
-const PROVEN = { coins: new Set(['SOL']), pairs: new Set(['vol-momentum|xyz:MU']) };
+// A proven surface: adopted coin SOL (technique stop-hunt-revert), and xyz:MU
+// auto-proven via vol-momentum. coins = tradeable surface; techniques = known basis ids.
+const PROVEN = {
+  coins: new Set(['SOL', 'xyz:MU']),
+  techniques: new Set(['stop-hunt-revert', 'vol-momentum']),
+};
 
 describe('entryGate #1 — trend alignment (never fade a trend)', () => {
   test('long in trend_down is refused (the proven -EV leak)', () => {
@@ -45,21 +48,21 @@ describe('entryGate #1 — trend alignment (never fade a trend)', () => {
   });
 
   test('long WITH an uptrend passes (given a proven basis)', () => {
-    expect(entryGate({ side: 'long', regime: 'trend_up', coin: 'SOL', basis: 'any', proven: PROVEN }).ok).toBe(true);
+    expect(entryGate({ side: 'long', regime: 'trend_up', coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
   });
 
   test('short WITH a downtrend passes (given a proven basis)', () => {
-    expect(entryGate({ side: 'short', regime: 'trend_down', coin: 'SOL', basis: 'any', proven: PROVEN }).ok).toBe(true);
+    expect(entryGate({ side: 'short', regime: 'trend_down', coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
   });
 
   test('range allows either direction (no trend to fade)', () => {
-    expect(entryGate({ side: 'long', regime: 'range', coin: 'SOL', basis: 'a', proven: PROVEN }).ok).toBe(true);
-    expect(entryGate({ side: 'short', regime: 'range', coin: 'SOL', basis: 'a', proven: PROVEN }).ok).toBe(true);
+    expect(entryGate({ side: 'long', regime: 'range', coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
+    expect(entryGate({ side: 'short', regime: 'range', coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
   });
 
   test('unknown regime (null) cannot prove a violation, so #1 does not block', () => {
     // forge always supplies --regime; a missing intel snapshot must not wedge entries.
-    expect(entryGate({ side: 'long', regime: null, coin: 'SOL', basis: 'a', proven: PROVEN }).ok).toBe(true);
+    expect(entryGate({ side: 'long', regime: null, coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
   });
 });
 
@@ -74,19 +77,29 @@ describe('entryGate #2 — discretionary block (require a proven, named basis)',
     expect(entryGate({ side: 'long', regime: 'range', coin: 'SOL', proven: PROVEN }).ok).toBe(false);
   });
 
-  test('a basis not proven for the coin is refused', () => {
-    // vol-momentum is proven on xyz:MU, NOT on xyz:NVDA.
+  test('a junk basis (not a known technique) is refused even on a surface coin', () => {
+    // The discretionary leak was un-vetted gut trades — a made-up basis is rejected.
+    const g = entryGate({ side: 'long', regime: 'range', coin: 'SOL', basis: 'whatever', proven: PROVEN });
+    expect(g.ok).toBe(false);
+    expect(g.reason).toMatch(/not a known technique/);
+  });
+
+  test('a coin outside the proven surface is refused', () => {
+    // xyz:NVDA is not adopted and not auto-proven → no proof we can trade it.
     const g = entryGate({ side: 'long', regime: 'range', coin: 'xyz:NVDA', basis: 'vol-momentum', proven: PROVEN });
     expect(g.ok).toBe(false);
-    expect(g.reason).toMatch(/not proven/);
+    expect(g.reason).toMatch(/proven surface/);
   });
 
-  test('an adopted coin is blanket-trusted for any basis', () => {
-    // SOL is an adopted coin → any basis may trade it (mirrors forge proven-coins).
-    expect(entryGate({ side: 'long', regime: 'range', coin: 'SOL', basis: 'whatever', proven: PROVEN }).ok).toBe(true);
+  test('a known basis on an adopted coin passes', () => {
+    expect(entryGate({ side: 'long', regime: 'range', coin: 'SOL', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
   });
 
-  test('an auto-proven (technique, coin) pair passes', () => {
+  test('a known basis on an auto-proven coin passes (any-contributor, mirrors forge)', () => {
+    // The audit fix: the basis need not be THE technique proven on the coin — forge can
+    // execute a dominant technique on a coin proven via a weaker contributor. Coin-level
+    // surface membership is what counts, so this is not false-blocked.
+    expect(entryGate({ side: 'long', regime: 'range', coin: 'xyz:MU', basis: 'stop-hunt-revert', proven: PROVEN }).ok).toBe(true);
     expect(entryGate({ side: 'long', regime: 'range', coin: 'xyz:MU', basis: 'vol-momentum', proven: PROVEN }).ok).toBe(true);
   });
 
@@ -95,7 +108,7 @@ describe('entryGate #2 — discretionary block (require a proven, named basis)',
   });
 });
 
-describe('loadProvenPairs + liveRegime read the forge/intel state from disk', () => {
+describe('loadProvenSurface + liveRegime read the forge/intel state from disk', () => {
   let tmp;
   let realHome;
   beforeEach(() => {
@@ -110,22 +123,24 @@ describe('loadProvenPairs + liveRegime read the forge/intel state from disk', ()
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  test('adopted coins and proven_markets pairs both load', () => {
+  test('adopted coins + proven_markets coins and all technique ids load', () => {
     fs.writeFileSync(path.join(tmp, 'forge', 'style.json'),
       JSON.stringify({ adopted: [{ id: 'stop-hunt-revert', coin: 'SOL' }, { id: 'funding-fade', coin: 'BTC' }] }));
     fs.writeFileSync(path.join(tmp, 'forge', 'proven_markets.json'),
       JSON.stringify({ pairs: [{ technique: 'vol-momentum', coin: 'xyz:MU' }] }));
-    const p = loadProvenPairs(tmp);
+    const p = loadProvenSurface(tmp);
     expect(p.coins.has('SOL')).toBe(true);
     expect(p.coins.has('BTC')).toBe(true);
-    expect(p.pairs.has('stop-hunt-revert|SOL')).toBe(true); // native pair from style
-    expect(p.pairs.has('vol-momentum|xyz:MU')).toBe(true); // auto-proven pair
+    expect(p.coins.has('xyz:MU')).toBe(true); // auto-proven coin joins the surface
+    expect(p.techniques.has('stop-hunt-revert')).toBe(true);
+    expect(p.techniques.has('funding-fade')).toBe(true);
+    expect(p.techniques.has('vol-momentum')).toBe(true); // known basis from proven_markets
   });
 
-  test('missing forge state reads as an empty proven set, never throws', () => {
-    const p = loadProvenPairs(tmp);
+  test('missing forge state reads as an empty surface, never throws', () => {
+    const p = loadProvenSurface(tmp);
     expect(p.coins.size).toBe(0);
-    expect(p.pairs.size).toBe(0);
+    expect(p.techniques.size).toBe(0);
   });
 
   test('liveRegime reads a coin regime from intel.json', () => {
@@ -150,7 +165,7 @@ describe('loadProvenPairs + liveRegime read the forge/intel state from disk', ()
       JSON.stringify({ intel: { SOL: { regime: 'trend_down' } } }));
     const g = entryGate({
       side: 'long', regime: liveRegime('SOL', tmp), coin: 'SOL',
-      basis: 'stop-hunt-revert', proven: loadProvenPairs(tmp),
+      basis: 'stop-hunt-revert', proven: loadProvenSurface(tmp),
     });
     expect(g.ok).toBe(false);
     expect(g.reason).toMatch(/counter-trend/);

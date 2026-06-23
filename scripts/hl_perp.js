@@ -83,28 +83,32 @@ function gclawHome() {
   return process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 }
 
-// The set of (technique|coin) pairs this creature is allowed to open on, read from
-// the same files the forge writes: adopted techniques (style.json) supply native
-// pairs and blanket-trust their adopted coins; proven_markets.json adds pairs
-// auto-proven on the wider universe. Returns { coins:Set, pairs:Set } so the gate
-// can mirror forge's proven-definition exactly (a closed cache reads as empty).
-function loadProvenPairs(home = gclawHome()) {
+// The proven SURFACE this creature may open on, read from the same files the forge
+// writes: adopted coins (style.json) + coins auto-proven on the wider universe
+// (proven_markets.json), and the set of known technique ids across both. This mirrors
+// forge's proven-definition — "coin in proven_coins OR any contributor proven on the
+// coin" — at the COIN level, so the executor never false-blocks a legitimate
+// multi-contributor execute whose dominant technique differs from the proven one.
+// A missing/corrupt file reads as empty (fail-closed: an un-proven entry is refused).
+function loadProvenSurface(home = gclawHome()) {
   const coins = new Set();
-  const pairs = new Set();
+  const techniques = new Set();
   try {
     const style = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'style.json'), 'utf8'));
     for (const e of style.adopted || []) {
       const c = normalizeCoin(String(e.coin || ''));
-      if (c) { coins.add(c); if (e.id) pairs.add(`${e.id}|${c}`); }
+      if (c) coins.add(c);
+      if (e.id) techniques.add(e.id);
     }
   } catch { /* no style yet → nothing adopted */ }
   try {
     const reg = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'proven_markets.json'), 'utf8'));
     for (const p of reg.pairs || []) {
-      if (p.technique && p.coin) pairs.add(`${p.technique}|${normalizeCoin(String(p.coin))}`);
+      if (p.coin) coins.add(normalizeCoin(String(p.coin)));
+      if (p.technique) techniques.add(p.technique);
     }
   } catch { /* no proven markets yet */ }
-  return { coins, pairs };
+  return { coins, techniques };
 }
 
 // The live regime for a coin from the heartbeat's freshest perception snapshot.
@@ -130,13 +134,20 @@ function entryGate({ side, regime, coin, basis, proven }) {
   if (regime === 'chop') return { ok: false, reason: 'no entries in chop (DNA invariant)' };
   if (regime === 'trend_down' && isLong) return { ok: false, reason: 'counter-trend blocked: long in trend_down' };
   if (regime === 'trend_up' && !isLong) return { ok: false, reason: 'counter-trend blocked: short in trend_up' };
-  // #2 Discretionary block — an open must name a proven, regime-matched basis.
+  // #2 Discretionary block — an open must name a KNOWN technique as its basis and
+  // land on a coin in the proven surface. Mirrors forge's proven-definition at the
+  // coin level (any-contributor), so a forge execute is never false-blocked, while a
+  // hand-typed gut trade (no basis, junk basis, or un-proven coin) is refused.
   if (!basis) {
     return { ok: false, reason: 'discretionary entry blocked: --basis <proven technique> required (route entries through forge.py run --execute)' };
   }
+  if (!proven.techniques.has(basis)) {
+    return { ok: false, reason: `basis '${basis}' is not a known technique — discretionary entry refused` };
+  }
   const c = normalizeCoin(coin);
-  const allowed = proven.coins.has(c) || proven.pairs.has(`${basis}|${c}`);
-  if (!allowed) return { ok: false, reason: `basis '${basis}' is not proven for ${c} — prove it before trading it` };
+  if (!proven.coins.has(c)) {
+    return { ok: false, reason: `${c} is not in the proven surface — prove it before trading it` };
+  }
   return { ok: true };
 }
 
@@ -323,7 +334,7 @@ async function cmdOpen(wallet, args) {
   // Deterministic entry gate BEFORE any network call — refuse counter-trend and
   // discretionary entries at the executor, the single path every signed open takes.
   const regime = args.regime || liveRegime(coin);
-  const gate = entryGate({ side: args.side, regime, coin, basis: args.basis, proven: loadProvenPairs() });
+  const gate = entryGate({ side: args.side, regime, coin, basis: args.basis, proven: loadProvenSurface() });
   if (!gate.ok) die(`entry refused — ${gate.reason}`);
 
   const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional));
@@ -467,7 +478,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
-  entryGate, loadProvenPairs, liveRegime,
+  entryGate, loadProvenSurface, liveRegime,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
