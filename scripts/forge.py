@@ -78,8 +78,13 @@ SCAN_UNIVERSE = (
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
 IS_FRACTION = 0.6
-HORIZON = 4  # bars held per backtest trade
-TAKER_COST = 0.0006  # round-trip fee + slippage estimate
+HORIZON = 4  # minimum forward bars an entry needs to resolve (in/out-of-sample buffer)
+MAX_HOLD = 48  # the live TP/SL bracket has no time exit; cap the backtest walk here
+TP_RATIO = 1.5  # live take-profit = stop * TP_RATIO — MUST match _execute's tp-pct
+TAKER_COST = 0.0009  # realistic round-trip taker (HL ~0.045%/side) + slippage
+PROVE_MIN_EDGE = 0.0009  # net edge must clear one EXTRA round-trip beyond the deducted fee
+PROVE_MIN_T = 2.5  # OOS t-stat floor — at ~90 pairs attempted, t>2.0 expects ~2 false
+# positives by chance; t>=2.5 (one-sided p<0.006) keeps expected false discoveries below 1.
 WARMUP = 26  # bars before features are valid
 
 # signal.py sandbox.
@@ -524,16 +529,30 @@ def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> dict[
 
 
 def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float) -> float:
-    """Forward return of a HORIZON-bar trade opened at bar i close, with a stop."""
+    """Forward return of a trade opened at bar i close, exited on the LIVE TP/SL bracket
+    (take-profit = stop * TP_RATIO), whichever leg the path reaches first.
+
+    This matches how hl_perp.js actually exits. The old fixed-HORIZON time-exit measured a
+    different strategy than the one traded, so a 'proven' expectancy didn't transfer live.
+    Same-bar ambiguity (both legs touched) resolves to the STOP — the conservative case."""
     entry = candles[i]["c"]
     stop = stop_pct / 100.0
-    for h in range(1, HORIZON + 1):
-        bar = candles[i + h]
-        if is_long and bar["l"] <= entry * (1 - stop):
-            return -stop - TAKER_COST
-        if not is_long and bar["h"] >= entry * (1 + stop):
-            return -stop - TAKER_COST
-    exit_px = candles[i + HORIZON]["c"]
+    tp = stop * TP_RATIO
+    end = min(i + MAX_HOLD, len(candles) - 1)
+    for h in range(i + 1, end + 1):
+        bar = candles[h]
+        if is_long:
+            if bar["l"] <= entry * (1 - stop):
+                return -stop - TAKER_COST
+            if bar["h"] >= entry * (1 + tp):
+                return tp - TAKER_COST
+        else:
+            if bar["h"] >= entry * (1 + stop):
+                return -stop - TAKER_COST
+            if bar["l"] <= entry * (1 - tp):
+                return tp - TAKER_COST
+    # Neither leg hit within MAX_HOLD — mark out at the last available close.
+    exit_px = candles[end]["c"]
     raw = (exit_px / entry - 1) if is_long else (entry / exit_px - 1)
     return raw - TAKER_COST
 
@@ -571,6 +590,7 @@ def summarise(rets: list[float]) -> dict[str, Any]:
         "n": len(rets),
         "winrate": round(wins / len(rets), 4),
         "expectancy": round(statistics.fmean(rets), 6),
+        "stdev": round(statistics.pstdev(rets), 6) if len(rets) > 1 else 0.0,
         "total": round(equity, 6),
         "max_dd": round(max_dd, 6),
     }
@@ -587,10 +607,17 @@ def _backtest_with(
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
     is_stats = score_window(candles, fn, coin, WARMUP, split)
     oos_stats = score_window(candles, fn, coin, split, last)
+    # Significance: with ~90 (technique x coin) pairs attempted, a sign-only gate admits
+    # multiple-testing noise. Require the OOS edge to be statistically distinguishable from
+    # zero (t-stat) AND to clear a fee-aware margin beyond the already-deducted round-trip.
+    oos_n, oos_exp, oos_sd = oos_stats["n"], oos_stats["expectancy"], oos_stats["stdev"]
+    oos_t = oos_exp / (oos_sd / (oos_n**0.5)) if oos_sd > 0 and oos_n > 0 else 0.0
+    oos_stats["t"] = round(oos_t, 2)
     proven = (
-        oos_stats["n"] >= MIN_OOS_SAMPLE
-        and oos_stats["expectancy"] > 0
+        oos_n >= MIN_OOS_SAMPLE
+        and oos_exp > PROVE_MIN_EDGE
         and is_stats["expectancy"] > 0
+        and oos_t >= PROVE_MIN_T
     )
     return {
         "coin": coin,
@@ -1630,8 +1657,8 @@ def _combine(
     reinforce; opposers net out. The chop guard, agreement floor, and conviction
     floor (all genome-tuned) keep the family from overtrading or fading a trend.
     """
-    if regime == "chop" or not votes:
-        return None  # DNA invariant: no entries in chop
+    if regime in (None, "chop", "unknown") or not votes:
+        return None  # no entries in chop, and fail CLOSED on an unknown regime
     total = sum(v["v"] for v in votes)
     mobilized = sum(abs(v["v"]) for v in votes)
     if mobilized == 0:
@@ -1738,15 +1765,33 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     scaler = _conviction_scaler(meta)
     acct = _account()
     equity, buying_power = acct["equity"], acct["buying_power"]
+    # Group adopted techniques by the interval they were proven on, so a 4h-proven
+    # technique evaluates on 4h candles — not the loadout-first interval. A manual
+    # --coins run collapses to one explicit interval; the heartbeat groups per technique.
+    manual_iv = interval if args.coins else None
+    by_interval: dict[str, list[dict[str, Any]]] = {}
+    for e in style["adopted"]:
+        by_interval.setdefault(manual_iv or e.get("interval", "1h"), []).append(e)
+
     intents: list[dict[str, Any]] = []
     for coin in coins:
-        cs = get_candles(coin, interval, 60)
-        if len(cs) <= WARMUP:
+        # Per interval: fetch closed candles (drop the in-progress bar so signals never
+        # read a half-formed candle) and build that interval's feature view of the coin.
+        feats: dict[str, dict[str, Any]] = {}
+        for iv in by_interval:
+            cs = get_candles(coin, iv, 61)[:-1]
+            if len(cs) > WARMUP:
+                feats[iv] = features_at(cs, len(cs) - 1, coin, live.get(coin))
+        if not feats:
             continue
-        f = features_at(cs, len(cs) - 1, coin, live.get(coin))
-        decision = _combine(
-            _coin_votes(coin, f, style["adopted"], rstats), f.get("regime", "range"), caps, scaler
-        )
+        votes: list[dict[str, Any]] = []
+        for iv, techs in by_interval.items():
+            if iv in feats:
+                votes += _coin_votes(coin, feats[iv], techs, rstats)
+        # Regime governs the trend/chop veto at cadence. A coin missing from intel yields
+        # no regime -> _combine fails CLOSED (no entry), never a fabricated tradeable label.
+        regime = (feats.get("1h") or next(iter(feats.values()))).get("regime")
+        decision = _combine(votes, regime, caps, scaler)
         if not decision:
             continue
         intent = _intent(
@@ -1757,7 +1802,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             for t in decision["contributors"]
         )
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
-        intent["regime"] = f.get("regime", "range")
+        intent["regime"] = regime or "range"
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))

@@ -124,7 +124,14 @@ function classifyRegime(f) {
   // sit out; the middle is an orderly range where mean-reversion has an edge.
   const trendER = Number(process.env.GCLAW_TREND_ER) || 0.40;
   const chopER = Number(process.env.GCLAW_CHOP_ER) || 0.18;
-  if (f.efficiency >= trendER) return f.ema_stack >= 0 ? 'trend_up' : 'trend_down';
+  if (f.efficiency >= trendER) {
+    // A directional label needs an UNAMBIGUOUS EMA stack. ema_stack === 0 is a
+    // conflicting structure (e.g. price crossing up through a still-falling longer
+    // EMA — a classic trap); calling it trend_up biased the gate long on noise.
+    if (f.ema_stack >= 1) return 'trend_up';
+    if (f.ema_stack <= -1) return 'trend_down';
+    return 'range';
+  }
   if (f.efficiency < chopER) return 'chop';
   return 'range';
 }

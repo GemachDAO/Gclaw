@@ -64,6 +64,15 @@ def test_empty_votes_returns_none():
     assert forge._combine([], "trend_up", CAPS, 1.0) is None
 
 
+# --- fail CLOSED on an unknown/absent regime (never fabricate a tradeable label) ----
+@pytest.mark.parametrize("regime", [None, "unknown"])
+def test_combine_fails_closed_on_unknown_regime(regime):
+    """A coin missing from intel yields no regime. The combiner must refuse to enter
+    rather than default to a tradeable 'range' — that fail-open re-opened the gate."""
+    votes = [_vote(1.5, tid="a"), _vote(1.0, tid="b")]
+    assert forge._combine(votes, regime, CAPS, 1.0) is None
+
+
 # --- opposing equal votes have no edge => None -------------------------------
 @given(st.floats(0.1, 5.0), st.floats(0.3, 1.3))
 def test_equal_opposing_votes_net_to_none(mag, scaler):
