@@ -1,0 +1,24 @@
+{
+  "coin": "xyz:SNDK",
+  "interval": "4h",
+  "bars": 977,
+  "in_sample": {
+    "n": 159,
+    "winrate": 0.4591,
+    "expectancy": 0.002346,
+    "stdev": 0.044626,
+    "total": 0.37295,
+    "max_dd": -0.6079
+  },
+  "out_of_sample": {
+    "n": 108,
+    "winrate": 0.5185,
+    "expectancy": 0.012352,
+    "stdev": 0.045024,
+    "total": 1.334,
+    "max_dd": -0.2892,
+    "t": 2.85
+  },
+  "proven": true,
+  "proved_at": "2026-06-24T04:02:16+00:00"
+}

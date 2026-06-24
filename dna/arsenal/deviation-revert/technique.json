@@ -1,0 +1,24 @@
+{
+  "id": "deviation-revert",
+  "name": "deviation-revert",
+  "kind": "edge",
+  "author": "55624",
+  "parent": null,
+  "claim": "Fade a large deviation of price from its 24-bar mean, expecting reversion to the mean.",
+  "status": "proven",
+  "created_at": "2026-06-24T03:55:19+00:00",
+  "card": {
+    "coin": "xyz:CBRS",
+    "interval": "1h",
+    "oos": {
+      "n": 145,
+      "winrate": 0.6621,
+      "expectancy": 0.022071,
+      "stdev": 0.044983,
+      "total": 3.200324,
+      "max_dd": -0.4102,
+      "t": 5.91
+    },
+    "proven": true
+  }
+}
