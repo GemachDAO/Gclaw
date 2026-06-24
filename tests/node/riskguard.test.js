@@ -251,3 +251,33 @@ describe('fail-safe reads', () => {
     }
   });
 });
+
+// The fix for the naked-short incident: a rate-limited cycle must never (a) silently
+// skip while a position is unguarded, nor (b) churn a stop-protected position out just
+// because its orders couldn't be read. Positions read from the public API (positionsOk);
+// orders may be unknown (ordersOk).
+describe('blind-read safety', () => {
+  test('a naked position with UNREADABLE orders is alerted, NOT flattened', () => {
+    const status = { ...makeStatus(200, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), ordersOk: false };
+    const rg = loadWith(statusResponder(status));
+    const act = rg.enforce(true).actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/UNVERIFIABLE/);
+    expect(act.action.wouldFlatten).toBeUndefined(); // must not churn a maybe-protected position
+  });
+
+  test('a genuinely naked position WITH readable orders is still flattened', () => {
+    const status = { ...makeStatus(200, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const act = rg.enforce(true).actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/NAKED/);
+    expect(act.action.wouldFlatten).toBe(true);
+  });
+
+  test('a failed position read (positionsOk:false) skips enforcement, never acts blind', () => {
+    const status = { ok: true, equity: 0, positions: [], positionsOk: false };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.skipped).toMatch(/unavailable/);
+    expect(plan.actions || []).toHaveLength(0);
+  });
+});

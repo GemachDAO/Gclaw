@@ -39,6 +39,15 @@ function hl(args) {
   } catch { return null; }
 }
 
+// Fail LOUD, never silent: when the guardrail can't see state or can't confirm a stop,
+// push a health alert so a blind cycle (the naked-position incident) is never invisible.
+function alert(msg) {
+  try {
+    execFileSync('node', [path.join(SKILL_DIR, 'notify.js'), 'send', 'warn', msg],
+      { timeout: 15000, stdio: 'ignore' });
+  } catch { /* alerting is best-effort — never let it crash the guardrail */ }
+}
+
 // The protective stop is the reduce-only order on the LOSS side: above entry for a
 // short, below entry for a long. Nearest such order is what triggers first.
 function stopFor(coin, entry, isShort, orders) {
@@ -125,10 +134,20 @@ function flatten(coin, dry) {
 
 function enforce(dry) {
   const st = hl(['status']);
-  if (!st) return { ok: true, skipped: 'status read unavailable this cycle' };
+  // Blind read (total failure, or even the public-API position read failed) — alert and
+  // skip rather than silently no-op the way the guardrail did during the naked-short cycle.
+  if (!st || st.ok === false || st.positionsOk === false) {
+    if (!dry) alert('riskguard blind: could not read positions this cycle — enforcement skipped');
+    return { ok: true, skipped: 'status read unavailable this cycle', alerted: !dry };
+  }
   const eq = Number(st.equity) || 0;
-  if (!eq) return { ok: false, error: 'no equity read' };
-  if (!dry) pruneState(st.positions || []); // clean stale position-keyed state first
+  const livePositions = st.positions || [];
+  if (!eq && !livePositions.length) return { ok: true, flat: true }; // genuinely flat, nothing to guard
+  if (!eq) {
+    if (!dry) alert('riskguard: position open but no equity read — manual check');
+    return { ok: false, error: 'no equity read', alerted: !dry };
+  }
+  if (!dry) pruneState(livePositions); // clean stale position-keyed state first
 
   // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
   // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
@@ -142,8 +161,16 @@ function enforce(dry) {
   const actions = [];
   let positions = assess(st);
 
-  // 1. Naked positions (no protective stop) — flatten immediately.
+  // 1. Naked positions (no protective stop). Act ONLY when orders were actually read:
+  // if the open-orders read failed (ordersOk === false) we can't tell a truly-naked
+  // position from one whose stop we just couldn't fetch, so we ALERT for a manual check
+  // rather than churn a possibly-protected position out of the book.
   for (const p of positions.filter((x) => x.naked)) {
+    if (st.ordersOk === false) {
+      if (!dry) alert(`riskguard: cannot verify a stop on ${p.coin} (orders unreadable) — confirm it is protected`);
+      actions.push({ coin: p.coin, reason: 'STOP UNVERIFIABLE — orders unreadable', action: { alerted: true } });
+      continue;
+    }
     actions.push({ coin: p.coin, reason: 'NAKED — no stop', action: flatten(p.coin, dry), riskPct: Math.round(p.riskPct * 10) / 10 });
   }
   positions = positions.filter((x) => !x.naked);

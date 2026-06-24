@@ -189,10 +189,16 @@ function mapPositions(aps) {
 }
 
 // Builder/HIP-3 dex prefixes (xyz, flx, …) present in the tradable universe.
+// The builder dexes the agent trades. ALWAYS includes these statically so a position on
+// xyz is read from the public API even when the (signed) SDK asset list is unavailable —
+// otherwise a rate-limited sign-in would hide an open xyz position from the safety reads.
+const KNOWN_BUILDER_DEXES = (process.env.GCLAW_BUILDER_DEXES || 'xyz')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
 async function builderDexes(skill) {
-  const a = await skill.getHlAllAssets().catch(() => []);
+  const set = new Set(KNOWN_BUILDER_DEXES);
+  const a = skill ? await skill.getHlAllAssets().catch(() => []) : [];
   const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
-  const set = new Set();
   for (const x of arr) {
     const c = String(x.coin || '');
     const i = c.indexOf(':');
@@ -307,17 +313,24 @@ function computeEquity(full, spot, orders, managed) {
 }
 
 async function cmdStatus(wallet) {
-  const { skill } = await signedSkill(wallet);
-  // Resilient: a transient non-JSON response on one read shouldn't fail the whole status.
+  // Positions + equity come from the PUBLIC HL API (fullState, no auth), so a rate-limited
+  // sign-in can NEVER blind the status — riskguard and the briefing must always see open
+  // risk. The signed skill only enriches free spot balance + open orders; sign-in failure
+  // degrades those (flagged by ordersOk) but never hides a position. This is the fix for the
+  // naked-position-went-unguarded incident: a blind read used to flatten or skip silently.
+  const skill = await signedSkill(wallet).then((r) => r.skill).catch(() => null);
   const [fullR, spotR, ordersR] = await Promise.allSettled([
     fullState(skill, wallet.managed),
-    skill.getHlSpotState(wallet.managed),
-    skill.getHlOpenOrders(wallet.managed),
+    skill ? skill.getHlSpotState(wallet.managed) : Promise.resolve({ balances: [] }),
+    skill ? skill.getHlOpenOrders(wallet.managed) : Promise.resolve(null),
   ]);
   const full = fullR.status === 'fulfilled' ? fullR.value : { accountValue: 0, positions: [], withdrawable: 0 };
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
-  const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
-  return computeEquity(full, spot, orders, wallet.managed);
+  const ordersOk = ordersR.status === 'fulfilled' && Array.isArray(ordersR.value);
+  const out = computeEquity(full, spot, ordersOk ? ordersR.value : [], wallet.managed);
+  out.positionsOk = fullR.status === 'fulfilled'; // false => even the public read failed
+  out.ordersOk = ordersOk; // false => open orders unknown this cycle; don't infer "naked"
+  return out;
 }
 
 async function cmdOpen(wallet, args) {
@@ -478,7 +491,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
-  entryGate, loadProvenSurface, liveRegime,
+  entryGate, loadProvenSurface, liveRegime, builderDexes,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
