@@ -772,9 +772,11 @@ def cmd_drop(args: argparse.Namespace) -> dict[str, Any]:
 # but can't trade it. This registry decouples "validated to trade" from the adopted list,
 # so the proven surface grows as backtests confirm edge on new markets.
 PROVEN_MARKETS_FILE = "proven_markets.json"
-AUTOPROVE_BUDGET = 6  # backtests per heartbeat — bounded cost
+AUTOPROVE_BUDGET = 14  # backtests per heartbeat — wider sweep, still bounded (~20-30s)
 AUTOPROVE_COOLDOWN_H = 12.0  # don't re-attempt a failing (technique, coin) for this long
 AUTOPROVE_LIMIT = 1000  # candles per backtest (matches `prove`)
+DRAFT_INTERVALS = ("4h", "1h")  # intervals a draft technique is probed at during discovery
+MAX_ADOPTED = 10  # cap the voting rotation so auto-discovered drafts can't bloat it
 
 
 def _proven_markets_path() -> Path:
@@ -806,42 +808,90 @@ def _attempt_age_h(iso: str | None) -> float:
         return 1e9
 
 
+def _draft_candidates(adopted_ids: set[str]) -> list[str]:
+    """Un-adopted, locally-authored draft techniques with a valid signal — eligible for
+    autonomous discovery. Pooled/imported techniques (those with a parent) must be
+    critiqued by hand and are skipped, so untrusted code never auto-enters the rotation."""
+    tdir = forge_dir() / "techniques"
+    out: list[str] = []
+    if not tdir.exists():
+        return out
+    for d in sorted(p for p in tdir.iterdir() if p.is_dir()):
+        tid = d.name
+        if tid in adopted_ids:
+            continue
+        try:
+            if load_technique(tid).get("parent"):
+                continue
+            load_signal(tid)  # must pass the AST sandbox validator
+        except (SystemExit, ValueError, OSError, KeyError, SyntaxError):
+            continue  # missing/invalid/unsafe draft — never a candidate
+        out.append(tid)
+    return out
+
+
+def _persist_proven_card(tid: str, card: dict[str, Any]) -> None:
+    """Write a proven backtest card onto a technique so adoption reads its coin/interval."""
+    (tech_dir(tid) / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+    tech = load_technique(tid)
+    tech["status"] = "proven"
+    tech["card"] = {
+        "coin": card["coin"],
+        "interval": card["interval"],
+        "oos": card["out_of_sample"],
+        "proven": True,
+    }
+    save_technique(tech)
+
+
 def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
-    """Backtest each adopted strategy across the freshly-discovered liquid markets and
-    register the pairs with real out-of-sample edge — so the agent can TRADE what it
-    discovers, not just watch it. Budgeted per run, with a cooldown so a failing pair
-    isn't re-tried every cycle. The native arsenal coins are already tradeable, so skip them."""
-    adopted = load_style().get("adopted", [])
+    """Mine the technique library for tradeable edge: backtest every adopted strategy across
+    the liquid universe AND probe un-adopted local drafts, registering the (technique, coin)
+    pairs with real out-of-sample edge. A draft that proves auto-adopts (capped) so the agent
+    can vote it. Budgeted per run with a per-attempt cooldown so a failing pair isn't retried
+    every cycle — this is the autonomous edge-discovery loop: draft → prove → adopt → trade."""
+    style = load_style()
+    adopted = style.get("adopted", [])
     intel = _intel_features()
     universe = [c for c in intel if intel.get(c)]
-    if not adopted or not universe:
-        return {"ok": True, "skipped": "no adopted techniques or no intel scan yet"}
+    if not universe:
+        return {"ok": True, "skipped": "no intel scan yet"}
     reg = load_proven_markets()
     have = proven_pairs(reg)
     attempts = reg["attempts"]
     native = {e["coin"] for e in adopted}
+    adopted_ids = {e["id"] for e in adopted}
     cooldown = float(os.environ.get("GCLAW_AUTOPROVE_COOLDOWN_H") or AUTOPROVE_COOLDOWN_H)
+
+    # Candidates: adopted techniques on new markets (their proven interval) + un-adopted
+    # drafts across the universe at each discovery interval. Each carries an is_draft flag.
+    cands: list[tuple[str, str, bool]] = [(e["id"], e.get("interval", "1h"), False) for e in adopted]
+    for tid in _draft_candidates(adopted_ids):
+        cands += [(tid, iv, True) for iv in DRAFT_INTERVALS]
+
     gap: list[tuple[bool, str, str, str]] = []
-    for e in adopted:
-        tid, interval = e["id"], e.get("interval", "1h")
+    for tid, interval, is_draft in cands:
         for coin in universe:
-            if coin in native or (tid, coin) in have:
-                continue  # native coins already tradeable; proven pairs already done
-            if _attempt_age_h(attempts.get(f"{tid}|{coin}")) < cooldown:
+            if not is_draft and (coin in native or (tid, coin) in have):
+                continue  # adopted: native coins already tradeable, proven pairs done
+            if _attempt_age_h(attempts.get(f"{tid}|{coin}|{interval}")) < cooldown:
                 continue  # still cooling down from a recent failed attempt
             tradeable = intel.get(coin, {}).get("regime") not in (None, "chop")
             gap.append((not tradeable, tid, interval, coin))  # tradeable-now first
     gap.sort(key=lambda g: g[0])
+
     budget = int(getattr(args, "budget", None) or AUTOPROVE_BUDGET)
-    tried, proved = 0, []
+    tried, proved, adopted_now = 0, [], []
     for _pri, tid, interval, coin in gap[:budget]:
-        attempts[f"{tid}|{coin}"] = now_iso()  # record the attempt regardless of outcome
+        attempts[f"{tid}|{coin}|{interval}"] = now_iso()  # record the attempt regardless
         try:
             card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT)
         except (ValueError, OSError, KeyError):
             continue  # thin data / bad market — skip, the cooldown stops a re-try storm
         tried += 1
-        if card.get("proven"):
+        if not card.get("proven"):
+            continue
+        if (tid, coin) not in have:
             reg["pairs"].append(
                 {
                     "technique": tid,
@@ -852,11 +902,24 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
                     "at": now_iso(),
                 }
             )
+            have.add((tid, coin))
             proved.append(f"{tid}@{coin}")
+        # A draft that proves earns a place in the rotation (capped) so cmd_run can vote it.
+        if tid not in adopted_ids and len(adopted_ids) < MAX_ADOPTED:
+            _persist_proven_card(tid, card)
+            style = load_style()
+            style["adopted"] = [e for e in style["adopted"] if e["id"] != tid]
+            style["adopted"].append({"id": tid, "coin": coin, "interval": interval})
+            save_style(style)
+            adopted_ids.add(tid)
+            adopted_now.append(f"{tid}@{coin}/{interval}")
     reg["attempts"] = attempts
     _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
     _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+    out = {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+    if adopted_now:
+        out["auto_adopted"] = adopted_now
+    return out
 
 
 def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
@@ -1768,9 +1831,12 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     proven_mkts = proven_pairs()  # (technique, coin) pairs auto-proven on the wider universe
-    # The ensemble votes on every market a technique is proven on plus the wider universe.
+    # The live decision votes only on the TRADEABLE surface — adopted coins + auto-proven
+    # markets — not the full discovery universe. Exploration intents never execute, so voting
+    # on them just burns cycle time; autoprove scans the wide universe separately. As autoprove
+    # proves more markets, this set grows on its own.
     coins = (
-        list(dict.fromkeys([*proven_coins, *_scan_universe()]))
+        list(dict.fromkeys([*proven_coins, *(coin for _t, coin in proven_mkts)]))
         if not args.coins
         else [c.strip() for c in args.coins.split(",") if c.strip()]
     )
