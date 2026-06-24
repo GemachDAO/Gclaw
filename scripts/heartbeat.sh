@@ -132,8 +132,8 @@ else
   fi
 fi
 
-# Risk guardrail: the model bypasses sizing.py, so enforce the per-trade and
-# portfolio risk caps deterministically — trim any position over the cap and
+# Risk guardrail: forge sizes entries to the cap, but enforce the per-trade and
+# portfolio risk caps deterministically anyway — trim any position over the cap and
 # flatten naked ones. Runs AFTER the cycle to catch what the model just opened.
 [[ -f "$SKILL_DIR/scripts/riskguard.js" ]] &&
   echo "$(ts) riskguard: $(node "$SKILL_DIR/scripts/riskguard.js" run 2>&1)" >>"$LOG" || true

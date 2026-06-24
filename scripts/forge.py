@@ -81,8 +81,14 @@ IS_FRACTION = 0.6
 HORIZON = 4  # minimum forward bars an entry needs to resolve (in/out-of-sample buffer)
 MAX_HOLD = 48  # the live TP/SL bracket has no time exit; cap the backtest walk here
 TP_RATIO = 1.5  # live take-profit = stop * TP_RATIO — MUST match _execute's tp-pct
-TAKER_COST = 0.0009  # realistic round-trip taker (HL ~0.045%/side) + slippage
-PROVE_MIN_EDGE = 0.0009  # net edge must clear one EXTRA round-trip beyond the deducted fee
+# Round-trip trading cost by liquidity class (HL taker 0.045%/side = 0.0009 RT + class
+# slippage), charged in the backtest + prove gate so a market only "proves" if it clears
+# its OWN cost. Thin HIP-3 xyz:* perps have wider spreads than deep majors; a flat fee
+# under-charged them and admitted noise edges. The live audit books REAL fill fees, so
+# this only models the historical backtest — it can prune a market, never falsely admit one.
+TAKER_RT = 0.0009  # HL base-tier taker, round trip
+COST_BY_CLASS = {"major": TAKER_RT + 0.0001, "xyz": TAKER_RT + 0.0015}  # 0.0010 / 0.0024
+PROVE_MIN_EDGE = 0.0009  # post-cost edge margin the OOS expectancy must still clear
 PROVE_MIN_T = 2.5  # OOS t-stat floor — at ~90 pairs attempted, t>2.0 expects ~2 false
 # positives by chance; t>=2.5 (one-sided p<0.006) keeps expected false discoveries below 1.
 WARMUP = 26  # bars before features are valid
@@ -528,9 +534,17 @@ def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> dict[
 # ── Backtest ─────────────────────────────────────────────────────────────────
 
 
-def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float) -> float:
+def taker_cost(coin: str) -> float:
+    """Round-trip cost for a market by liquidity class — thin HIP-3 xyz:* perps cost more
+    than majors, so a flat fee under-charges them and over-admits noise edges."""
+    return COST_BY_CLASS["xyz" if coin.startswith("xyz:") else "major"]
+
+
+def trade_return(
+    candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float, cost: float
+) -> float:
     """Forward return of a trade opened at bar i close, exited on the LIVE TP/SL bracket
-    (take-profit = stop * TP_RATIO), whichever leg the path reaches first.
+    (take-profit = stop * TP_RATIO), whichever leg the path reaches first, net of ``cost``.
 
     This matches how hl_perp.js actually exits. The old fixed-HORIZON time-exit measured a
     different strategy than the one traded, so a 'proven' expectancy didn't transfer live.
@@ -543,18 +557,18 @@ def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pc
         bar = candles[h]
         if is_long:
             if bar["l"] <= entry * (1 - stop):
-                return -stop - TAKER_COST
+                return -stop - cost
             if bar["h"] >= entry * (1 + tp):
-                return tp - TAKER_COST
+                return tp - cost
         else:
             if bar["h"] >= entry * (1 + stop):
-                return -stop - TAKER_COST
+                return -stop - cost
             if bar["l"] <= entry * (1 - tp):
-                return tp - TAKER_COST
+                return tp - cost
     # Neither leg hit within MAX_HOLD — mark out at the last available close.
     exit_px = candles[end]["c"]
     raw = (exit_px / entry - 1) if is_long else (entry / exit_px - 1)
-    return raw - TAKER_COST
+    return raw - cost
 
 
 def score_window(
@@ -566,6 +580,7 @@ def score_window(
 ) -> dict[str, Any]:
     """Run the signal across bars [lo, hi) and summarise the trades."""
     rets: list[float] = []
+    cost = taker_cost(coin)  # this market's round-trip cost, charged on every trade
     for i in range(lo, hi):
         decision = call_signal(fn, features_at(candles, i, coin))
         if not decision or decision["action"] == "flat":
@@ -573,7 +588,7 @@ def score_window(
         stop_pct = float(decision.get("stop_pct") or 0)
         if stop_pct <= 0:
             continue
-        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct))
+        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, cost))
     return summarise(rets)
 
 
