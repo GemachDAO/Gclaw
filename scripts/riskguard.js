@@ -149,15 +149,23 @@ function enforce(dry) {
   }
   if (!dry) pruneState(livePositions); // clean stale position-keyed state first
 
-  // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
-  // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
-  const brk = breakerCheck(eq, st.positions || [], dry);
-  if (brk.tripped) {
-    const actions = (st.positions || []).map((p) => ({ coin: p.coin, reason: `BREAKER drawdown ${(brk.drawdown * 100).toFixed(1)}%`, action: flatten(p.coin, dry) }));
-    return { ok: true, dry: !!dry, equity: Math.round(eq * 100) / 100, breaker_tripped: true, drawdown_pct: Math.round(brk.drawdown * 1000) / 10, actions };
+  // A rate-limited spot read understates equity (free balance reads 0), so the percentage
+  // breaker + caps would FALSE-trip at a phantom drawdown and over-trim. When the equity is
+  // unreliable, skip both; the naked-stop check below is equity-independent and still runs.
+  const equityReliable = st.spotOk !== false;
+  if (equityReliable) {
+    // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
+    // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
+    const brk = breakerCheck(eq, livePositions, dry);
+    if (brk.tripped) {
+      const actions = livePositions.map((p) => ({ coin: p.coin, reason: `BREAKER drawdown ${(brk.drawdown * 100).toFixed(1)}%`, action: flatten(p.coin, dry) }));
+      return { ok: true, dry: !!dry, equity: Math.round(eq * 100) / 100, breaker_tripped: true, drawdown_pct: Math.round(brk.drawdown * 1000) / 10, actions };
+    }
+  } else if (!dry && livePositions.length) {
+    alert('riskguard: spot read unreliable, equity understated — breaker + caps skipped this cycle');
   }
-  const cap = eq * (RISK_CAP_PCT / 100);
-  const portCap = eq * (PORTFOLIO_CAP_PCT / 100);
+  const cap = equityReliable ? eq * (RISK_CAP_PCT / 100) : Infinity;
+  const portCap = equityReliable ? eq * (PORTFOLIO_CAP_PCT / 100) : Infinity;
   const actions = [];
   let positions = assess(st);
 

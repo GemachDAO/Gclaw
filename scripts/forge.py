@@ -1506,9 +1506,11 @@ def _account() -> dict[str, float]:
             "equity": equity,
             "buying_power": float(st.get("buyingPower") or equity),
             "positions": len(st.get("positions") or []),
+            # False => the free-balance read failed, so equity is understated (margin only).
+            "spot_ok": bool(st.get("spotOk", True)),
         }
     except Exception:
-        return {"equity": 0.0, "buying_power": 0.0, "positions": 0}
+        return {"equity": 0.0, "buying_power": 0.0, "positions": 0, "spot_ok": False}
 
 
 # Portfolio circuit breaker — halts NEW entries (never closes/blocks risk-reduction)
@@ -1517,7 +1519,7 @@ MAX_DRAWDOWN_PCT = 25  # halt new entries if equity falls this far below its hig
 MAX_OPEN_POSITIONS = 3  # cap concurrent positions to bound concentration
 
 
-def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
+def circuit_breaker(equity: float, n_positions: int, reliable: bool = True) -> dict[str, Any]:
     """Update the equity high-water mark and decide whether new entries are allowed."""
     path = gclaw_home() / "breaker.json"
     state = {}
@@ -1525,17 +1527,20 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
-    # A failed/rate-limited status read passes equity<=0; never trip (or move the
-    # high-water mark) on a bad read — that would falsely flatten / alert at 100%.
-    if equity <= 0:
+    # Never trip (or move the high-water mark) on a read we can't trust: equity<=0 is a
+    # failed read, and reliable=False means the spot (free-balance) read failed so equity is
+    # understated to just the margin — either would otherwise FALSE-trip at a phantom
+    # drawdown (the recurring breaker alert) and halt entries / flatten the book.
+    if equity <= 0 or not reliable:
+        cause = "no equity read" if equity <= 0 else "unreliable equity read"
         return {
             **state,
             "allow_entry": False,
-            "reason": "no equity read",
+            "reason": cause,
             "drawdown_pct": float(state.get("drawdown_pct", 0) or 0),
             "hwm": float(state.get("hwm", 0) or 0),
             "tripped": bool(state.get("tripped")),
-            "skipped": "no equity read",
+            "skipped": cause,
         }
     # Cap how fast the high-water mark can climb from a SINGLE read: real equity can't
     # jump >20% in one heartbeat (per-trade risk is a few %), so a larger spike is almost
@@ -1894,7 +1899,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         intent["regime"] = regime or "range"
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
-    breaker = circuit_breaker(equity, acct.get("positions", 0))
+    breaker = circuit_breaker(equity, acct.get("positions", 0), acct.get("spot_ok", True))
     result = {
         "ok": True,
         "mode": mode,

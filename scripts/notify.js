@@ -142,7 +142,9 @@ function conditions() {
   if (meta.mode === 'hibernate') out.hibernate = `HIBERNATING (GMAC ${Math.round(meta.gmac_balance || 0)}) — fund it to revive`;
   if (gas.status && gas.status !== 'healthy') out.gas = `beacon gas ${gas.status} (~${gas.beaconRunway} left) — top up Base ETH`;
   if (breaker.tripped) out.breaker = `circuit breaker TRIPPED: ${breaker.reason}`;
-  if (pos.ok && Number(pos.spotUsdc) < 12 && !(pos.positions || []).length) out.funds = `trading funds low ($${Number(pos.spotUsdc).toFixed(2)}) and flat`;
+  // Only trust a "funds low" reading when the spot (free-balance) read was reliable — a
+  // rate-limited read returns spotUsdc 0 and would cry "funds low" on a fully-funded account.
+  if (pos.ok && pos.spotOk !== false && Number(pos.spotUsdc) < 12 && !(pos.positions || []).length) out.funds = `trading funds low ($${Number(pos.spotUsdc).toFixed(2)}) and flat`;
   return out;
 }
 

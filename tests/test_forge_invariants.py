@@ -79,7 +79,23 @@ class TestCircuitBreakerBadRead:
     ) -> None:
         out = forge.circuit_breaker(equity, n_positions)
         assert out.get("skipped") == "no equity read"
-        assert "allow_entry" not in out  # it short-circuits before computing entry permission
+        assert out.get("tripped") is False  # never a trip on a non-read
+        assert out.get("allow_entry") is False  # entries blocked on a bad read (cmd_run reads this)
+
+    def test_unreliable_read_does_not_trip_even_with_positive_equity(self, home: Path) -> None:
+        """A rate-limited spot read understates equity (free balance reads 0). reliable=False
+        must skip the breaker so it never false-trips at a phantom drawdown — the recurring
+        breaker-alert bug — regardless of the (understated) equity passed."""
+        out = forge.circuit_breaker(50.0, 1, reliable=False)
+        assert out.get("skipped") == "unreliable equity read"
+        assert out.get("tripped") is False
+        assert out.get("allow_entry") is False  # don't open new risk on an untrusted read
+
+    def test_unreliable_read_does_not_move_high_water_mark(self, home: Path) -> None:
+        forge.circuit_breaker(1000.0, 0)  # establish a real $1000 high-water mark
+        hwm = _breaker_state(home).get("hwm")
+        forge.circuit_breaker(50.0, 1, reliable=False)  # an understated read must not poison it
+        assert _breaker_state(home).get("hwm") == hwm
 
     @settings(parent=_FIXTURE_OK, max_examples=100)
     @given(

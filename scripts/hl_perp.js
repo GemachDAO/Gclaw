@@ -330,6 +330,9 @@ async function cmdStatus(wallet) {
   const out = computeEquity(full, spot, ordersOk ? ordersR.value : [], wallet.managed);
   out.positionsOk = fullR.status === 'fulfilled'; // false => even the public read failed
   out.ordersOk = ordersOk; // false => open orders unknown this cycle; don't infer "naked"
+  // spotOk false => the free-balance (SDK) read failed, so buyingPower read 0 and EQUITY is
+  // understated (just margin). Consumers must not infer "funds low" or trip the breaker on it.
+  out.spotOk = !!skill && spotR.status === 'fulfilled';
   return out;
 }
 

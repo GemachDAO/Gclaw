@@ -280,4 +280,25 @@ describe('blind-read safety', () => {
     expect(plan.skipped).toMatch(/unavailable/);
     expect(plan.actions || []).toHaveLength(0);
   });
+
+  test('an unreliable equity read (spotOk:false) skips the breaker + caps but still flattens naked', () => {
+    // Positioned account, spot read failed -> equity understated to margin only. The %
+    // breaker/caps would false-trip/over-trim, so they skip; a naked position (readable
+    // orders) is still flattened since that check is equity-independent.
+    const status = { ...makeStatus(20, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), spotOk: false, ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.breaker_tripped).toBeUndefined(); // no false trip on understated equity
+    const act = plan.actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/NAKED/);
+    expect(act.action.wouldFlatten).toBe(true);
+  });
+
+  test('a stop-protected position is NOT trimmed when equity is unreliable (caps skipped)', () => {
+    // Over-cap by the understated equity, but the caps must not act on an unreliable base.
+    const status = { ...makeStatus(20, [{ coin: 'BTC', size: '0.01', entryPx: '60000' }], { BTC: 59000 }), spotOk: false, ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.actions || []).toHaveLength(0); // no trim/flatten on a protected position
+  });
 });
