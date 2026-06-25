@@ -1528,7 +1528,15 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
     # A failed/rate-limited status read passes equity<=0; never trip (or move the
     # high-water mark) on a bad read — that would falsely flatten / alert at 100%.
     if equity <= 0:
-        return {**state, "tripped": bool(state.get("tripped")), "skipped": "no equity read"}
+        return {
+            **state,
+            "allow_entry": False,
+            "reason": "no equity read",
+            "drawdown_pct": float(state.get("drawdown_pct", 0) or 0),
+            "hwm": float(state.get("hwm", 0) or 0),
+            "tripped": bool(state.get("tripped")),
+            "skipped": "no equity read",
+        }
     # Cap how fast the high-water mark can climb from a SINGLE read: real equity can't
     # jump >20% in one heartbeat (per-trade risk is a few %), so a larger spike is almost
     # certainly a bad/duplicated read. Capping the rise stops one transient mis-read from
