@@ -884,7 +884,9 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
 
     # Candidates: adopted techniques on new markets (their proven interval) + un-adopted
     # drafts across the universe at each discovery interval. Each carries an is_draft flag.
-    cands: list[tuple[str, str, bool]] = [(e["id"], e.get("interval", "1h"), False) for e in adopted]
+    cands: list[tuple[str, str, bool]] = [
+        (e["id"], e.get("interval", "1h"), False) for e in adopted
+    ]
     for tid in _draft_candidates(adopted_ids):
         cands += [(tid, iv, True) for iv in DRAFT_INTERVALS]
 

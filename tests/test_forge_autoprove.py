@@ -26,12 +26,18 @@ def _make_technique(tid: str, parent: str | None = None) -> None:
 
 
 def _proven_card(_fn, coin, interval, _limit):
-    return {"proven": True, "coin": coin, "interval": interval,
-            "out_of_sample": {"n": 80, "expectancy": 0.01}}
+    return {
+        "proven": True,
+        "coin": coin,
+        "interval": interval,
+        "out_of_sample": {"n": 80, "expectancy": 0.01},
+    }
 
 
 def _wire(monkeypatch, universe, bt):
-    monkeypatch.setattr(forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]})
+    monkeypatch.setattr(
+        forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]}
+    )
     monkeypatch.setattr(forge, "_intel_features", lambda: universe)
     monkeypatch.setattr(forge, "load_signal", lambda _tid: None)  # ignored — backtest is mocked
     monkeypatch.setattr(forge, "_backtest_with", bt)
@@ -59,7 +65,7 @@ def test_autoprove_auto_adopts_a_draft_that_proves(gclaw_home, monkeypatch):
     forge.save_style({"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]})
     _make_technique("newmom")
     monkeypatch.setattr(forge, "_intel_features", lambda: {"xyz:ABC": {"regime": "range"}})
-    monkeypatch.setattr(forge, "load_signal", lambda _tid: (lambda f: None))
+    monkeypatch.setattr(forge, "load_signal", lambda _tid: lambda f: None)
     monkeypatch.setattr(forge, "_backtest_with", _proven_card)
 
     out = forge.cmd_autoprove(Namespace(budget=20))
@@ -76,7 +82,7 @@ def test_autoprove_respects_max_adopted_cap(gclaw_home, monkeypatch):
     forge.save_style({"adopted": full})
     _make_technique("overflow")
     monkeypatch.setattr(forge, "_intel_features", lambda: {"xyz:ABC": {"regime": "range"}})
-    monkeypatch.setattr(forge, "load_signal", lambda _tid: (lambda f: None))
+    monkeypatch.setattr(forge, "load_signal", lambda _tid: lambda f: None)
     monkeypatch.setattr(forge, "_backtest_with", _proven_card)
 
     forge.cmd_autoprove(Namespace(budget=30))
@@ -91,10 +97,17 @@ def test_royalty_surfaces_real_risk_technique_regime_for_the_settler(gclaw_home)
     every forge trade was mis-tagged 'discretionary' and its risk fabricated from a dead
     open_risk.json. These three fields are what make the trade-memory accurate.
     """
-    forge.save_pending({
-        "SOL": {"ref": "55624/stop-hunt-revert", "technique": "stop-hunt-revert",
-                "risk_usd": 3.12, "regime": "range", "opened_at": "x"},
-    })
+    forge.save_pending(
+        {
+            "SOL": {
+                "ref": "55624/stop-hunt-revert",
+                "technique": "stop-hunt-revert",
+                "risk_usd": 3.12,
+                "regime": "range",
+                "opened_at": "x",
+            },
+        }
+    )
     out = forge.cmd_royalty(Namespace(coin="SOL", pnl=5.0, auto=True, ref=None))
     assert out["ok"] is True
     assert out["technique"] == "stop-hunt-revert"
@@ -113,7 +126,11 @@ def test_royalty_auto_on_unknown_coin_returns_empty_attribution(gclaw_home):
 
 
 def test_autoprove_registers_only_pairs_with_out_of_sample_edge(gclaw_home, monkeypatch):
-    universe = {"ETH": {"regime": "range"}, "xyz:MU": {"regime": "range"}, "xyz:DUST": {"regime": "range"}}
+    universe = {
+        "ETH": {"regime": "range"},
+        "xyz:MU": {"regime": "range"},
+        "xyz:DUST": {"regime": "range"},
+    }
 
     def bt(_fn, coin, _interval, _limit):
         return _card(coin == "xyz:MU")  # only MU has edge
@@ -143,7 +160,9 @@ def test_autoprove_cooldown_skips_a_recently_attempted_pair(gclaw_home, monkeypa
 
 
 def test_autoprove_no_intel_is_a_safe_noop(gclaw_home, monkeypatch):
-    monkeypatch.setattr(forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]})
+    monkeypatch.setattr(
+        forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]}
+    )
     monkeypatch.setattr(forge, "_intel_features", lambda: {})  # no scan yet
     out = forge.cmd_autoprove(Namespace(budget=10))
     assert out["ok"] and "skipped" in out
@@ -152,5 +171,7 @@ def test_autoprove_no_intel_is_a_safe_noop(gclaw_home, monkeypatch):
 def test_proven_pairs_round_trips_the_registry(gclaw_home):
     path = gclaw_home / "forge" / "proven_markets.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"pairs":[{"technique":"mom","coin":"xyz:MU"}],"attempts":{}}', encoding="utf-8")
+    path.write_text(
+        '{"pairs":[{"technique":"mom","coin":"xyz:MU"}],"attempts":{}}', encoding="utf-8"
+    )
     assert forge.proven_pairs() == {("mom", "xyz:MU")}

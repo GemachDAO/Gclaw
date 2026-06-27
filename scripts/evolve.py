@@ -149,7 +149,9 @@ def cmd_replicate(args: argparse.Namespace) -> None:
                 "blend": blend.get("born_with") if blend else None,
             }
         )
-        state["last_replicate_goodwill"] = state["goodwill"]  # gate the next birth on fresh goodwill
+        state["last_replicate_goodwill"] = state[
+            "goodwill"
+        ]  # gate the next birth on fresh goodwill
         save_state(state)
     except Exception:
         # A half-built child must not strand its directory: the exists() guard above

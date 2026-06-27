@@ -203,8 +203,14 @@ class TestSizedRiskNeverExceedsTheEnforcedCap:
     )
     def test_intent_risk_within_cap(self, home, mode, stop_pct, risk_mult, equity) -> None:
         intent = forge._intent(
-            "t", "BTC", _decision("long", stop_pct, 1.0, 5),
-            mode, equity, cap=10, buying_power=equity, risk_mult=risk_mult,
+            "t",
+            "BTC",
+            _decision("long", stop_pct, 1.0, 5),
+            mode,
+            equity,
+            cap=10,
+            buying_power=equity,
+            risk_mult=risk_mult,
         )
         # $ at risk = notional * stop_pct/100 — the same quantity riskguard computes.
         risk_usd = intent["notional"] * intent["sl_pct"] / 100.0

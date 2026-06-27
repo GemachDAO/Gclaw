@@ -18,15 +18,34 @@ def _full() -> dict:
             "xyz:MU": {"regime": "range", "tradeable": True},
             "ETH": {"regime": "chop"},
         },
-        "account": {"ok": True, "positionsOk": True, "spotOk": True,
-                    "equity": 202.13, "buyingPower": 202.13, "positions": [], "openOrders": []},
+        "account": {
+            "ok": True,
+            "positionsOk": True,
+            "spotOk": True,
+            "equity": 202.13,
+            "buyingPower": 202.13,
+            "positions": [],
+            "openOrders": [],
+        },
         "forge": {
             "mode": "thrive",
             "leverage_cap": 3,
             "breaker": {"allow_entry": True, "drawdown_pct": 0.1, "hwm": 202.36},
             "intents": [
-                {"coin": "xyz:SNDK", "side": "long", "confidence": 0.542, "proven": False, "technique": "stop-hunt-revert"},
-                {"coin": "SOL", "side": "short", "confidence": 0.371, "proven": True, "technique": "contrarian-flow"},
+                {
+                    "coin": "xyz:SNDK",
+                    "side": "long",
+                    "confidence": 0.542,
+                    "proven": False,
+                    "technique": "stop-hunt-revert",
+                },
+                {
+                    "coin": "SOL",
+                    "side": "short",
+                    "confidence": 0.371,
+                    "proven": True,
+                    "technique": "contrarian-flow",
+                },
             ],
         },
         "economics": {"n": 11, "win_rate": 0.091, "expectancy": -1.282, "verdict": "🔴 still -EV"},
@@ -50,7 +69,9 @@ def test_briefing_has_every_section_and_the_live_numbers():
 
 def test_open_positions_are_summarised_not_hidden():
     d = _full()
-    d["account"]["positions"] = [{"coin": "xyz:MU", "size": "2", "entryPx": 150, "unrealizedPnl": 1.25}]
+    d["account"]["positions"] = [
+        {"coin": "xyz:MU", "size": "2", "entryPx": 150, "unrealizedPnl": 1.25}
+    ]
     b = briefing.render_briefing(d)
     assert "1 OPEN" in b and "xyz:MU long 2.0@$150.00" in b
     assert "flat" not in b
@@ -70,8 +91,15 @@ def test_failed_account_read_is_never_rendered_as_flat():
 def test_spot_degraded_read_is_flagged_not_shown_as_fact():
     # positions still trusted, but equity/buying power are understated -> annotate, don't lie.
     d = _full()
-    d["account"] = {"ok": True, "positionsOk": True, "spotOk": False,
-                    "equity": 0.0, "buyingPower": 0.0, "positions": [], "openOrders": []}
+    d["account"] = {
+        "ok": True,
+        "positionsOk": True,
+        "spotOk": False,
+        "equity": 0.0,
+        "buyingPower": 0.0,
+        "positions": [],
+        "openOrders": [],
+    }
     b = briefing.render_briefing(d)
     assert "spot read degraded" in b and "flat (0 open positions)" in b
 
@@ -94,8 +122,12 @@ def test_no_intents_and_all_chop_render_cleanly():
 
 def test_render_never_raises_on_empty_or_partial_data():
     # a blinded cycle is worse than a thin briefing — it must degrade, not crash
-    for d in ({}, {"meta": None, "intel": None, "forge": None, "account": None, "economics": None},
-              {"forge": {"intents": [{"coin": "X"}]}}, {"account": {"equity": "?"}}):
+    for d in (
+        {},
+        {"meta": None, "intel": None, "forge": None, "account": None, "economics": None},
+        {"forge": {"intents": [{"coin": "X"}]}},
+        {"account": {"equity": "?"}},
+    ):
         b = briefing.render_briefing(d)
         assert isinstance(b, str) and "Cycle briefing" in b
 
