@@ -248,6 +248,15 @@ function parseArgs(argv) {
 }
 
 function loadWallet() {
+  // Sandboxed cycle (GCLAW_SANDBOX): wallet.json is masked and the control-key sign-in
+  // already ran OUTSIDE the sandbox, so take the addresses from the injected session.
+  // This process never reads the control private key — there is no `pk`.
+  const injected = process.env.GCLAW_SESSION;
+  if (injected) {
+    const s = JSON.parse(injected);
+    if (!s.walletAddress || !s.managed) die('GCLAW_SESSION missing walletAddress/managed');
+    return { control: s.walletAddress, managed: s.managed };
+  }
   const w = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8'));
   const managed = w.managed?.['Arbitrum (HyperLiquid)']?.address;
   if (!w.control?.address || !w.control?.privateKey) die('wallet missing control key');
@@ -264,6 +273,19 @@ function roundSig(value, sig = 5) {
 
 async function signedSkill(wallet) {
   const { ethers, SDK } = loadSdk();
+  // Sandboxed cycle: rebuild a skill from the pre-established session (registered
+  // server-side by the out-of-sandbox sign-in). hlCreateOrder needs only the apiKey on
+  // the client plus the per-call sessionPrivateKey — no control key, no re-sign.
+  const injected = process.env.GCLAW_SESSION;
+  if (injected) {
+    const s = JSON.parse(injected);
+    const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
+    skill.loginWithApiKey(s.apiKey);
+    return {
+      skill,
+      creds: { apiKey: s.apiKey, walletAddress: s.walletAddress, sessionPrivateKey: s.sessionPrivateKey },
+    };
+  }
   const apiKey = process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY;
   const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
   skill.loginWithApiKey(apiKey);
@@ -473,6 +495,14 @@ function invalidateStatusCache() {
   try { fs.unlinkSync(STATUS_CACHE); } catch { /* nothing to clear */ }
 }
 
+// Establish a managed session with the control key and emit the bundle the sandboxed
+// cycle trades with — run OUTSIDE the sandbox (it needs the wallet). The control private
+// key never leaves this process; only the ephemeral session crosses into the cycle.
+async function cmdSession(wallet) {
+  const { creds } = await signedSkill(wallet);
+  return { ...creds, managed: wallet.managed };
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
@@ -481,9 +511,9 @@ async function main() {
     if (cached) { process.stdout.write(JSON.stringify(cached) + '\n'); return; }
   }
   const wallet = loadWallet();
-  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel };
+  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel, session: cmdSession };
   const handler = handlers[cmd];
-  if (!handler) die(`unknown command '${cmd}'. Use: status | open | close`);
+  if (!handler) die(`unknown command '${cmd}'. Use: status | open | close | session`);
   const result = await handler(wallet, args);
   if (cmd === 'status' && result.ok) writeStatusCache(result); // never cache a failed/partial read
   if ((cmd === 'open' || cmd === 'close') && result && result.ok !== false) invalidateStatusCache();
@@ -494,7 +524,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
-  entryGate, loadProvenSurface, liveRegime, builderDexes,
+  entryGate, loadProvenSurface, liveRegime, builderDexes, loadWallet, signedSkill,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.

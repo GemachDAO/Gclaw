@@ -128,21 +128,42 @@ else
   BRIEF="$(uv run --no-project python3 "$SKILL_DIR/scripts/briefing.py" 2>>"$LOG" || true)"
   FULL_PROMPT="$PROMPT$THINK"
   [[ -n "$BRIEF" ]] && FULL_PROMPT="$FULL_PROMPT"$'\n\n'"$BRIEF"
-  # shellcheck disable=SC2086  # $DENY must word-split into separate --disallowedTools args
-  if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
-      --model "$MODEL" --append-system-prompt "$SAFETY" --disallowedTools $DENY >>"$LOG" 2>&1; then
-    echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"; CYCLE_RC=0
-  else
-    rc=$?  # capture BEFORE any other command (a command substitution would reset $?)
-    CYCLE_RC=$rc
-    if [[ "$rc" -eq 124 ]]; then
-      echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
+  # Hardened cycle (opt-in, GCLAW_SANDBOX=1): establish the managed session HERE with the
+  # control key (outside any sandbox), then run the agentic cycle under bwrap with the
+  # wallet + secret files masked, trading only through the injected ephemeral GCLAW_SESSION
+  # — so a prompt-injection can't read the control private key even via arbitrary shell.
+  # Fail SAFE: if the sign-in fails we SKIP the cycle rather than fall back to an unmasked
+  # one. Default OFF runs the cycle exactly as before.
+  WRAP=(); RUN_CYCLE=1
+  if [[ "${GCLAW_SANDBOX:-0}" == "1" ]]; then
+    GCLAW_SESSION="$(node "$SKILL_DIR/scripts/hl_perp.js" session 2>>"$LOG" || true)"
+    if [[ -z "$GCLAW_SESSION" || "$GCLAW_SESSION" == *'"error"'* ]]; then
+      echo "===== $(ts) sandbox sign-in failed — cycle SKIPPED (deterministic steps ran) =====" >>"$LOG"
+      RUN_CYCLE=0; CYCLE_RC="sandbox-signin-failed"
     else
-      echo "===== $(ts) heartbeat exited non-zero (rc=$rc) =====" >>"$LOG"
-      [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
-        node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero (rc=$rc)" >>"$LOG" 2>&1 || true
+      export GCLAW_SESSION
+      WRAP=("$SKILL_DIR/scripts/sandbox_cycle.sh")
+      FULL_PROMPT="$FULL_PROMPT"$'\n\n'"Sandbox mode: a managed session is already established for this cycle — do NOT run gdex_sign.js or managed_sign_in (the wallet is intentionally unreadable here). Read state with 'node scripts/hl_perp.js status' and act via 'forge.py run --execute'; both use the injected session."
     fi
   fi
+  if [[ "$RUN_CYCLE" == "1" ]]; then
+    # shellcheck disable=SC2086  # $DENY must word-split into separate --disallowedTools args
+    if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" "${WRAP[@]}" claude --print --permission-mode bypassPermissions \
+        --model "$MODEL" --append-system-prompt "$SAFETY" --disallowedTools $DENY >>"$LOG" 2>&1; then
+      echo "===== $(ts) heartbeat ok${WRAP:+ (sandboxed)} =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"; CYCLE_RC=0
+    else
+      rc=$?  # capture BEFORE any other command (a command substitution would reset $?)
+      CYCLE_RC=$rc
+      if [[ "$rc" -eq 124 ]]; then
+        echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
+      else
+        echo "===== $(ts) heartbeat exited non-zero (rc=$rc) =====" >>"$LOG"
+        [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
+          node "$SKILL_DIR/scripts/notify.js" send critical "heartbeat exited non-zero (rc=$rc)" >>"$LOG" 2>&1 || true
+      fi
+    fi
+  fi
+  unset GCLAW_SESSION 2>/dev/null || true
 fi
 
 # Risk guardrail: forge sizes entries to the cap, but enforce the per-trade and
