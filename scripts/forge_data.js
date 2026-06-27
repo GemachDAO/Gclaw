@@ -34,7 +34,10 @@ function parseArgs(argv) {
 }
 
 function die(msg) {
-  process.stdout.write(JSON.stringify({ ok: false, error: msg }) + '\n');
+  // Errors go to stderr, not stdout: the Python caller (forge.py run_node) reads the
+  // last stdout line as the success payload, so an error on stdout would be swallowed
+  // and reported as a generic "forge_data.js failed" with the real cause lost.
+  process.stderr.write(JSON.stringify({ ok: false, error: msg }) + '\n');
   process.exit(1);
 }
 

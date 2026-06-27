@@ -322,8 +322,27 @@ def die(msg: str) -> None:
 # ── Market data (via the node bridge) ────────────────────────────────────────
 
 
+def _node_error(proc: subprocess.CompletedProcess[str]) -> str:
+    """Pull the most specific error out of a failed forge_data.js call.
+
+    forge_data.js reports failures as a JSON ``{"ok": false, "error": ...}`` line on
+    stderr; fall back to the raw tail of either stream so the cause is never lost.
+    """
+    for stream in (proc.stderr, proc.stdout):
+        for line in reversed(stream.strip().splitlines()):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            msg = obj.get("error") if isinstance(obj, dict) else None
+            if msg:
+                return str(msg)
+    tail = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
+    return tail[-1] if tail else "forge_data.js failed"
+
+
 def run_node(args: list[str]) -> dict[str, Any]:
-    """Call forge_data.js and return its parsed JSON, or raise on failure."""
+    """Call forge_data.js and return its parsed JSON, or raise with the real error."""
     proc = subprocess.run(
         ["node", str(SCRIPT_DIR / "forge_data.js"), *args],
         capture_output=True,
@@ -331,7 +350,7 @@ def run_node(args: list[str]) -> dict[str, Any]:
         timeout=60,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "forge_data.js failed")
+        raise RuntimeError(f"forge_data.js {args[0] if args else ''}: {_node_error(proc)}")
     data = json.loads(proc.stdout.strip().splitlines()[-1])
     if not data.get("ok"):
         raise RuntimeError(data.get("error", "forge_data.js error"))

@@ -18,7 +18,8 @@ def _full() -> dict:
             "xyz:MU": {"regime": "range", "tradeable": True},
             "ETH": {"regime": "chop"},
         },
-        "account": {"equity": 202.13, "buyingPower": 202.13, "positions": [], "openOrders": []},
+        "account": {"ok": True, "positionsOk": True, "spotOk": True,
+                    "equity": 202.13, "buyingPower": 202.13, "positions": [], "openOrders": []},
         "forge": {
             "mode": "thrive",
             "leverage_cap": 3,
@@ -53,6 +54,26 @@ def test_open_positions_are_summarised_not_hidden():
     b = briefing.render_briefing(d)
     assert "1 OPEN" in b and "xyz:MU long 2.0@$150.00" in b
     assert "flat" not in b
+
+
+def test_failed_account_read_is_never_rendered_as_flat():
+    # A blind read (subprocess failed -> {}, or positionsOk False) must NOT print "flat":
+    # that once reported a naked unprotected short as a clean account.
+    for bad in ({}, {"ok": True, "positionsOk": False, "positions": [], "openOrders": []}):
+        d = _full()
+        d["account"] = bad
+        b = briefing.render_briefing(d)
+        assert "LIVE READ FAILED" in b and "Do NOT assume flat" in b
+        assert "flat (0 open positions)" not in b
+
+
+def test_spot_degraded_read_is_flagged_not_shown_as_fact():
+    # positions still trusted, but equity/buying power are understated -> annotate, don't lie.
+    d = _full()
+    d["account"] = {"ok": True, "positionsOk": True, "spotOk": False,
+                    "equity": 0.0, "buyingPower": 0.0, "positions": [], "openOrders": []}
+    b = briefing.render_briefing(d)
+    assert "spot read degraded" in b and "flat (0 open positions)" in b
 
 
 def test_tripped_breaker_says_no_entries():
