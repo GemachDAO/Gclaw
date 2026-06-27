@@ -9,7 +9,7 @@ obviously correct."
 ```bash
 make test          # everything: ruff + pytest + vitest  (do this before a PR)
 make py            # python only          make node      # node only
-uv run --group dev pytest tests/test_sizing.py -q          # one python file
+uv run --group dev pytest tests/test_metabolism.py -q      # one python file
 npm test -- intel                                          # one node file (vitest filter)
 ```
 
@@ -19,8 +19,8 @@ First time on a fresh checkout: `make install` (uv sync + npm install).
 
 | script                | test file                          |
 |-----------------------|------------------------------------|
-| `scripts/sizing.py`   | `tests/test_sizing.py`             |
 | `scripts/metabolism.py` | `tests/test_metabolism.py`       |
+| `scripts/forge.py`    | `tests/test_forge_*.py`            |
 | `scripts/intel.js`    | `tests/node/intel.test.js`         |
 
 Python: `tests/test_<script>.py`. Node: `tests/node/<script>.test.js`. One test
@@ -42,7 +42,7 @@ file per script. No subdirectories beyond `tests/node/` and `tests/fixtures/`.
 
 ## Python: importing a script is free
 
-`tests/conftest.py` puts `scripts/` on `sys.path`, so `import sizing` /
+`tests/conftest.py` puts `scripts/` on `sys.path`, so `import forge` /
 `import metabolism` just work — no install, no package. The scripts are
 stdlib-only and their functions are directly callable.
 

@@ -53,6 +53,13 @@ const MUST_DENY = {
     'mcp__gdex__execute_cross_perp',
     'mcp__gdex__execute_isolated_perp',
   ],
+  // Perp ENTRY tools are denied so every open is forced through hl_perp.js, whose
+  // deterministic gate refuses counter-trend and un-proven discretionary opens (the
+  // -EV leak the trade-record audit found). A second door would void that gate.
+  'discretionary perp entry (must route through the gated executor)': [
+    'mcp__gdex__open_perp_position',
+    'mcp__gdex__place_perp_order',
+  ],
   'hand wallet to a third party (copy-trade)': [
     'mcp__gdex__create_copy_trade',
     'mcp__gdex__create_hl_copy_trade',
@@ -88,11 +95,11 @@ describe('heartbeat deny-list', () => {
     expect(src).toMatch(/--permission-mode bypassPermissions/);
   });
 
-  test('does NOT deny the legit HL-perp trading tools (riskguard caps those)', () => {
-    // These are intentionally ALLOWED — denying them would break the agent's core
-    // function; their risk is bounded deterministically by riskguard.js, not by denial.
-    for (const allowed of ['mcp__gdex__open_perp_position', 'mcp__gdex__place_perp_order',
-      'mcp__gdex__close_perp_position']) {
+  test('never denies CLOSING risk — exits must always be reachable', () => {
+    // Closing a position reduces risk, so it is never blocked (denying it could strand
+    // the agent in a losing trade). Entries are gated at hl_perp.js, but the exit door
+    // and read-only state stay open.
+    for (const allowed of ['mcp__gdex__close_perp_position', 'mcp__gdex__get_perp_positions']) {
       expect(deny.has(allowed)).toBe(false);
     }
   });

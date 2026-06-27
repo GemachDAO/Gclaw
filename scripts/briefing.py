@@ -55,9 +55,12 @@ def gather() -> dict:
         # status cache can still report a position that closed within the window (a phantom).
         # This also refreshes the cache for cheaper downstream consumers.
         "account": _run_json(["node", str(scripts / "hl_perp.js"), "status"], {}),
-        "forge": _run_json(["uv", "run", "--no-project", "python3", str(scripts / "forge.py"), "run"], {}),
+        "forge": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "forge.py"), "run"], {}
+        ),
         "economics": _run_json(
-            ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"], {}
+            ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"],
+            {},
         ),
     }
 
@@ -87,29 +90,51 @@ def render_briefing(d: dict) -> str:
     breaker = forge.get("breaker") or {}
 
     mode = meta.get("mode") or forge.get("mode") or "?"
-    equity = acct.get("equity", forge.get("equity"))
-    bp = acct.get("buyingPower", forge.get("buying_power"))
+    # A live read is trustworthy only when hl_perp.js status returned ok AND its
+    # positions read did not fail. A failed read defaults to {}, which must NOT be
+    # rendered as "flat" — doing so once reported a naked unprotected short as a clean
+    # account. Equity/positions come ONLY from the live read; no stale forge fallback.
+    acct_ok = bool(acct.get("ok")) and acct.get("positionsOk") is not False
+    equity = acct.get("equity")
+    bp = acct.get("buyingPower")
     positions = acct.get("positions") or []
     orders = acct.get("openOrders") or []
     allow = breaker.get("allow_entry", not breaker.get("tripped", False))
+    # spotOk=False means the free-balance read failed: positions are still trustworthy,
+    # but equity is understated to perp margin and buying power reads $0 — flag it so the
+    # LLM doesn't treat a degraded balance as fact.
+    bal = f"equity {_money(equity)} · buying power {_money(bp)}"
+    if acct.get("spotOk") is False:
+        bal += " ⚠️(spot read degraded — equity understated, buying power unreliable)"
 
-    out = ["## Cycle briefing — PRE-GATHERED (do not re-fetch positions, market data, or run the forge)", ""]
+    out = [
+        "## Cycle briefing — PRE-GATHERED (do not re-fetch positions, market data, or run the forge)",
+        "",
+    ]
     out.append(
         f"**Survival:** mode {mode} · GMAC {_f(meta.get('gmac_balance')):.0f}/"
         f"{_f(meta.get('seed'), 1000):.0f} · goodwill {meta.get('goodwill', 0)} · "
         f"leverage cap {forge.get('leverage_cap', '?')}x"
     )
-    if positions:
+    if not acct_ok:
+        out.append(
+            "**Account:** ⚠️ LIVE READ FAILED — equity and open positions are UNKNOWN this "
+            "cycle. Do NOT assume flat. Fetch live state (`hl_perp.js status`) and confirm "
+            "every open position is stop-protected before any decision."
+        )
+    elif positions:
         pos = "; ".join(
             f"{p.get('coin')} {'long' if _f(p.get('size')) > 0 else 'short'} "
             f"{abs(_f(p.get('size')))}@{_money(p.get('entryPx'))} (uPnL {_money(p.get('unrealizedPnl'))})"
             for p in positions
         )
-        out.append(f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
-                   f"{len(positions)} OPEN — {pos} · {len(orders)} resting orders")
+        out.append(
+            f"**Account:** {bal} · {len(positions)} OPEN — {pos} · {len(orders)} resting orders"
+        )
     else:
-        out.append(f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
-                   f"**flat (0 open positions)** · {len(orders)} resting orders")
+        out.append(
+            f"**Account:** {bal} · **flat (0 open positions)** · {len(orders)} resting orders"
+        )
     dd = breaker.get("drawdown_pct", breaker.get("drawdown", "?"))
     out.append(
         f"**Risk gate:** circuit breaker {'CLEAR — entries allowed' if allow else 'TRIPPED — no new entries'} "
@@ -118,7 +143,9 @@ def render_briefing(d: dict) -> str:
     live = sorted((c, f) for c, f in intel.items() if f and f.get("regime") != "chop")
     chop = sorted(c for c, f in intel.items() if f and f.get("regime") == "chop")
     if live:
-        names = " · ".join(f"{c} {f.get('regime')}{'✓' if f.get('tradeable') else ''}" for c, f in live)
+        names = " · ".join(
+            f"{c} {f.get('regime')}{'✓' if f.get('tradeable') else ''}" for c, f in live
+        )
         out.append(f"**Tradeable now ({len(live)}):** {names}")
     else:
         out.append("**Tradeable now:** none — whole board is chop")
@@ -129,7 +156,9 @@ def render_briefing(d: dict) -> str:
         out.append("**Forge intents (ranked by confidence):**")
         for it in intents[:6]:
             tag = "✅ PROVEN (executable)" if it.get("proven") else "— unproven (explore only)"
-            out.append(f"  {it.get('coin')} {it.get('side')} conf {it.get('confidence')} {tag} [{it.get('technique')}]")
+            out.append(
+                f"  {it.get('coin')} {it.get('side')} conf {it.get('confidence')} {tag} [{it.get('technique')}]"
+            )
     else:
         out.append("**Forge intents:** none — no technique cleared on any market this scan")
     if econ.get("n"):

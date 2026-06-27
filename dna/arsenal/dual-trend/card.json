@@ -1,0 +1,24 @@
+{
+  "coin": "xyz:MU",
+  "interval": "4h",
+  "bars": 1003,
+  "in_sample": {
+    "n": 243,
+    "winrate": 0.4239,
+    "expectancy": 0.000441,
+    "stdev": 0.036539,
+    "total": 0.10725,
+    "max_dd": -1.12645
+  },
+  "out_of_sample": {
+    "n": 131,
+    "winrate": 0.6412,
+    "expectancy": 0.015771,
+    "stdev": 0.036603,
+    "total": 2.065965,
+    "max_dd": -0.3932,
+    "t": 4.93
+  },
+  "proven": true,
+  "proved_at": "2026-06-24T04:02:11+00:00"
+}

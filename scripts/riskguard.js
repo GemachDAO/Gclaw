@@ -39,6 +39,15 @@ function hl(args) {
   } catch { return null; }
 }
 
+// Fail LOUD, never silent: when the guardrail can't see state or can't confirm a stop,
+// push a health alert so a blind cycle (the naked-position incident) is never invisible.
+function alert(msg) {
+  try {
+    execFileSync('node', [path.join(SKILL_DIR, 'notify.js'), 'send', 'warn', msg],
+      { timeout: 15000, stdio: 'ignore' });
+  } catch { /* alerting is best-effort — never let it crash the guardrail */ }
+}
+
 // The protective stop is the reduce-only order on the LOSS side: above entry for a
 // short, below entry for a long. Nearest such order is what triggers first.
 function stopFor(coin, entry, isShort, orders) {
@@ -76,25 +85,17 @@ function assess(st) {
 const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
 const writeAtomic = (p, data) => { const t = `${p}.tmp${process.pid}`; fs.writeFileSync(t, data); fs.renameSync(t, p); };
 
-// Janitor: position-keyed state files (open_risk, riskguard_exempt) are written at
-// entry but never cleaned, so a stale entry mis-attributes the next trade or
-// silently exempts a re-entry from the cap. Drop any entry with no matching live
-// position so each only ever describes trades that actually exist.
+// Janitor: the grandfather list (riskguard_exempt.json) is written at entry but never
+// cleaned, so a stale entry would silently exempt a later re-entry from the cap. Drop
+// any entry with no matching live position so it only describes trades that exist.
 function pruneState(positions) {
   const liveAt = (coin, entry) => positions.some((p) => p.coin === coin
     && Math.abs(Number(p.entryPx) - Number(entry)) / Number(p.entryPx) < 0.001);
-  const liveCoin = new Set(positions.map((p) => p.coin));
   const exPath = path.join(GCLAW_HOME, 'riskguard_exempt.json');
   const exempt = readJson(exPath, null);
   if (Array.isArray(exempt)) {
     const kept = exempt.filter((e) => liveAt(e.coin, e.entry));
     if (kept.length !== exempt.length) writeAtomic(exPath, JSON.stringify(kept));
-  }
-  const orPath = path.join(GCLAW_HOME, 'open_risk.json');
-  const orisk = readJson(orPath, null);
-  if (orisk && typeof orisk === 'object') {
-    const kept = Object.fromEntries(Object.entries(orisk).filter(([coin]) => liveCoin.has(coin)));
-    if (Object.keys(kept).length !== Object.keys(orisk).length) writeAtomic(orPath, JSON.stringify(kept));
   }
 }
 
@@ -133,25 +134,51 @@ function flatten(coin, dry) {
 
 function enforce(dry) {
   const st = hl(['status']);
-  if (!st) return { ok: true, skipped: 'status read unavailable this cycle' };
-  const eq = Number(st.equity) || 0;
-  if (!eq) return { ok: false, error: 'no equity read' };
-  if (!dry) pruneState(st.positions || []); // clean stale position-keyed state first
-
-  // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
-  // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
-  const brk = breakerCheck(eq, st.positions || [], dry);
-  if (brk.tripped) {
-    const actions = (st.positions || []).map((p) => ({ coin: p.coin, reason: `BREAKER drawdown ${(brk.drawdown * 100).toFixed(1)}%`, action: flatten(p.coin, dry) }));
-    return { ok: true, dry: !!dry, equity: Math.round(eq * 100) / 100, breaker_tripped: true, drawdown_pct: Math.round(brk.drawdown * 1000) / 10, actions };
+  // Blind read (total failure, or even the public-API position read failed) — alert and
+  // skip rather than silently no-op the way the guardrail did during the naked-short cycle.
+  if (!st || st.ok === false || st.positionsOk === false) {
+    if (!dry) alert('riskguard blind: could not read positions this cycle — enforcement skipped');
+    return { ok: true, skipped: 'status read unavailable this cycle', alerted: !dry };
   }
-  const cap = eq * (RISK_CAP_PCT / 100);
-  const portCap = eq * (PORTFOLIO_CAP_PCT / 100);
+  const eq = Number(st.equity) || 0;
+  const livePositions = st.positions || [];
+  if (!eq && !livePositions.length) return { ok: true, flat: true }; // genuinely flat, nothing to guard
+  if (!eq) {
+    if (!dry) alert('riskguard: position open but no equity read — manual check');
+    return { ok: false, error: 'no equity read', alerted: !dry };
+  }
+  if (!dry) pruneState(livePositions); // clean stale position-keyed state first
+
+  // A rate-limited spot read understates equity (free balance reads 0), so the percentage
+  // breaker + caps would FALSE-trip at a phantom drawdown and over-trim. When the equity is
+  // unreliable, skip both; the naked-stop check below is equity-independent and still runs.
+  const equityReliable = st.spotOk !== false;
+  if (equityReliable) {
+    // Circuit breaker: on a drawdown halt, flatten EVERYTHING (exemptions don't apply
+    // to a breaker) and stop — no per-trade fiddling when the book must be de-risked.
+    const brk = breakerCheck(eq, livePositions, dry);
+    if (brk.tripped) {
+      const actions = livePositions.map((p) => ({ coin: p.coin, reason: `BREAKER drawdown ${(brk.drawdown * 100).toFixed(1)}%`, action: flatten(p.coin, dry) }));
+      return { ok: true, dry: !!dry, equity: Math.round(eq * 100) / 100, breaker_tripped: true, drawdown_pct: Math.round(brk.drawdown * 1000) / 10, actions };
+    }
+  } else if (!dry && livePositions.length) {
+    alert('riskguard: spot read unreliable, equity understated — breaker + caps skipped this cycle');
+  }
+  const cap = equityReliable ? eq * (RISK_CAP_PCT / 100) : Infinity;
+  const portCap = equityReliable ? eq * (PORTFOLIO_CAP_PCT / 100) : Infinity;
   const actions = [];
   let positions = assess(st);
 
-  // 1. Naked positions (no protective stop) — flatten immediately.
+  // 1. Naked positions (no protective stop). Act ONLY when orders were actually read:
+  // if the open-orders read failed (ordersOk === false) we can't tell a truly-naked
+  // position from one whose stop we just couldn't fetch, so we ALERT for a manual check
+  // rather than churn a possibly-protected position out of the book.
   for (const p of positions.filter((x) => x.naked)) {
+    if (st.ordersOk === false) {
+      if (!dry) alert(`riskguard: cannot verify a stop on ${p.coin} (orders unreadable) — confirm it is protected`);
+      actions.push({ coin: p.coin, reason: 'STOP UNVERIFIABLE — orders unreadable', action: { alerted: true } });
+      continue;
+    }
     actions.push({ coin: p.coin, reason: 'NAKED — no stop', action: flatten(p.coin, dry), riskPct: Math.round(p.riskPct * 10) / 10 });
   }
   positions = positions.filter((x) => !x.naked);

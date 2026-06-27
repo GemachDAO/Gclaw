@@ -22,7 +22,6 @@ with `gdex_sign.js` providing the one local signature managed custody can't dele
 | `scripts/evolve.py` | goodwill-gated `replicate/recode/capabilities` |
 | **Perception & risk** | |
 | `scripts/intel.js` | perception + **regime** engine (EMA/RSI/ATR/Bollinger-z/funding-z/BTC-corr → trend/range/chop) |
-| `scripts/sizing.py` | vol-targeted + fractional-Kelly position sizing (sample-shrunk) |
 | `scripts/memory.py` | trade-memory — regime-conditional expectancy w/ bootstrap CI; `swarm` pools the family |
 | `scripts/riskguard.js` | **deterministic** per-trade/portfolio risk cap + naked-flatten + drawdown breaker (enforces, not advises) |
 | `scripts/model_select.js` | hybrid model + adaptive cadence — Opus only when active, else Sonnet |
@@ -67,7 +66,7 @@ node scripts/gdex_sign.js                              # instant, prints a signe
 - **No drain surface.** The heartbeat denies every fund-moving / arbitrary-token / copy-trade
   MCP tool; the forge sandbox blocks introspection-attribute escapes. Re-check both when
   touching `heartbeat.sh` deny-list or `forge.py` validators.
-- The agent trades on the **regime** (`intel.js`): no entries in `chop`; size via `sizing.py`;
+- The agent trades on the **regime** (`intel.js`): no entries in `chop`; forge sizes to the 1.5% cap;
   open only on memory-proven, regime-matched edge.
 
 ## Issue tracking — beads

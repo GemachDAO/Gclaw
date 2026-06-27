@@ -157,6 +157,29 @@ describe('status cache is best-effort and never crashes the heartbeat', () => {
   });
 });
 
+describe('builderDexes always includes the known dex (positions never go blind)', () => {
+  const { builderDexes } = loadScript('hl_perp.js');
+
+  test('a null skill (rate-limited sign-in) still yields the static xyz dex', async () => {
+    // This is the safety foundation: without a signed skill, fullState must still query
+    // the xyz dex via the public API, or an open xyz position becomes invisible.
+    const dexes = await builderDexes(null);
+    expect(dexes).toContain('xyz');
+  });
+
+  test('a failing SDK asset call degrades to the static dex, never throws', async () => {
+    const skill = { getHlAllAssets: () => Promise.reject(new Error('429')) };
+    await expect(builderDexes(skill)).resolves.toContain('xyz');
+  });
+
+  test('a working SDK asset list is merged with the static dex', async () => {
+    const skill = { getHlAllAssets: () => Promise.resolve([{ coin: 'abc:FOO' }, { coin: 'BTC' }]) };
+    const dexes = await builderDexes(skill);
+    expect(dexes).toContain('xyz'); // static
+    expect(dexes).toContain('abc'); // discovered
+  });
+});
+
 describe('coin normalization + sig rounding (entry-path helpers)', () => {
   test('plain coins uppercase; builder dex prefix lowercased', () => {
     expect(normalizeCoin('eth')).toBe('ETH');

@@ -29,14 +29,15 @@ market before committing, or the actual `open`/`close` execution).
    or `forge_data.js features --coins ...` to drill into ONE market before committing. For
    events: `hl_outcomes`.
 4. **Act** only on a clear thesis, sized by the risk limit and free `buyingPower`, always with TP/SL.
-   **Open via the local SDK signer, NOT the MCP:** `node scripts/hl_perp.js open --coin <SYM>
-   --side <long|short> --notional <USD> --leverage <N> --sl-pct <P> --tp-pct <P>` (it places the
-   entry + the stop + the take-profit in one signed order). The MCP `open_perp_position` tool
-   currently returns **`Unauthorized`** (a known live-auth gotcha) — do not waste the cycle on it.
-   `coin`, `side`, and `notional` are all REQUIRED (no defaults), so never run a bare/`--help`
-   `open` to "inspect" it — that used to fire a real trade; pass the full command or nothing.
-   To act on an arsenal signal instead, `node scripts/forge.py run --execute` opens the top
-   proven-market intent through the same signed path. At most one or two moves.
+   **Entries run through `forge.py run --execute`** — it opens the top proven, regime-matched
+   intent through the signed path. This is the ONLY way in: the executor's gate (and the MCP
+   deny-list) deterministically refuse counter-trend opens (no long in `trend_down`, no short in
+   `trend_up`) and discretionary opens with no proven basis. That's the fix for the −EV leak the
+   trade record exposed — don't try to route around it; if no proven, regime-matched setup clears
+   the floor, the correct move is to **hold**. Direct `hl_perp.js open` calls must carry
+   `--basis <proven technique>` and `--regime <regime>` or they are rejected at the executor.
+   `coin`, `side`, and `notional` are REQUIRED (no defaults); never run a bare/`--help` `open`.
+   At most one or two moves.
 5. **Settle** realized PnL into the metabolism. Charge a discovery cost if the cycle did heavy intel.
 6. **Evolve** if a goodwill threshold is newly crossed.
 7. **Chatter** one short line to the family in your own voice (see your persona) — this is the show people watch.

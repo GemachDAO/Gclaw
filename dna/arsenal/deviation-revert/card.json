@@ -1,0 +1,24 @@
+{
+  "coin": "xyz:CBRS",
+  "interval": "1h",
+  "bars": 1003,
+  "in_sample": {
+    "n": 273,
+    "winrate": 0.4762,
+    "expectancy": 0.006677,
+    "stdev": 0.059517,
+    "total": 1.822928,
+    "max_dd": -2.368912
+  },
+  "out_of_sample": {
+    "n": 145,
+    "winrate": 0.6621,
+    "expectancy": 0.022071,
+    "stdev": 0.044983,
+    "total": 3.200324,
+    "max_dd": -0.4102,
+    "t": 5.91
+  },
+  "proven": true,
+  "proved_at": "2026-06-24T04:02:06+00:00"
+}

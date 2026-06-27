@@ -124,7 +124,14 @@ function classifyRegime(f) {
   // sit out; the middle is an orderly range where mean-reversion has an edge.
   const trendER = Number(process.env.GCLAW_TREND_ER) || 0.40;
   const chopER = Number(process.env.GCLAW_CHOP_ER) || 0.18;
-  if (f.efficiency >= trendER) return f.ema_stack >= 0 ? 'trend_up' : 'trend_down';
+  if (f.efficiency >= trendER) {
+    // A directional label needs an UNAMBIGUOUS EMA stack. ema_stack === 0 is a
+    // conflicting structure (e.g. price crossing up through a still-falling longer
+    // EMA — a classic trap); calling it trend_up biased the gate long on noise.
+    if (f.ema_stack >= 1) return 'trend_up';
+    if (f.ema_stack <= -1) return 'trend_down';
+    return 'range';
+  }
   if (f.efficiency < chopER) return 'chop';
   return 'range';
 }
@@ -211,7 +218,7 @@ function parseArgs(a) { const o = {}; for (let i = 0; i < a.length; i += 1) if (
 const MAJORS = ['BTC', 'ETH', 'SOL']; // always scanned — the strategy's "majors first"
 const DISCOVERY_DEX = 'xyz'; // stocks/commodities/indices — no memecoins list here
 const LIQ_FLOOR = Number(process.env.GCLAW_LIQ_FLOOR) || 1_000_000; // min daily $ notional
-const UNIVERSE_CAP = Number(process.env.GCLAW_UNIVERSE_CAP) || 18; // cap the scan breadth
+const UNIVERSE_CAP = Number(process.env.GCLAW_UNIVERSE_CAP) || 36; // cap the scan breadth (discovery surface)
 // Fallback if the venue read fails — majors + the deepest commodity/stock perps.
 const STATIC_UNIVERSE = ['BTC', 'ETH', 'SOL', 'xyz:NVDA', 'xyz:TSLA', 'xyz:SPCX',
   'xyz:AAPL', 'xyz:AMZN', 'xyz:GOLD', 'xyz:SILVER', 'xyz:BRENTOIL'];

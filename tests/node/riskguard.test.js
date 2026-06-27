@@ -251,3 +251,54 @@ describe('fail-safe reads', () => {
     }
   });
 });
+
+// The fix for the naked-short incident: a rate-limited cycle must never (a) silently
+// skip while a position is unguarded, nor (b) churn a stop-protected position out just
+// because its orders couldn't be read. Positions read from the public API (positionsOk);
+// orders may be unknown (ordersOk).
+describe('blind-read safety', () => {
+  test('a naked position with UNREADABLE orders is alerted, NOT flattened', () => {
+    const status = { ...makeStatus(200, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), ordersOk: false };
+    const rg = loadWith(statusResponder(status));
+    const act = rg.enforce(true).actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/UNVERIFIABLE/);
+    expect(act.action.wouldFlatten).toBeUndefined(); // must not churn a maybe-protected position
+  });
+
+  test('a genuinely naked position WITH readable orders is still flattened', () => {
+    const status = { ...makeStatus(200, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const act = rg.enforce(true).actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/NAKED/);
+    expect(act.action.wouldFlatten).toBe(true);
+  });
+
+  test('a failed position read (positionsOk:false) skips enforcement, never acts blind', () => {
+    const status = { ok: true, equity: 0, positions: [], positionsOk: false };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.skipped).toMatch(/unavailable/);
+    expect(plan.actions || []).toHaveLength(0);
+  });
+
+  test('an unreliable equity read (spotOk:false) skips the breaker + caps but still flattens naked', () => {
+    // Positioned account, spot read failed -> equity understated to margin only. The %
+    // breaker/caps would false-trip/over-trim, so they skip; a naked position (readable
+    // orders) is still flattened since that check is equity-independent.
+    const status = { ...makeStatus(20, [{ coin: 'xyz:SMSN', size: '-0.3', entryPx: '220' }]), spotOk: false, ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.breaker_tripped).toBeUndefined(); // no false trip on understated equity
+    const act = plan.actions.find((a) => a.coin === 'xyz:SMSN');
+    expect(act.reason).toMatch(/NAKED/);
+    expect(act.action.wouldFlatten).toBe(true);
+  });
+
+  test('a stop-protected position is NOT trimmed when equity is unreliable (caps skipped)', () => {
+    // Over-cap by the understated equity, but the caps must not act on an unreliable base.
+    const status = { ...makeStatus(20, [{ coin: 'BTC', size: '0.01', entryPx: '60000' }], { BTC: 59000 }), spotOk: false, ordersOk: true };
+    const rg = loadWith(statusResponder(status));
+    const plan = rg.enforce(true);
+    expect(plan.actions || []).toHaveLength(0); // no trim/flatten on a protected position
+  });
+});

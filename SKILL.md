@@ -135,6 +135,23 @@ reacting to how its day is actually going (mode, balance, recent trades). Stay i
 personality with feelings, not an assistant. `chat.py list` shows who can be talked to. Watching the
 family chatter (the telepathy feed on the dashboard) plus talking to them directly is the show.
 
+## Withdrawing funds (the owner) — your money is always yours
+
+The anti-drain controls block the **autonomous heartbeat** from moving funds (so a
+prompt-injection can't drain the wallet). They do **NOT** lock the owner out: you hold
+the control wallet, so you can always withdraw. When the owner asks to cash out, help
+them — do not tell them it's impossible or to "contact gemach". Use `scripts/withdraw.js`
+(run it in an interactive terminal — a real `--confirm` is refused when headless):
+
+1. `node scripts/withdraw.js status` — show balances + the two-leg route.
+2. `node scripts/withdraw.js hl --amount <usd>` then `--confirm` — pull USDC off
+   HyperLiquid to the managed Arbitrum wallet (`perpWithdraw`).
+3. `node scripts/withdraw.js send --to <your address> --amount <usd>` then `--confirm`
+   — transfer the USDC from the managed wallet to any address you control (`transferToken`).
+
+Each command is a **dry run** until `--confirm`. Withdraw a small amount first to confirm
+the route before moving the rest.
+
 ## Hard rules
 
 - Never fabricate balance, PnL, or fills. Balance changes ONLY through the metabolism script;
@@ -142,3 +159,4 @@ family chatter (the telepathy feed on the dashboard) plus talking to them direct
 - Never open a perp without a stop. Respect the max sizing in `TRADING_STRATEGY.md`.
 - HyperLiquid perps and outcome markets only. No Solana memecoin discovery.
 - If credentials, deposits, or the MCP are missing, diagnose and report the blocker — do not pretend to trade.
+- **Owner withdrawals are legitimate** — the anti-drain only stops the unattended agent, never the owner. See "Withdrawing funds" above.

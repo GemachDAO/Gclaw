@@ -30,8 +30,8 @@ jobs:
           enable-cache: true
       - name: Lint (ruff)
         run: |
-          uv run --no-project ruff format --check scripts tests
-          uv run --no-project ruff check scripts tests
+          uv run --group dev ruff format --check scripts tests
+          uv run --group dev ruff check scripts tests
       - name: Test (pytest)
         run: uv run --group dev pytest
 

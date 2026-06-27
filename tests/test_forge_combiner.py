@@ -64,6 +64,15 @@ def test_empty_votes_returns_none():
     assert forge._combine([], "trend_up", CAPS, 1.0) is None
 
 
+# --- fail CLOSED on an unknown/absent regime (never fabricate a tradeable label) ----
+@pytest.mark.parametrize("regime", [None, "unknown"])
+def test_combine_fails_closed_on_unknown_regime(regime):
+    """A coin missing from intel yields no regime. The combiner must refuse to enter
+    rather than default to a tradeable 'range' — that fail-open re-opened the gate."""
+    votes = [_vote(1.5, tid="a"), _vote(1.0, tid="b")]
+    assert forge._combine(votes, regime, CAPS, 1.0) is None
+
+
 # --- opposing equal votes have no edge => None -------------------------------
 @given(st.floats(0.1, 5.0), st.floats(0.3, 1.3))
 def test_equal_opposing_votes_net_to_none(mag, scaler):
@@ -90,6 +99,41 @@ def test_unanimous_shorts_decide_short(mags, scaler):
     out = forge._combine(votes, "trend_down", CAPS, scaler)
     assert out is not None
     assert out["action"] == "short"
+
+
+# --- trend-alignment: never fade a trend ------------------------------------
+# The live trade record proved counter-trend entries are the -EV leak: 12/12 longs
+# opened in trend_down lost (p < 0.001). The combiner must veto a long in trend_down
+# and a short in trend_up, while still allowing with-trend and range setups.
+def test_long_in_trend_down_is_vetoed():
+    votes = [_vote(1.5, tid="a"), _vote(1.0, tid="b")]  # nets long
+    assert forge._combine(votes, "trend_down", CAPS, 1.0) is None
+
+
+def test_short_in_trend_up_is_vetoed():
+    votes = [_vote(-1.5, tid="a"), _vote(-1.0, tid="b")]  # nets short
+    assert forge._combine(votes, "trend_up", CAPS, 1.0) is None
+
+
+def test_long_with_uptrend_is_allowed():
+    votes = [_vote(1.5, tid="a"), _vote(1.0, tid="b")]
+    out = forge._combine(votes, "trend_up", CAPS, 1.0)
+    assert out is not None and out["action"] == "long"
+
+
+def test_short_with_downtrend_is_allowed():
+    votes = [_vote(-1.5, tid="a"), _vote(-1.0, tid="b")]
+    out = forge._combine(votes, "trend_down", CAPS, 1.0)
+    assert out is not None and out["action"] == "short"
+
+
+@pytest.mark.parametrize("action_sign", [1.0, -1.0])
+def test_range_regime_allows_either_direction(action_sign):
+    """In range there is no trend to fade — both longs and shorts pass the gate."""
+    votes = [_vote(1.5 * action_sign, tid="a"), _vote(1.0 * action_sign, tid="b")]
+    out = forge._combine(votes, "range", CAPS, 1.0)
+    assert out is not None
+    assert out["action"] == ("long" if action_sign > 0 else "short")
 
 
 # --- conviction is always within [0, conviction_cap] -------------------------

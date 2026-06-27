@@ -27,7 +27,7 @@ import pytest
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
-# Make `import metabolism`, `import sizing`, ... work without any install step.
+# Make `import metabolism`, `import forge`, ... work without any install step.
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 

@@ -79,6 +79,78 @@ function normalizeCoin(coin) {
   return i === -1 ? coin.toUpperCase() : coin.slice(0, i).toLowerCase() + ':' + coin.slice(i + 1).toUpperCase();
 }
 
+function gclawHome() {
+  return process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
+}
+
+// The proven SURFACE this creature may open on, read from the same files the forge
+// writes: adopted coins (style.json) + coins auto-proven on the wider universe
+// (proven_markets.json), and the set of known technique ids across both. This mirrors
+// forge's proven-definition — "coin in proven_coins OR any contributor proven on the
+// coin" — at the COIN level, so the executor never false-blocks a legitimate
+// multi-contributor execute whose dominant technique differs from the proven one.
+// A missing/corrupt file reads as empty (fail-closed: an un-proven entry is refused).
+function loadProvenSurface(home = gclawHome()) {
+  const coins = new Set();
+  const techniques = new Set();
+  try {
+    const style = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'style.json'), 'utf8'));
+    for (const e of style.adopted || []) {
+      const c = normalizeCoin(String(e.coin || ''));
+      if (c) coins.add(c);
+      if (e.id) techniques.add(e.id);
+    }
+  } catch { /* no style yet → nothing adopted */ }
+  try {
+    const reg = JSON.parse(fs.readFileSync(path.join(home, 'forge', 'proven_markets.json'), 'utf8'));
+    for (const p of reg.pairs || []) {
+      if (p.coin) coins.add(normalizeCoin(String(p.coin)));
+      if (p.technique) techniques.add(p.technique);
+    }
+  } catch { /* no proven markets yet */ }
+  return { coins, techniques };
+}
+
+// The live regime for a coin from the heartbeat's freshest perception snapshot.
+// null when unknown (missing/corrupt intel) — the gate treats unknown as "can't
+// prove counter-trend" and leans on the explicit --regime forge passes instead.
+function liveRegime(coin, home = gclawHome()) {
+  try {
+    const intel = JSON.parse(fs.readFileSync(path.join(home, 'intel.json'), 'utf8'));
+    return intel.intel?.[normalizeCoin(coin)]?.regime || null;
+  } catch { return null; }
+}
+
+// Deterministic entry gate — the single chokepoint every signed open flows through.
+// The live record proved two -EV leaks the model talked itself into: (1) counter-trend
+// entries (12/12 losing longs in trend_down, p<0.001) and (2) discretionary opens with
+// no proven, regime-matched basis (the -7R "discretionary" cluster). Enforcing here, in
+// the executor, makes the fix code the model cannot skip — not a prompt it can rationalize
+// past. Pure for unit testing; returns { ok } or { ok:false, reason }.
+function entryGate({ side, regime, coin, basis, proven }) {
+  const isLong = String(side).toLowerCase() !== 'short';
+  // #1 Trend alignment. Unknown regime (null) can't prove a violation, so it passes
+  // here — forge always supplies --regime, and chop is already vetoed upstream.
+  if (regime === 'chop') return { ok: false, reason: 'no entries in chop (DNA invariant)' };
+  if (regime === 'trend_down' && isLong) return { ok: false, reason: 'counter-trend blocked: long in trend_down' };
+  if (regime === 'trend_up' && !isLong) return { ok: false, reason: 'counter-trend blocked: short in trend_up' };
+  // #2 Discretionary block — an open must name a KNOWN technique as its basis and
+  // land on a coin in the proven surface. Mirrors forge's proven-definition at the
+  // coin level (any-contributor), so a forge execute is never false-blocked, while a
+  // hand-typed gut trade (no basis, junk basis, or un-proven coin) is refused.
+  if (!basis) {
+    return { ok: false, reason: 'discretionary entry blocked: --basis <proven technique> required (route entries through forge.py run --execute)' };
+  }
+  if (!proven.techniques.has(basis)) {
+    return { ok: false, reason: `basis '${basis}' is not a known technique — discretionary entry refused` };
+  }
+  const c = normalizeCoin(coin);
+  if (!proven.coins.has(c)) {
+    return { ok: false, reason: `${c} is not in the proven surface — prove it before trading it` };
+  }
+  return { ok: true };
+}
+
 async function findAsset(skill, coin) {
   const a = await skill.getHlAllAssets();
   const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
@@ -117,10 +189,16 @@ function mapPositions(aps) {
 }
 
 // Builder/HIP-3 dex prefixes (xyz, flx, …) present in the tradable universe.
+// The builder dexes the agent trades. ALWAYS includes these statically so a position on
+// xyz is read from the public API even when the (signed) SDK asset list is unavailable —
+// otherwise a rate-limited sign-in would hide an open xyz position from the safety reads.
+const KNOWN_BUILDER_DEXES = (process.env.GCLAW_BUILDER_DEXES || 'xyz')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+
 async function builderDexes(skill) {
-  const a = await skill.getHlAllAssets().catch(() => []);
+  const set = new Set(KNOWN_BUILDER_DEXES);
+  const a = skill ? await skill.getHlAllAssets().catch(() => []) : [];
   const arr = Array.isArray(a) ? a : a.data || a.assets || a.universe || [];
-  const set = new Set();
   for (const x of arr) {
     const c = String(x.coin || '');
     const i = c.indexOf(':');
@@ -170,6 +248,15 @@ function parseArgs(argv) {
 }
 
 function loadWallet() {
+  // Sandboxed cycle (GCLAW_SANDBOX): wallet.json is masked and the control-key sign-in
+  // already ran OUTSIDE the sandbox, so take the addresses from the injected session.
+  // This process never reads the control private key — there is no `pk`.
+  const injected = process.env.GCLAW_SESSION;
+  if (injected) {
+    const s = JSON.parse(injected);
+    if (!s.walletAddress || !s.managed) die('GCLAW_SESSION missing walletAddress/managed');
+    return { control: s.walletAddress, managed: s.managed };
+  }
   const w = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8'));
   const managed = w.managed?.['Arbitrum (HyperLiquid)']?.address;
   if (!w.control?.address || !w.control?.privateKey) die('wallet missing control key');
@@ -186,6 +273,19 @@ function roundSig(value, sig = 5) {
 
 async function signedSkill(wallet) {
   const { ethers, SDK } = loadSdk();
+  // Sandboxed cycle: rebuild a skill from the pre-established session (registered
+  // server-side by the out-of-sandbox sign-in). hlCreateOrder needs only the apiKey on
+  // the client plus the per-call sessionPrivateKey — no control key, no re-sign.
+  const injected = process.env.GCLAW_SESSION;
+  if (injected) {
+    const s = JSON.parse(injected);
+    const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
+    skill.loginWithApiKey(s.apiKey);
+    return {
+      skill,
+      creds: { apiKey: s.apiKey, walletAddress: s.walletAddress, sessionPrivateKey: s.sessionPrivateKey },
+    };
+  }
   const apiKey = process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY;
   const skill = new SDK.GdexSkill({ timeout: 60000, maxRetries: 1 });
   skill.loginWithApiKey(apiKey);
@@ -235,17 +335,27 @@ function computeEquity(full, spot, orders, managed) {
 }
 
 async function cmdStatus(wallet) {
-  const { skill } = await signedSkill(wallet);
-  // Resilient: a transient non-JSON response on one read shouldn't fail the whole status.
+  // Positions + equity come from the PUBLIC HL API (fullState, no auth), so a rate-limited
+  // sign-in can NEVER blind the status — riskguard and the briefing must always see open
+  // risk. The signed skill only enriches free spot balance + open orders; sign-in failure
+  // degrades those (flagged by ordersOk) but never hides a position. This is the fix for the
+  // naked-position-went-unguarded incident: a blind read used to flatten or skip silently.
+  const skill = await signedSkill(wallet).then((r) => r.skill).catch(() => null);
   const [fullR, spotR, ordersR] = await Promise.allSettled([
     fullState(skill, wallet.managed),
-    skill.getHlSpotState(wallet.managed),
-    skill.getHlOpenOrders(wallet.managed),
+    skill ? skill.getHlSpotState(wallet.managed) : Promise.resolve({ balances: [] }),
+    skill ? skill.getHlOpenOrders(wallet.managed) : Promise.resolve(null),
   ]);
   const full = fullR.status === 'fulfilled' ? fullR.value : { accountValue: 0, positions: [], withdrawable: 0 };
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };
-  const orders = ordersR.status === 'fulfilled' ? ordersR.value : [];
-  return computeEquity(full, spot, orders, wallet.managed);
+  const ordersOk = ordersR.status === 'fulfilled' && Array.isArray(ordersR.value);
+  const out = computeEquity(full, spot, ordersOk ? ordersR.value : [], wallet.managed);
+  out.positionsOk = fullR.status === 'fulfilled'; // false => even the public read failed
+  out.ordersOk = ordersOk; // false => open orders unknown this cycle; don't infer "naked"
+  // spotOk false => the free-balance (SDK) read failed, so buyingPower read 0 and EQUITY is
+  // understated (just margin). Consumers must not infer "funds low" or trip the breaker on it.
+  out.spotOk = !!skill && spotR.status === 'fulfilled';
+  return out;
 }
 
 async function cmdOpen(wallet, args) {
@@ -258,6 +368,13 @@ async function cmdOpen(wallet, args) {
   }
   const coin = normalizeCoin(args.coin);
   const isLong = String(args.side).toLowerCase() !== 'short';
+
+  // Deterministic entry gate BEFORE any network call — refuse counter-trend and
+  // discretionary entries at the executor, the single path every signed open takes.
+  const regime = args.regime || liveRegime(coin);
+  const gate = entryGate({ side: args.side, regime, coin, basis: args.basis, proven: loadProvenSurface() });
+  if (!gate.ok) die(`entry refused — ${gate.reason}`);
+
   const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional));
   const slPct = Number(args['sl-pct'] || 2);
   const tpPct = Number(args['tp-pct'] || 3);
@@ -378,6 +495,14 @@ function invalidateStatusCache() {
   try { fs.unlinkSync(STATUS_CACHE); } catch { /* nothing to clear */ }
 }
 
+// Establish a managed session with the control key and emit the bundle the sandboxed
+// cycle trades with — run OUTSIDE the sandbox (it needs the wallet). The control private
+// key never leaves this process; only the ephemeral session crosses into the cycle.
+async function cmdSession(wallet) {
+  const { creds } = await signedSkill(wallet);
+  return { ...creds, managed: wallet.managed };
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
@@ -386,9 +511,9 @@ async function main() {
     if (cached) { process.stdout.write(JSON.stringify(cached) + '\n'); return; }
   }
   const wallet = loadWallet();
-  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel };
+  const handlers = { status: cmdStatus, open: cmdOpen, close: cmdClose, cancel: cmdCancel, session: cmdSession };
   const handler = handlers[cmd];
-  if (!handler) die(`unknown command '${cmd}'. Use: status | open | close`);
+  if (!handler) die(`unknown command '${cmd}'. Use: status | open | close | session`);
   const result = await handler(wallet, args);
   if (cmd === 'status' && result.ok) writeStatusCache(result); // never cache a failed/partial read
   if ((cmd === 'open' || cmd === 'close') && result && result.ok !== false) invalidateStatusCache();
@@ -399,6 +524,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
+  entryGate, loadProvenSurface, liveRegime, builderDexes, loadWallet, signedSkill,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.

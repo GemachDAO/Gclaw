@@ -44,7 +44,13 @@ from typing import Any
 # proves it can survive. Keep this ladder in sync with hl_perp.js.
 MAX_LEVERAGE = 20  # absolute ceiling at the top of the ladder
 LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
-RISK_PCT = {"thrive": 5, "survive": 2, "hibernate": 0}
+# Per-trade risk ceiling, in % of equity. MUST equal riskguard.js RISK_CAP_PCT —
+# riskguard physically trims any position above it, so if the sizer targets MORE
+# (it used to target 5%), every trade is opened over-cap and clawed back ~68% the
+# next heartbeat: churn, double fees, and orphaned over-sized brackets. They are one
+# number now. The mode gradient below scales risk UNDER this ceiling, never past it.
+RISK_CAP_PCT = 1.5
+RISK_PCT = {"thrive": 1.5, "survive": 0.75, "hibernate": 0}
 MIN_NOTIONAL = 11
 
 # Default markets each adopted technique is scanned across every run: majors on
@@ -72,8 +78,19 @@ SCAN_UNIVERSE = (
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
 IS_FRACTION = 0.6
-HORIZON = 4  # bars held per backtest trade
-TAKER_COST = 0.0006  # round-trip fee + slippage estimate
+HORIZON = 4  # minimum forward bars an entry needs to resolve (in/out-of-sample buffer)
+MAX_HOLD = 48  # the live TP/SL bracket has no time exit; cap the backtest walk here
+TP_RATIO = 1.5  # live take-profit = stop * TP_RATIO — MUST match _execute's tp-pct
+# Round-trip trading cost by liquidity class (HL taker 0.045%/side = 0.0009 RT + class
+# slippage), charged in the backtest + prove gate so a market only "proves" if it clears
+# its OWN cost. Thin HIP-3 xyz:* perps have wider spreads than deep majors; a flat fee
+# under-charged them and admitted noise edges. The live audit books REAL fill fees, so
+# this only models the historical backtest — it can prune a market, never falsely admit one.
+TAKER_RT = 0.0009  # HL base-tier taker, round trip
+COST_BY_CLASS = {"major": TAKER_RT + 0.0001, "xyz": TAKER_RT + 0.0015}  # 0.0010 / 0.0024
+PROVE_MIN_EDGE = 0.0009  # post-cost edge margin the OOS expectancy must still clear
+PROVE_MIN_T = 2.5  # OOS t-stat floor — at ~90 pairs attempted, t>2.0 expects ~2 false
+# positives by chance; t>=2.5 (one-sided p<0.006) keeps expected false discoveries below 1.
 WARMUP = 26  # bars before features are valid
 
 # signal.py sandbox.
@@ -305,8 +322,27 @@ def die(msg: str) -> None:
 # ── Market data (via the node bridge) ────────────────────────────────────────
 
 
+def _node_error(proc: subprocess.CompletedProcess[str]) -> str:
+    """Pull the most specific error out of a failed forge_data.js call.
+
+    forge_data.js reports failures as a JSON ``{"ok": false, "error": ...}`` line on
+    stderr; fall back to the raw tail of either stream so the cause is never lost.
+    """
+    for stream in (proc.stderr, proc.stdout):
+        for line in reversed(stream.strip().splitlines()):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            msg = obj.get("error") if isinstance(obj, dict) else None
+            if msg:
+                return str(msg)
+    tail = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
+    return tail[-1] if tail else "forge_data.js failed"
+
+
 def run_node(args: list[str]) -> dict[str, Any]:
-    """Call forge_data.js and return its parsed JSON, or raise on failure."""
+    """Call forge_data.js and return its parsed JSON, or raise with the real error."""
     proc = subprocess.run(
         ["node", str(SCRIPT_DIR / "forge_data.js"), *args],
         capture_output=True,
@@ -314,7 +350,7 @@ def run_node(args: list[str]) -> dict[str, Any]:
         timeout=60,
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "forge_data.js failed")
+        raise RuntimeError(f"forge_data.js {args[0] if args else ''}: {_node_error(proc)}")
     data = json.loads(proc.stdout.strip().splitlines()[-1])
     if not data.get("ok"):
         raise RuntimeError(data.get("error", "forge_data.js error"))
@@ -517,19 +553,41 @@ def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> dict[
 # ── Backtest ─────────────────────────────────────────────────────────────────
 
 
-def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float) -> float:
-    """Forward return of a HORIZON-bar trade opened at bar i close, with a stop."""
+def taker_cost(coin: str) -> float:
+    """Round-trip cost for a market by liquidity class — thin HIP-3 xyz:* perps cost more
+    than majors, so a flat fee under-charges them and over-admits noise edges."""
+    return COST_BY_CLASS["xyz" if coin.startswith("xyz:") else "major"]
+
+
+def trade_return(
+    candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float, cost: float
+) -> float:
+    """Forward return of a trade opened at bar i close, exited on the LIVE TP/SL bracket
+    (take-profit = stop * TP_RATIO), whichever leg the path reaches first, net of ``cost``.
+
+    This matches how hl_perp.js actually exits. The old fixed-HORIZON time-exit measured a
+    different strategy than the one traded, so a 'proven' expectancy didn't transfer live.
+    Same-bar ambiguity (both legs touched) resolves to the STOP — the conservative case."""
     entry = candles[i]["c"]
     stop = stop_pct / 100.0
-    for h in range(1, HORIZON + 1):
-        bar = candles[i + h]
-        if is_long and bar["l"] <= entry * (1 - stop):
-            return -stop - TAKER_COST
-        if not is_long and bar["h"] >= entry * (1 + stop):
-            return -stop - TAKER_COST
-    exit_px = candles[i + HORIZON]["c"]
+    tp = stop * TP_RATIO
+    end = min(i + MAX_HOLD, len(candles) - 1)
+    for h in range(i + 1, end + 1):
+        bar = candles[h]
+        if is_long:
+            if bar["l"] <= entry * (1 - stop):
+                return -stop - cost
+            if bar["h"] >= entry * (1 + tp):
+                return tp - cost
+        else:
+            if bar["h"] >= entry * (1 + stop):
+                return -stop - cost
+            if bar["l"] <= entry * (1 - tp):
+                return tp - cost
+    # Neither leg hit within MAX_HOLD — mark out at the last available close.
+    exit_px = candles[end]["c"]
     raw = (exit_px / entry - 1) if is_long else (entry / exit_px - 1)
-    return raw - TAKER_COST
+    return raw - cost
 
 
 def score_window(
@@ -541,6 +599,7 @@ def score_window(
 ) -> dict[str, Any]:
     """Run the signal across bars [lo, hi) and summarise the trades."""
     rets: list[float] = []
+    cost = taker_cost(coin)  # this market's round-trip cost, charged on every trade
     for i in range(lo, hi):
         decision = call_signal(fn, features_at(candles, i, coin))
         if not decision or decision["action"] == "flat":
@@ -548,7 +607,7 @@ def score_window(
         stop_pct = float(decision.get("stop_pct") or 0)
         if stop_pct <= 0:
             continue
-        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct))
+        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, cost))
     return summarise(rets)
 
 
@@ -565,6 +624,7 @@ def summarise(rets: list[float]) -> dict[str, Any]:
         "n": len(rets),
         "winrate": round(wins / len(rets), 4),
         "expectancy": round(statistics.fmean(rets), 6),
+        "stdev": round(statistics.pstdev(rets), 6) if len(rets) > 1 else 0.0,
         "total": round(equity, 6),
         "max_dd": round(max_dd, 6),
     }
@@ -581,10 +641,17 @@ def _backtest_with(
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
     is_stats = score_window(candles, fn, coin, WARMUP, split)
     oos_stats = score_window(candles, fn, coin, split, last)
+    # Significance: with ~90 (technique x coin) pairs attempted, a sign-only gate admits
+    # multiple-testing noise. Require the OOS edge to be statistically distinguishable from
+    # zero (t-stat) AND to clear a fee-aware margin beyond the already-deducted round-trip.
+    oos_n, oos_exp, oos_sd = oos_stats["n"], oos_stats["expectancy"], oos_stats["stdev"]
+    oos_t = oos_exp / (oos_sd / (oos_n**0.5)) if oos_sd > 0 and oos_n > 0 else 0.0
+    oos_stats["t"] = round(oos_t, 2)
     proven = (
-        oos_stats["n"] >= MIN_OOS_SAMPLE
-        and oos_stats["expectancy"] > 0
+        oos_n >= MIN_OOS_SAMPLE
+        and oos_exp > PROVE_MIN_EDGE
         and is_stats["expectancy"] > 0
+        and oos_t >= PROVE_MIN_T
     )
     return {
         "coin": coin,
@@ -724,9 +791,11 @@ def cmd_drop(args: argparse.Namespace) -> dict[str, Any]:
 # but can't trade it. This registry decouples "validated to trade" from the adopted list,
 # so the proven surface grows as backtests confirm edge on new markets.
 PROVEN_MARKETS_FILE = "proven_markets.json"
-AUTOPROVE_BUDGET = 6  # backtests per heartbeat — bounded cost
+AUTOPROVE_BUDGET = 14  # backtests per heartbeat — wider sweep, still bounded (~20-30s)
 AUTOPROVE_COOLDOWN_H = 12.0  # don't re-attempt a failing (technique, coin) for this long
 AUTOPROVE_LIMIT = 1000  # candles per backtest (matches `prove`)
+DRAFT_INTERVALS = ("4h", "1h")  # intervals a draft technique is probed at during discovery
+MAX_ADOPTED = 10  # cap the voting rotation so auto-discovered drafts can't bloat it
 
 
 def _proven_markets_path() -> Path:
@@ -758,42 +827,92 @@ def _attempt_age_h(iso: str | None) -> float:
         return 1e9
 
 
+def _draft_candidates(adopted_ids: set[str]) -> list[str]:
+    """Un-adopted, locally-authored draft techniques with a valid signal — eligible for
+    autonomous discovery. Pooled/imported techniques (those with a parent) must be
+    critiqued by hand and are skipped, so untrusted code never auto-enters the rotation."""
+    tdir = forge_dir() / "techniques"
+    out: list[str] = []
+    if not tdir.exists():
+        return out
+    for d in sorted(p for p in tdir.iterdir() if p.is_dir()):
+        tid = d.name
+        if tid in adopted_ids:
+            continue
+        try:
+            if load_technique(tid).get("parent"):
+                continue
+            load_signal(tid)  # must pass the AST sandbox validator
+        except (SystemExit, ValueError, OSError, KeyError, SyntaxError):
+            continue  # missing/invalid/unsafe draft — never a candidate
+        out.append(tid)
+    return out
+
+
+def _persist_proven_card(tid: str, card: dict[str, Any]) -> None:
+    """Write a proven backtest card onto a technique so adoption reads its coin/interval."""
+    (tech_dir(tid) / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+    tech = load_technique(tid)
+    tech["status"] = "proven"
+    tech["card"] = {
+        "coin": card["coin"],
+        "interval": card["interval"],
+        "oos": card["out_of_sample"],
+        "proven": True,
+    }
+    save_technique(tech)
+
+
 def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
-    """Backtest each adopted strategy across the freshly-discovered liquid markets and
-    register the pairs with real out-of-sample edge — so the agent can TRADE what it
-    discovers, not just watch it. Budgeted per run, with a cooldown so a failing pair
-    isn't re-tried every cycle. The native arsenal coins are already tradeable, so skip them."""
-    adopted = load_style().get("adopted", [])
+    """Mine the technique library for tradeable edge: backtest every adopted strategy across
+    the liquid universe AND probe un-adopted local drafts, registering the (technique, coin)
+    pairs with real out-of-sample edge. A draft that proves auto-adopts (capped) so the agent
+    can vote it. Budgeted per run with a per-attempt cooldown so a failing pair isn't retried
+    every cycle — this is the autonomous edge-discovery loop: draft → prove → adopt → trade."""
+    style = load_style()
+    adopted = style.get("adopted", [])
     intel = _intel_features()
     universe = [c for c in intel if intel.get(c)]
-    if not adopted or not universe:
-        return {"ok": True, "skipped": "no adopted techniques or no intel scan yet"}
+    if not universe:
+        return {"ok": True, "skipped": "no intel scan yet"}
     reg = load_proven_markets()
     have = proven_pairs(reg)
     attempts = reg["attempts"]
     native = {e["coin"] for e in adopted}
+    adopted_ids = {e["id"] for e in adopted}
     cooldown = float(os.environ.get("GCLAW_AUTOPROVE_COOLDOWN_H") or AUTOPROVE_COOLDOWN_H)
+
+    # Candidates: adopted techniques on new markets (their proven interval) + un-adopted
+    # drafts across the universe at each discovery interval. Each carries an is_draft flag.
+    cands: list[tuple[str, str, bool]] = [
+        (e["id"], e.get("interval", "1h"), False) for e in adopted
+    ]
+    for tid in _draft_candidates(adopted_ids):
+        cands += [(tid, iv, True) for iv in DRAFT_INTERVALS]
+
     gap: list[tuple[bool, str, str, str]] = []
-    for e in adopted:
-        tid, interval = e["id"], e.get("interval", "1h")
+    for tid, interval, is_draft in cands:
         for coin in universe:
-            if coin in native or (tid, coin) in have:
-                continue  # native coins already tradeable; proven pairs already done
-            if _attempt_age_h(attempts.get(f"{tid}|{coin}")) < cooldown:
+            if not is_draft and (coin in native or (tid, coin) in have):
+                continue  # adopted: native coins already tradeable, proven pairs done
+            if _attempt_age_h(attempts.get(f"{tid}|{coin}|{interval}")) < cooldown:
                 continue  # still cooling down from a recent failed attempt
             tradeable = intel.get(coin, {}).get("regime") not in (None, "chop")
             gap.append((not tradeable, tid, interval, coin))  # tradeable-now first
     gap.sort(key=lambda g: g[0])
+
     budget = int(getattr(args, "budget", None) or AUTOPROVE_BUDGET)
-    tried, proved = 0, []
+    tried, proved, adopted_now = 0, [], []
     for _pri, tid, interval, coin in gap[:budget]:
-        attempts[f"{tid}|{coin}"] = now_iso()  # record the attempt regardless of outcome
+        attempts[f"{tid}|{coin}|{interval}"] = now_iso()  # record the attempt regardless
         try:
             card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT)
         except (ValueError, OSError, KeyError):
             continue  # thin data / bad market — skip, the cooldown stops a re-try storm
         tried += 1
-        if card.get("proven"):
+        if not card.get("proven"):
+            continue
+        if (tid, coin) not in have:
             reg["pairs"].append(
                 {
                     "technique": tid,
@@ -804,11 +923,24 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
                     "at": now_iso(),
                 }
             )
+            have.add((tid, coin))
             proved.append(f"{tid}@{coin}")
+        # A draft that proves earns a place in the rotation (capped) so cmd_run can vote it.
+        if tid not in adopted_ids and len(adopted_ids) < MAX_ADOPTED:
+            _persist_proven_card(tid, card)
+            style = load_style()
+            style["adopted"] = [e for e in style["adopted"] if e["id"] != tid]
+            style["adopted"].append({"id": tid, "coin": coin, "interval": interval})
+            save_style(style)
+            adopted_ids.add(tid)
+            adopted_now.append(f"{tid}@{coin}/{interval}")
     reg["attempts"] = attempts
     _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
     _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+    out = {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+    if adopted_now:
+        out["auto_adopted"] = adopted_now
+    return out
 
 
 def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
@@ -1147,7 +1279,17 @@ def cmd_royalty(args: argparse.Namespace) -> dict[str, Any]:
     if rec:
         pending.pop(args.coin, None)
         save_pending(pending)
-    return {"ok": True, "attributed": entry, "fitness": fitness}
+    # Surface the local technique + the REAL sized risk and entry regime at top level so
+    # the settler can record an accurate R-multiple (pnl / real risk) to trade-memory,
+    # instead of re-deriving a fabricated risk from a file nothing writes.
+    return {
+        "ok": True,
+        "attributed": entry,
+        "fitness": fitness,
+        "technique": local_tid or "",
+        "risk_usd": float((rec or {}).get("risk_usd") or 0.0),
+        "regime": (rec or {}).get("regime", ""),
+    }
 
 
 def _sync_reputation(broadcast: bool) -> dict[str, Any]:
@@ -1385,9 +1527,11 @@ def _account() -> dict[str, float]:
             "equity": equity,
             "buying_power": float(st.get("buyingPower") or equity),
             "positions": len(st.get("positions") or []),
+            # False => the free-balance read failed, so equity is understated (margin only).
+            "spot_ok": bool(st.get("spotOk", True)),
         }
     except Exception:
-        return {"equity": 0.0, "buying_power": 0.0, "positions": 0}
+        return {"equity": 0.0, "buying_power": 0.0, "positions": 0, "spot_ok": False}
 
 
 # Portfolio circuit breaker — halts NEW entries (never closes/blocks risk-reduction)
@@ -1396,7 +1540,7 @@ MAX_DRAWDOWN_PCT = 25  # halt new entries if equity falls this far below its hig
 MAX_OPEN_POSITIONS = 3  # cap concurrent positions to bound concentration
 
 
-def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
+def circuit_breaker(equity: float, n_positions: int, reliable: bool = True) -> dict[str, Any]:
     """Update the equity high-water mark and decide whether new entries are allowed."""
     path = gclaw_home() / "breaker.json"
     state = {}
@@ -1404,10 +1548,21 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
         state = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
-    # A failed/rate-limited status read passes equity<=0; never trip (or move the
-    # high-water mark) on a bad read — that would falsely flatten / alert at 100%.
-    if equity <= 0:
-        return {**state, "tripped": bool(state.get("tripped")), "skipped": "no equity read"}
+    # Never trip (or move the high-water mark) on a read we can't trust: equity<=0 is a
+    # failed read, and reliable=False means the spot (free-balance) read failed so equity is
+    # understated to just the margin — either would otherwise FALSE-trip at a phantom
+    # drawdown (the recurring breaker alert) and halt entries / flatten the book.
+    if equity <= 0 or not reliable:
+        cause = "no equity read" if equity <= 0 else "unreliable equity read"
+        return {
+            **state,
+            "allow_entry": False,
+            "reason": cause,
+            "drawdown_pct": float(state.get("drawdown_pct", 0) or 0),
+            "hwm": float(state.get("hwm", 0) or 0),
+            "tripped": bool(state.get("tripped")),
+            "skipped": cause,
+        }
     # Cap how fast the high-water mark can climb from a SINGLE read: real equity can't
     # jump >20% in one heartbeat (per-trade risk is a few %), so a larger spike is almost
     # certainly a bad/duplicated read. Capping the rise stops one transient mis-read from
@@ -1457,12 +1612,14 @@ def _intent(
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
 
     ``risk_mult`` is the genome's Aggression-derived risk envelope (>1 sizes up,
-    <1 down); the per-trade risk cap that riskguard.js enforces is unchanged.
+    <1 down) applied UNDER the shared ceiling: the effective per-trade risk is
+    clamped to RISK_CAP_PCT, the same cap riskguard.js enforces, so a sized intent
+    is never trimmed after the fact.
     """
     leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
     stop_pct = float(decision.get("stop_pct") or 0)
-    risk_pct = RISK_PCT.get(mode, 0)
-    risk_usd = equity * risk_pct / 100.0 * max(0.3, min(2.0, risk_mult))
+    risk_pct = min(RISK_CAP_PCT, RISK_PCT.get(mode, 0) * max(0.3, min(2.0, risk_mult)))
+    risk_usd = equity * risk_pct / 100.0
     notional = max(MIN_NOTIONAL + 1, risk_usd / (stop_pct / 100.0)) if stop_pct > 0 else 0
     # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
     max_notional = max(0.0, buying_power * 0.95) * leverage
@@ -1612,8 +1769,8 @@ def _combine(
     reinforce; opposers net out. The chop guard, agreement floor, and conviction
     floor (all genome-tuned) keep the family from overtrading or fading a trend.
     """
-    if regime == "chop" or not votes:
-        return None  # DNA invariant: no entries in chop
+    if regime in (None, "chop", "unknown") or not votes:
+        return None  # no entries in chop, and fail CLOSED on an unknown regime
     total = sum(v["v"] for v in votes)
     mobilized = sum(abs(v["v"]) for v in votes)
     if mobilized == 0:
@@ -1627,6 +1784,12 @@ def _combine(
     if agree < caps["agree_min"] or conviction < caps["conv_min"]:
         return None
     long_side = total > 0
+    # Trend-alignment (DNA invariant): never fade a trend. The live record proved
+    # counter-trend entries are the -EV leak — 12/12 losing longs in trend_down
+    # (p < 0.001). In a trend, take it with the move or stand aside; don't buy a
+    # falling market or short a rising one.
+    if (regime == "trend_down" and long_side) or (regime == "trend_up" and not long_side):
+        return None
     winners = [v for v in votes if (v["v"] > 0) == long_side]
     dominant = max(winners, key=lambda v: abs(v["v"]))
     stop_pct = (
@@ -1702,9 +1865,12 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     proven_mkts = proven_pairs()  # (technique, coin) pairs auto-proven on the wider universe
-    # The ensemble votes on every market a technique is proven on plus the wider universe.
+    # The live decision votes only on the TRADEABLE surface — adopted coins + auto-proven
+    # markets — not the full discovery universe. Exploration intents never execute, so voting
+    # on them just burns cycle time; autoprove scans the wide universe separately. As autoprove
+    # proves more markets, this set grows on its own.
     coins = (
-        list(dict.fromkeys([*proven_coins, *_scan_universe()]))
+        list(dict.fromkeys([*proven_coins, *(coin for _t, coin in proven_mkts)]))
         if not args.coins
         else [c.strip() for c in args.coins.split(",") if c.strip()]
     )
@@ -1714,15 +1880,33 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     scaler = _conviction_scaler(meta)
     acct = _account()
     equity, buying_power = acct["equity"], acct["buying_power"]
+    # Group adopted techniques by the interval they were proven on, so a 4h-proven
+    # technique evaluates on 4h candles — not the loadout-first interval. A manual
+    # --coins run collapses to one explicit interval; the heartbeat groups per technique.
+    manual_iv = interval if args.coins else None
+    by_interval: dict[str, list[dict[str, Any]]] = {}
+    for e in style["adopted"]:
+        by_interval.setdefault(manual_iv or e.get("interval", "1h"), []).append(e)
+
     intents: list[dict[str, Any]] = []
     for coin in coins:
-        cs = get_candles(coin, interval, 60)
-        if len(cs) <= WARMUP:
+        # Per interval: fetch closed candles (drop the in-progress bar so signals never
+        # read a half-formed candle) and build that interval's feature view of the coin.
+        feats: dict[str, dict[str, Any]] = {}
+        for iv in by_interval:
+            cs = get_candles(coin, iv, 61)[:-1]
+            if len(cs) > WARMUP:
+                feats[iv] = features_at(cs, len(cs) - 1, coin, live.get(coin))
+        if not feats:
             continue
-        f = features_at(cs, len(cs) - 1, coin, live.get(coin))
-        decision = _combine(
-            _coin_votes(coin, f, style["adopted"], rstats), f.get("regime", "range"), caps, scaler
-        )
+        votes: list[dict[str, Any]] = []
+        for iv, techs in by_interval.items():
+            if iv in feats:
+                votes += _coin_votes(coin, feats[iv], techs, rstats)
+        # Regime governs the trend/chop veto at cadence. A coin missing from intel yields
+        # no regime -> _combine fails CLOSED (no entry), never a fabricated tradeable label.
+        regime = (feats.get("1h") or next(iter(feats.values()))).get("regime")
+        decision = _combine(votes, regime, caps, scaler)
         if not decision:
             continue
         intent = _intent(
@@ -1733,10 +1917,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             for t in decision["contributors"]
         )
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
-        intent["regime"] = f.get("regime", "range")
+        intent["regime"] = regime or "range"
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
-    breaker = circuit_breaker(equity, acct.get("positions", 0))
+    breaker = circuit_breaker(equity, acct.get("positions", 0), acct.get("spot_ok", True))
     result = {
         "ok": True,
         "mode": mode,
@@ -1792,6 +1976,12 @@ def _execute(intent: dict[str, Any]) -> dict[str, Any]:
         str(intent["sl_pct"]),
         "--tp-pct",
         str(round(intent["sl_pct"] * 1.5, 2)),
+        # The proven, regime-matched basis + live regime so the executor's
+        # entry gate can verify this is not a discretionary or counter-trend open.
+        "--basis",
+        intent["technique"],
+        "--regime",
+        intent.get("regime", "range"),
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     try:

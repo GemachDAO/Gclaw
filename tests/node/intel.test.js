@@ -65,7 +65,11 @@ describe('classifyRegime', () => {
     { name: 'high efficiency, bearish stack -> trend_down', f: { efficiency: 0.6, ema_stack: -2 }, want: 'trend_down' },
     { name: 'very low efficiency -> chop (sit out)', f: { efficiency: 0.1, ema_stack: 1 }, want: 'chop' },
     { name: 'middle efficiency -> range (mean-revert)', f: { efficiency: 0.3, ema_stack: 0 }, want: 'range' },
-    { name: 'flat stack at trend threshold -> trend_up (stack>=0)', f: { efficiency: 0.4, ema_stack: 0 }, want: 'trend_up' },
+    // High efficiency but a CONFLICTING (zero) EMA stack is not a trend — calling it
+    // trend_up biased the gate long on noise. It must read as range.
+    { name: 'high efficiency, conflicting (0) stack -> range, not a fake trend', f: { efficiency: 0.4, ema_stack: 0 }, want: 'range' },
+    { name: 'high efficiency, weak-but-clear bull stack (1) -> trend_up', f: { efficiency: 0.5, ema_stack: 1 }, want: 'trend_up' },
+    { name: 'high efficiency, weak-but-clear bear stack (-1) -> trend_down', f: { efficiency: 0.5, ema_stack: -1 }, want: 'trend_down' },
   ];
   for (const { name, f, want } of cases) {
     test(name, () => {

@@ -836,8 +836,8 @@ def intel_html(h: Path, full: bool = False) -> str:
         if live:
             chips = "".join(
                 f'<span class="mchip" style="border-color:{chip.get(f.get("regime"), ("", ""))[0]}">'
-                f'<b>{html.escape(c)}</b> <i>{f.get("regime")}</i>'
-                f'{" ✓" if f.get("tradeable") else ""}</span>'
+                f"<b>{html.escape(c)}</b> <i>{f.get('regime')}</i>"
+                f"{' ✓' if f.get('tradeable') else ''}</span>"
                 for c, f in live
             )
             body = f'<div class="msum">{chips}</div>'
