@@ -26,10 +26,20 @@ and pings on the *transition* into a red state:
 
 No webhook → it no-ops. Errors (heartbeat exit non-zero) alert immediately.
 
+## Owner withdrawal (not blocked)
+
+The anti-drain controls stop the **autonomous model** from moving funds — they do
+**not** lock out the owner. You hold the control wallet, so your funds are always
+withdrawable: `scripts/withdraw.js` does the HL→Arbitrum (`perpWithdraw`) and
+Arbitrum→your-wallet (`transferToken`) legs, gated so a real `--confirm` only runs
+from an interactive terminal (the headless heartbeat has no TTY, so the agent can
+never withdraw through it; under `GCLAW_SANDBOX` the wallet is masked too). Never
+tell an owner their funds are stuck or to "contact gemach" — point them at it.
+
 ## What still needs your trust
 
-- The wallet's **managed custody** is operated by GDEX; this design can't move
-  funds out via the model, but custody itself is a trust assumption.
+- The wallet's **managed custody** is operated by GDEX; the autonomous model can't
+  move funds out (the owner always can, above), but custody itself is a trust assumption.
 - **Live deployed config** (registry owner, attester) is onchain — verify it.
 - The sandbox raises the bar a lot but in-process Python isolation is not a
   hard boundary; treat any *peer-pulled* code as untrusted and keep it

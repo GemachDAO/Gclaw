@@ -1,6 +1,6 @@
 {
   "name": "gclaw-skill-tests",
-  "version": "3.18.0",
+  "version": "3.19.0",
   "private": true,
   "description": "Dev/test tooling for the Gclaw skill's node scripts. The scripts are CommonJS and depend on ethers + the GDEX SDK resolved from ~/gdex-skill at runtime; only vitest is installed here.",
   "scripts": {
