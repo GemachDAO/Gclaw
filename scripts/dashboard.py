@@ -88,6 +88,30 @@ def share_url(state: dict[str, Any], name: str, equity: float) -> str:
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
+_BANNER_CACHE: str | None = None
+
+
+def banner_datauri() -> str:
+    """The committed Gemach atmospheric banner as a base64 data URI.
+
+    Inlining keeps the generated dashboard a single self-contained, uploadable
+    file. Cached per process; returns '' if the asset is missing so rendering
+    never breaks on a fresh checkout.
+    """
+    global _BANNER_CACHE
+    if _BANNER_CACHE is not None:
+        return _BANNER_CACHE
+    img = SCRIPT_DIR.parent / "assets" / "brand" / "dashboard-banner.jpg"
+    try:
+        import base64
+
+        _BANNER_CACHE = "data:image/jpeg;base64," + base64.b64encode(
+            img.read_bytes()
+        ).decode("ascii")
+    except (OSError, ValueError):
+        _BANNER_CACHE = ""
+    return _BANNER_CACHE
+
 SPECIES_PREFIX = ["Vor", "Kryo", "Zeph", "Mor", "Lyx", "Quel", "Ras", "Thi", "Nyx", "Obol"]
 SPECIES_SUFFIX = ["dax", "mire", "lith", "phar", "gax", "ven", "tide", "korn", "ses", "wraith"]
 # Clean, universally-rendered geometric glyphs (the alchemical set tofu-boxed on
@@ -1105,6 +1129,7 @@ def render_html(state: dict[str, Any], identity: str, journal: list, messages: l
         dna_script=dna_script(g, live, state, journal, persona, gh_qr),
         share=share_url(state, name, live[2]),
         github_qr=gh_qr,
+        banner=banner_datauri(),
     )
 
 
@@ -1355,6 +1380,7 @@ h2::before{{content:"// ";color:var(--muted);opacity:.7}}
 .wrap{{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:300px 1fr;gap:18px}}
 .card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}}
 .hero{{text-align:center}}.species{{color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase}}
+.card.hero{{background:linear-gradient(180deg,rgba(21,32,55,.90),rgba(11,17,32,.97)),url('{banner}') center/cover;border-color:#21304d}}
 .dna3d{{min-height:300px;display:flex;align-items:center;justify-content:center;overflow:hidden}}.dna3d canvas{{display:block}}
 .cardbtn{{margin-top:14px;background:transparent;border:1px solid var(--line);color:var(--silver);border-radius:999px;padding:8px 16px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:border-color .12s,color .12s}}
 .cardbtn:hover{{border-color:#2c6e4a;color:var(--ink)}}
@@ -1428,7 +1454,8 @@ ul{{list-style:none;margin:0;padding:0}}.family li,.events li{{padding:7px 0;bor
 .ghqr{{display:flex;gap:14px;align-items:center}}.ghqr img{{background:#fff;border-radius:8px;padding:6px}}
 .qlabel{{color:var(--emerald);font-size:13px;margin-bottom:4px}}
 .addr{{font-family:ui-monospace,monospace;font-size:11px;word-break:break-all;max-width:220px;color:var(--ink)}}
-.topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:20px 26px;display:flex;flex-direction:column;gap:15px}}
+.topbar{{max-width:1080px;margin:0 auto 18px;background:linear-gradient(100deg,rgba(6,10,23,.97) 0%,rgba(6,10,23,.88) 36%,rgba(6,10,23,.55) 70%,rgba(6,10,23,.38) 100%),url('{banner}') right center/cover no-repeat,linear-gradient(180deg,#18233c,#121a30);border:1px solid var(--line);border-radius:18px;padding:22px 26px;display:flex;flex-direction:column;gap:15px;position:relative;overflow:hidden}}
+.topbar::after{{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--emerald),transparent);opacity:.7}}
 .toprow{{display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}}
 .ident{{display:flex;align-items:center;gap:14px}}.ident .lionmark{{color:var(--emerald);display:inline-flex}}
 .sharebtn{{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--line);color:var(--silver);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:600;text-decoration:none;letter-spacing:.3px;transition:border-color .12s,color .12s}}
