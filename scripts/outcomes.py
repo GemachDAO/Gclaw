@@ -126,7 +126,10 @@ def _place_live_order(side: dict[str, Any], stake: float) -> dict[str, Any]:
         The hl_outcomes.js order result dict.
     """
     price = float(side["price"])
-    size = round(stake / price, 4) if price > 0 else 0.0
+    # Outcome sides trade in integer contracts (sizeDecimals=0 on this venue), so floor
+    # to whole contracts — this keeps cost (size*price) at or below the stake, preserving
+    # defined risk, and avoids a venue reject on a fractional size.
+    size = float(int(stake / price)) if price > 0 else 0.0
     return _run_outcomes_js(
         [
             "order",
