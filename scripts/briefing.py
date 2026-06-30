@@ -63,6 +63,14 @@ def gather() -> dict:
         # the learned per-(technique, regime) edge — the raw material for authoring.
         "style": _read_json(h / "forge" / "style.json", {}),
         "regime_stats": _read_json(h / "forge" / "regime_stats.json", {}),
+        # Event desk (Book A): the top-by-volume tradeable outcome-market sides and the
+        # agent's open tickets + proven calibration — the raw material for an event read.
+        "outcomes": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "markets"], {}
+        ),
+        "calibration": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "calibration"], {}
+        ),
     }
 
 
@@ -142,6 +150,7 @@ def render_briefing(d: dict) -> str:
             f"expectancy {_money(econ.get('expectancy'))}/trade · {econ.get('verdict', '')}"
         )
     out += _scientist_board(d.get("style") or {}, d.get("regime_stats") or {}, intel)
+    out += _event_desk_board(d.get("outcomes") or {}, d.get("calibration") or {})
     out += [
         "",
         "**Origination is forge-only and already done; you do NOT open trades. With a flat book your "
@@ -179,6 +188,63 @@ def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     gaps = sorted(live_regimes - covered)
     if gaps:
         lines.append(f"**Regime gaps (live now, no positive-edge technique):** {', '.join(gaps)}")
+    return lines
+
+
+def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
+    """Render the Event Desk (Book A): top tradeable markets, open tickets, calibration.
+
+    Gives the LLM-as-event-analyst the deterministic board it reads: the top-by-volume
+    sides with both side prices, the agent's open defined-risk tickets, and the running
+    Brier calibration vs the no-skill baseline (the event-desk analogue of edge_real).
+
+    Args:
+        outcomes: ``outcomes.py markets`` output ({sides:[...]}).
+        calibration: ``outcomes.py calibration`` output ({open, aggregates}).
+
+    Returns:
+        Markdown lines, never raising on partial data.
+    """
+    sides = outcomes.get("sides") or []
+    by_market: dict[object, dict] = {}
+    for s in sides:
+        m = by_market.setdefault(s.get("outcomeId"), {"name": s.get("name"), "sides": [], "vol": 0.0})
+        m["sides"].append(s)
+        m["vol"] += _f(s.get("volumeUsd"))
+    top = sorted(by_market.values(), key=lambda m: m["vol"], reverse=True)[:6]
+    lines = ["", "**Event desk (Book A) — top tradeable markets (vol · sides @ implied prob):**"]
+    if top:
+        for m in top:
+            quoted = " / ".join(
+                f"{s.get('side')} {s.get('coin')}@{_f(s.get('price')):.3f}" for s in m["sides"]
+            )
+            lines.append(f"  {m['name']} (${m['vol']:,.0f}): {quoted}")
+    else:
+        lines.append("  (no markets clear the volume floor)")
+    open_t = calibration.get("open") or []
+    if open_t:
+        held = "; ".join(
+            f"{t.get('coin')} {t.get('name')}/{t.get('side')} p={_f(t.get('prob')):.2f} "
+            f"vs px={_f(t.get('price')):.2f} ${_f(t.get('stake')):.0f}{'(shadow)' if t.get('shadow') else '(LIVE)'}"
+            for t in open_t
+        )
+        lines.append(f"**Open tickets ({len(open_t)}):** {held}")
+    else:
+        lines.append("**Open tickets:** none")
+    agg = calibration.get("aggregates") or {}
+    brier, baseline = agg.get("brier_mean"), agg.get("baseline_mean")
+    if agg.get("n_resolved"):
+        verdict = "BEATING no-skill" if brier is not None and baseline is not None and brier < baseline else "below no-skill baseline"
+        lines.append(
+            f"**Calibration:** {agg.get('n')} tickets ({agg.get('n_shadow')} shadow / "
+            f"{agg.get('n_live')} live) · {agg.get('n_resolved')} resolved · "
+            f"Brier {brier} vs no-skill {baseline} — {verdict}"
+        )
+    else:
+        lines.append(
+            f"**Calibration:** {agg.get('n', 0)} tickets, none resolved yet — "
+            "shadow-mode until proven (no order placed)"
+        )
     return lines
 
 

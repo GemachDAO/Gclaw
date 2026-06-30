@@ -48,7 +48,8 @@ Run exactly one heartbeat now, then stop. You do NOT pick or open trades — ori
        - New technique: write a signal.py body (pure stdlib; def signal(features) -> {"action":"long|short|flat","confidence":0..1,"leverage":1..3,"stop_pct":>0,"reason":str}; features include regime/rsi/atr_pct/bb_z/ema_stack/efficiency/flow_pressure/ret1/ret4/ret24/funding_z) to a temp file, then run:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/forge.py author --name <slug> --signal-file <path> --claim "<the edge in one line>" --coin <BTC|ETH|SOL>
        - Improve an existing one: forge.py fork <id> --name <slug>, then edit + forge.py author the improved body.
      The deterministic walk-forward backtest is the JUDGE — it adopts your technique ONLY if it clears out-of-sample edge net of fees. You never declare a technique works; you never adopt by hand. Authoring NEVER opens a trade. Author at most ONE technique this cycle.
-  3. VETO + SETTLE: veto the next forge open if you see a reason it cannot model (event inside the hold horizon, venue/credential blocker, smart-money leaning hard against it, correlated-book risk) by writing {"veto": true, "reason": "..."} to ~/.gclaw/forge/veto.json. Then settle realized PnL into the metabolism.
+  3. EVENT ANALYST (Book A, zero-fee defined risk) — read the "Event desk" board in the briefing. For any market where YOUR calibrated probability for a side diverges from its implied price past the margin, place ONE defined-risk ticket:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/outcomes.py bet --coin "#<id>" --prob <your 0..1> --stake <usd> --reason "<the event read>"  . The GATE owns sizing and risk — you supply ONLY the probability and the read; it enforces the volume floor, the divergence margin, the favorite-longshot guard (never bet a longshot), the stake/ticket caps, and no double-down, and it is SHADOW-MODE (records calibration, places no real order) until the calibration proves out. A rejected bet is a clean skip, not an error. Never bet a longshot; never place more than one ticket per cycle.
+  4. VETO + SETTLE: veto the next forge open if you see a reason it cannot model (event inside the hold horizon, venue/credential blocker, smart-money leaning hard against it, correlated-book risk) by writing {"veto": true, "reason": "..."} to ~/.gclaw/forge/veto.json. Then settle realized PnL into the metabolism.
 
 Hard rules: you may NOT open a discretionary trade (no hl_perp.js open, no MCP perp-open), and you may NOT run forge.py run --execute yourself (origination already ran). Obey the survival mode and the risk caps in TRADING_STRATEGY.md. End with a one-paragraph report: mode, balance, goodwill, what you managed/vetoed, and any technique you authored and its backtest verdict.'
 
@@ -65,6 +66,12 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Event-desk settlement (Book A): detect any outcome ticket whose side resolved (mid
+# settled to 0/1), score its Brier into the calibration ledger, and settle realized PnL
+# for LIVE tickets. Idempotent (resolved tickets are skipped), so it runs every cycle
+# regardless of the LLM — calibration accrues even in shadow mode with no order ever placed.
+[[ -f "$SKILL_DIR/scripts/outcomes.py" ]] &&
+  echo "$(ts) outcomes-resolve: $(uv run --no-project python3 "$SKILL_DIR/scripts/outcomes.py" resolve 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
 # Economics checkpoint: after every 5 REAL position closes, audit the true edge (win
 # rate, expectancy) and Telegram a verdict — the honest "is the strategy +EV?" answer,
 # on a clean batch, not contaminated by the buggy period or funding noise.
