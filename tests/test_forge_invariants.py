@@ -197,7 +197,6 @@ class TestEveryPerpCarriesAStop:
             equity,
             cap=10,
             buying_power=buying_power,
-            risk_mult=1.0,
         )
         assert intent["notional"] == 0, (
             f"a stop_pct={stop_pct} decision was sized to {intent['notional']}"
@@ -228,7 +227,6 @@ class TestMinNotionalEnforced:
         equity=st.floats(min_value=11.0, max_value=1e6, allow_nan=False),
         buying_power=st.floats(min_value=0.0, max_value=1e6, allow_nan=False),
         leverage=st.integers(min_value=1, max_value=20),
-        risk_mult=st.floats(min_value=0.1, max_value=5.0, allow_nan=False),
         mode=st.sampled_from(["thrive", "survive", "hibernate"]),
     )
     def test_notional_is_zero_or_above_min(
@@ -240,7 +238,6 @@ class TestMinNotionalEnforced:
         equity: float,
         buying_power: float,
         leverage: int,
-        risk_mult: float,
         mode: str,
     ) -> None:
         intent = forge._intent(
@@ -251,7 +248,6 @@ class TestMinNotionalEnforced:
             equity,
             cap=10,
             buying_power=buying_power,
-            risk_mult=risk_mult,
         )
         notional = intent["notional"]
         assert notional == 0 or notional >= forge.MIN_NOTIONAL, (
@@ -261,12 +257,12 @@ class TestMinNotionalEnforced:
     def test_hibernate_execution_is_gated_at_run_not_in_intent(self) -> None:
         """A hibernating agent must never auto-execute — enforced at the cmd_run gate.
 
-        Subtle but important: ``_intent`` itself does NOT zero a hibernate-mode notional.
-        Because ``RISK_PCT['hibernate'] == 0`` makes ``risk_usd == 0``, the
-        ``max(MIN_NOTIONAL + 1, ...)`` floor produces a $12 *intent* even in hibernate.
-        That intent is harmless ONLY because the auto-execute gate in ``cmd_run`` carries
-        an explicit ``mode != "hibernate"`` clause. This asserts both facts so a refactor
-        that drops the gate (trusting a non-existent _intent zeroing) fails loudly here.
+        Subtle but important: ``_intent`` does NOT zero a hibernate-mode notional —
+        ``sizing.py`` sizes purely off equity/edge and is mode-agnostic, so a hibernate
+        intent can carry a real notional. It is harmless ONLY because the auto-execute
+        path in ``cmd_run`` carries an explicit ``mode != "hibernate"`` clause. This
+        asserts both facts so a refactor that drops the gate (trusting a non-existent
+        _intent zeroing) fails loudly here.
         """
         intent = forge._intent(
             "t",
@@ -276,9 +272,10 @@ class TestMinNotionalEnforced:
             1000.0,
             cap=10,
             buying_power=1000.0,
-            risk_mult=2.0,
         )
-        assert intent["notional"] == forge.MIN_NOTIONAL + 1  # documents the floor quirk
+        # The intent itself is NOT zeroed by hibernate mode (sizing.py is mode-blind):
+        # a stop-carrying decision is sized normally; only the cmd_run gate stops it.
+        assert intent["notional"] == 0 or intent["notional"] >= forge.MIN_NOTIONAL
         src = (SCRIPTS_DIR / "forge.py").read_text(encoding="utf-8")
         assert 'mode != "hibernate"' in src, (
             "the hibernate execution gate vanished from cmd_run — a hibernating agent "

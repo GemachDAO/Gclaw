@@ -249,25 +249,64 @@ async function cmdStatus(wallet) {
 }
 
 async function cmdOpen(wallet, args) {
+  // ORIGINATION LOCK: opening is forge-only. The deterministic forge execute path
+  // (forge.py _execute) sets GCLAW_FORGE_EXECUTE=1; no other caller may open. This
+  // makes discretionary LLM origination — the measured loss leader — structurally
+  // impossible, not merely discouraged. close/cancel stay open to every caller so
+  // the LLM can still manage and the safety scripts can still flatten.
+  if (process.env.GCLAW_FORGE_EXECUTE !== '1') {
+    return die('open is forge-gated: discretionary opens are disabled. '
+      + 'Route through `forge.py run --execute` (it sets GCLAW_FORGE_EXECUTE=1).');
+  }
   // SAFETY: require coin/side/notional explicitly — NO defaults. Previously these
   // defaulted to a live $12 ETH long, so a stray invocation (a --help probe, a typo)
   // opened a REAL position. A trade must be fully, deliberately specified.
   if (args.help || !args.coin || !args.side || args.notional == null) {
     return die('usage: open --coin <SYM> --side <long|short> --notional <USD> '
-      + '[--leverage N] [--sl-pct P] [--tp-pct P] — coin/side/notional are required (no defaults)');
+      + '--sl-pct P --tp-pct P [--leverage N] — coin/side/notional/sl-pct/tp-pct all required');
   }
   const coin = normalizeCoin(args.coin);
+  const isBuilder = coin.includes(':');
   const isLong = String(args.side).toLowerCase() !== 'short';
-  const notionalTarget = Math.max(MIN_NOTIONAL + 1, Number(args.notional));
-  const slPct = Number(args['sl-pct'] || 2);
-  const tpPct = Number(args['tp-pct'] || 3);
-  if (slPct <= 0) die('a stop-loss is required (--sl-pct)');
+  // Mandatory atomic TP+SL — no naked entries, no silent defaults. With the
+  // discretionary path gone the only caller is the forge, which always passes both.
+  const slPct = Number(args['sl-pct']);
+  const tpPct = Number(args['tp-pct']);
+  if (!(slPct > 0)) die('a stop-loss is required (--sl-pct) — no naked entries');
+  if (!(tpPct > 0)) die('a take-profit is required (--tp-pct) — no naked entries');
+
+  // xyz: builder perps have thin books and wide spreads; halve size so a market
+  // fill can't walk the book and the spread penalty doesn't double the fee cost.
+  const notionalTarget = Math.max(
+    MIN_NOTIONAL + 1,
+    isBuilder ? Number(args.notional) * 0.5 : Number(args.notional),
+  );
+
+  // Per-coin cooldown: refuse re-entry within GCLAW_COOLDOWN_H of the last close on
+  // this coin (marker written by autosettle.js at close). Kills revenge re-entry churn.
+  const cooldownH = Number(process.env.GCLAW_COOLDOWN_H || 4);
+  const home = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
+  const cooldownFile = path.join(home, `cooldown_${coin.replace(':', '_')}.json`);
+  try {
+    const cd = JSON.parse(fs.readFileSync(cooldownFile, 'utf8'));
+    const remainingMs = cooldownH * 3600e3 - (Date.now() - (cd.closedAt || 0));
+    if (remainingMs > 0) return die(`${coin} cooldown: ${Math.round(remainingMs / 60000)}m remaining`);
+  } catch { /* no cooldown file → first trade on this coin, allowed */ }
 
   // Leverage is a real, settable order field, clamped to the EARNED cap (goodwill ladder).
   const cap = earnedLeverageCap();
   const leverage = Math.max(1, Math.min(cap, Math.round(Number(args.leverage || DEFAULT_LEVERAGE))));
 
   const { skill, creds } = await signedSkill(wallet);
+
+  // Hard cap on concurrent theses — the worst losses all came from pyramiding into
+  // a book. Checked against live state (not the status cache) so it can't be stale.
+  const maxPositions = Number(process.env.GCLAW_MAX_POSITIONS || 2);
+  const live = await fullState(skill, wallet.managed);
+  if (live.positions.length >= maxPositions) {
+    return die(`position cap: ${live.positions.length} already open (max ${maxPositions})`);
+  }
+
   const px = await markPriceFor(skill, coin);
   const dp = await szDecimalsFor(skill, coin);
   const size = Math.max(0, Number((notionalTarget / px).toFixed(dp)));
@@ -301,7 +340,13 @@ async function positionSize(skill, managed, coin) {
     const pos = (state.positions || []).find(
       (p) => String(p.coin || p.position?.coin).toLowerCase() === coin.toLowerCase(),
     );
-    return pos ? Number(pos.size ?? pos.szi ?? pos.position?.szi) : 0;
+    if (!pos) return 0;
+    // getHlAccountState reports `size` as an unsigned magnitude with a separate
+    // `side` field, so a short must be re-signed negative — otherwise close()
+    // reads a positive size, sells, and grows the short instead of flattening it.
+    const magnitude = Number(pos.size ?? pos.szi ?? pos.position?.szi);
+    const isShort = String(pos.side || '').toLowerCase() === 'short' || magnitude < 0;
+    return isShort ? -Math.abs(magnitude) : Math.abs(magnitude);
   }
   const cs = await skill
     .getHlClearinghouseState({ userAddress: managed, dex: coin.slice(0, i).toLowerCase() })

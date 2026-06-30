@@ -71,10 +71,11 @@ def test_small_sample_has_no_edge(rs):
 def test_expectancy_is_the_mean_r(rs):
     rows = [{"r": r, "pnl": r} for r in rs]
     stats = memory._stats(rows)
-    # Expectancy is the mean R. Compare to the same sum/len the source uses (statistics.mean
-    # and sum/len can disagree by a ULP, which round-to-3dp can amplify at an exact .xxx5
-    # boundary); the invariant under test is "expectancy == mean", so allow that rounding ULP.
-    assert abs(stats["expectancy_r"] - mean(rs)) <= 5e-4
+    # Expectancy is the mean R, rounded to 3dp by the source, so the worst-case
+    # deviation is half a rounding unit (5e-4) at an exact .xxx5 boundary. Float
+    # representation puts that boundary a single ULP over 5e-4 (e.g. rs=[0,0,0,0.75]
+    # gives |0.188-0.1875|=5.0e-4+4e-19), so the tolerance must absorb that ULP.
+    assert abs(stats["expectancy_r"] - mean(rs)) <= 5e-4 + 1e-9
     assert stats["trades"] == len(rs)
 
 

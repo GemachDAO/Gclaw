@@ -139,9 +139,12 @@ def render_briefing(d: dict) -> str:
         )
     out += [
         "",
-        "**Decide from the above — it is complete. Act ONLY on a PROVEN, regime-matched intent "
-        "above your conviction floor: `forge.py run --execute` (top proven intent) or `hl_perp.js "
-        "open ...`. Otherwise HOLD; do not force a trade. You should rarely need to re-fetch anything.**",
+        "**The disciplined OPEN for this cycle was already gated, sized, and placed by the forge "
+        "before you ran (or correctly skipped — nothing cleared the edge_real + conviction gate). "
+        "You do NOT open trades; you cannot. MANAGE open positions (stops toward break-even, cut "
+        "invalidated theses via close/cancel/update_order) and VETO the next forge open by writing "
+        "~/.gclaw/forge/veto.json if you see a reason it can't model. Otherwise HOLD and report. "
+        "Decide from the above — it is complete; you should rarely need to re-fetch anything.**",
     ]
     return "\n".join(out)
 

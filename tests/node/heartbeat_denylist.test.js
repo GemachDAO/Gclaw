@@ -57,6 +57,18 @@ const MUST_DENY = {
     'mcp__gdex__create_copy_trade',
     'mcp__gdex__create_hl_copy_trade',
   ],
+  // Origination is forge-only: the disciplined OPEN is placed deterministically by
+  // the forge BEFORE the LLM cycle. The model manages and vetoes — it must never
+  // open. Every perp/outcome OPEN and leverage/funding tool is therefore denied.
+  'perp/outcome origination (forge-only — the LLM cannot open)': [
+    'mcp__gdex__open_perp_position',
+    'mcp__gdex__place_perp_order',
+    'mcp__gdex__limit_buy',
+    'mcp__gdex__limit_sell',
+    'mcp__gdex__set_leverage',
+    'mcp__gdex__hl_create_outcome_order',
+    'mcp__gdex__perp_deposit',
+  ],
 };
 
 describe('heartbeat deny-list', () => {
@@ -88,11 +100,11 @@ describe('heartbeat deny-list', () => {
     expect(src).toMatch(/--permission-mode bypassPermissions/);
   });
 
-  test('does NOT deny the legit HL-perp trading tools (riskguard caps those)', () => {
-    // These are intentionally ALLOWED — denying them would break the agent's core
-    // function; their risk is bounded deterministically by riskguard.js, not by denial.
-    for (const allowed of ['mcp__gdex__open_perp_position', 'mcp__gdex__place_perp_order',
-      'mcp__gdex__close_perp_position']) {
+  test('does NOT deny the position-MANAGEMENT tools (the LLM still manages/vetoes)', () => {
+    // Origination is forge-only and denied above, but the LLM still manages open
+    // risk: close, cancel, amend, and read. Denying these would break its job.
+    for (const allowed of ['mcp__gdex__close_perp_position', 'mcp__gdex__cancel_perp_order',
+      'mcp__gdex__cancel_all_perp_orders', 'mcp__gdex__update_order', 'mcp__gdex__get_perp_positions']) {
       expect(deny.has(allowed)).toBe(false);
     }
   });
