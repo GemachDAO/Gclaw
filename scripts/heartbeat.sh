@@ -72,6 +72,13 @@ cd "$HOME"
 # regardless of the LLM — calibration accrues even in shadow mode with no order ever placed.
 [[ -f "$SKILL_DIR/scripts/outcomes.py" ]] &&
   echo "$(ts) outcomes-resolve: $(uv run --no-project python3 "$SKILL_DIR/scripts/outcomes.py" resolve 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
+# Carry floor (Book B): deterministic, delta-neutral funding harvester — NO LLM.
+# Opens spot-long + perp-short of equal notional when a liquid major's annualized
+# funding clears OPEN_APY; closes when it compresses/flips. DRY-RUN by default
+# (logs the plan, places NO order) — arm with GCLAW_CARRY_LIVE=1. Runs in the
+# deterministic block BEFORE the LLM cycle; funding settles via autosettle.js.
+[[ -f "$SKILL_DIR/scripts/carry.js" ]] &&
+  echo "$(ts) carry: $(node "$SKILL_DIR/scripts/carry.js" run 2>&1 | tr '\n' ' ' | tail -c 240)" >>"$LOG" || true
 # Economics checkpoint: after every 5 REAL position closes, audit the true edge (win
 # rate, expectancy) and Telegram a verdict — the honest "is the strategy +EV?" answer,
 # on a clean batch, not contaminated by the buggy period or funding noise.
