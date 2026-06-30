@@ -59,6 +59,10 @@ def gather() -> dict:
         "economics": _run_json(
             ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"], {}
         ),
+        # Scientist board: the adopted loadout (each entry carries weight/e/trades) and
+        # the learned per-(technique, regime) edge — the raw material for authoring.
+        "style": _read_json(h / "forge" / "style.json", {}),
+        "regime_stats": _read_json(h / "forge" / "regime_stats.json", {}),
     }
 
 
@@ -137,16 +141,45 @@ def render_briefing(d: dict) -> str:
             f"**Edge check:** {econ.get('n')} real closes · win rate {econ.get('win_rate')} · "
             f"expectancy {_money(econ.get('expectancy'))}/trade · {econ.get('verdict', '')}"
         )
+    out += _scientist_board(d.get("style") or {}, d.get("regime_stats") or {}, intel)
     out += [
         "",
-        "**The disciplined OPEN for this cycle was already gated, sized, and placed by the forge "
-        "before you ran (or correctly skipped — nothing cleared the edge_real + conviction gate). "
-        "You do NOT open trades; you cannot. MANAGE open positions (stops toward break-even, cut "
-        "invalidated theses via close/cancel/update_order) and VETO the next forge open by writing "
-        "~/.gclaw/forge/veto.json if you see a reason it can't model. Otherwise HOLD and report. "
-        "Decide from the above — it is complete; you should rarely need to re-fetch anything.**",
+        "**Origination is forge-only and already done; you do NOT open trades. With a flat book your "
+        "MAIN job is SCIENTIST: from the board above, if you have a specific edge hypothesis for an "
+        "under-served or losing regime, author ONE technique (write signal.py → forge.py author …) and "
+        "let the backtest judge it — it adopts only on out-of-sample edge. If positioned, MANAGE the "
+        "risk first. VETO the next forge open via ~/.gclaw/forge/veto.json if warranted. Don't author "
+        "busywork — no hypothesis, no technique. Decide from the above; it is complete.**",
     ]
     return "\n".join(out)
+
+
+def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
+    """Render the strategy-R&D board: adopted techniques with fitness, and the regime gaps.
+
+    Gives the LLM-scientist the raw material to form an edge hypothesis — which techniques
+    are decaying (low weight / negative edge) and which live regimes no proven technique
+    covers — without it having to re-derive any of it.
+    """
+    adopted = style.get("adopted") or []
+    lines = ["", "**Scientist board — your techniques (weight · edge · trades):**"]
+    if adopted:
+        for e in sorted(adopted, key=lambda x: _f(x.get("weight")), reverse=True):
+            lines.append(
+                f"  {e.get('id')} [{e.get('coin')}] w={_f(e.get('weight')):.2f} "
+                f"e={_f(e.get('e')):+.3f} n={e.get('trades', 0)}"
+            )
+    else:
+        lines.append("  (none adopted)")
+    # Which live (non-chop) regimes have NO technique with positive learned edge → gaps to invent for.
+    live_regimes = {f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")}
+    covered = {
+        rg for stats in regime_stats.values() for rg, s in stats.items() if _f(s.get("e")) > 0
+    }
+    gaps = sorted(live_regimes - covered)
+    if gaps:
+        lines.append(f"**Regime gaps (live now, no positive-edge technique):** {', '.join(gaps)}")
+    return lines
 
 
 def main() -> int:

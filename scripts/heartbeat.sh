@@ -41,11 +41,16 @@ fi
 
 PROMPT='/gclaw
 
-Run exactly one heartbeat now, then stop. The disciplined trade for this cycle has ALREADY been decided and placed deterministically by the forge BEFORE you ran (proven, regime-matched, edge_real-gated, sized by sizing.py, with atomic TP/SL). You do NOT open trades this cycle — you cannot. Your job is:
-  1. MANAGE open risk: move stops toward break-even on winners, honor stops on losers, and close any position whose thesis has invalidated. Use close / cancel / update_order only.
-  2. VETO the forge if you see a reason it cannot model — a known event inside the hold horizon, a venue/credential blocker, smart-money (get_hl_top_traders_by_pnl) leaning hard against the position, or correlated-book risk. To veto the NEXT open, write {"veto": true, "reason": "..."} to ~/.gclaw/forge/veto.json. If you dislike the position the forge just opened, simply close it.
-  3. SETTLE realized PnL into the metabolism and report.
-You may NOT open a discretionary trade: there is no hl_perp.js open and no MCP perp-open available to you — opening is forge-only and already done. Obey the survival mode and the risk caps in TRADING_STRATEGY.md. End with a one-paragraph report: mode, balance, goodwill, what you managed/vetoed and why, and open risk.'
+Run exactly one heartbeat now, then stop. You do NOT pick or open trades — origination is forge-only and the disciplined trade for this cycle was ALREADY placed deterministically before you ran (proven, regime-matched, edge_real-gated, sized by sizing.py, atomic TP/SL). Your intelligence has THREE jobs instead, in priority order:
+
+  1. MANAGE open risk (only if positioned): move stops toward break-even on winners, honor stops on losers, close any position whose thesis invalidated. Use close / cancel / update_order only.
+  2. SCIENTIST — invent and improve the strategies the engine runs. This is your MAIN job when the book is flat. The briefing lists your adopted techniques, their fitness weights, and which regimes are under-served or losing. When — and ONLY when — you have a genuine, specific hypothesis for an edge (not busywork), express it as code and let the backtest judge it:
+       - New technique: write a signal.py body (pure stdlib; def signal(features) -> {"action":"long|short|flat","confidence":0..1,"leverage":1..3,"stop_pct":>0,"reason":str}; features include regime/rsi/atr_pct/bb_z/ema_stack/efficiency/flow_pressure/ret1/ret4/ret24/funding_z) to a temp file, then run:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/forge.py author --name <slug> --signal-file <path> --claim "<the edge in one line>" --coin <BTC|ETH|SOL>
+       - Improve an existing one: forge.py fork <id> --name <slug>, then edit + forge.py author the improved body.
+     The deterministic walk-forward backtest is the JUDGE — it adopts your technique ONLY if it clears out-of-sample edge net of fees. You never declare a technique works; you never adopt by hand. Authoring NEVER opens a trade. Author at most ONE technique this cycle.
+  3. VETO + SETTLE: veto the next forge open if you see a reason it cannot model (event inside the hold horizon, venue/credential blocker, smart-money leaning hard against it, correlated-book risk) by writing {"veto": true, "reason": "..."} to ~/.gclaw/forge/veto.json. Then settle realized PnL into the metabolism.
+
+Hard rules: you may NOT open a discretionary trade (no hl_perp.js open, no MCP perp-open), and you may NOT run forge.py run --execute yourself (origination already ran). Obey the survival mode and the risk caps in TRADING_STRATEGY.md. End with a one-paragraph report: mode, balance, goodwill, what you managed/vetoed, and any technique you authored and its backtest verdict.'
 
 echo "===== $(ts) heartbeat start (model=$MODEL) =====" >>"$LOG"
 cd "$HOME"

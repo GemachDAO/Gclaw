@@ -868,6 +868,79 @@ def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "adopted": style["adopted"]}
 
 
+def cmd_author(args: argparse.Namespace) -> dict[str, Any]:
+    """One gated R&D transaction — the scientist loop's single primitive.
+
+    Validate an LLM-proposed signal body in the sandbox, backtest it walk-forward,
+    and adopt it ONLY if it graduates on out-of-sample edge. Never touches the execute
+    path: the LLM proposes strategy code, a deterministic backtest is the judge, and
+    adoption merely joins the loadout — the live ``edge_real`` gate still governs real
+    sizing, so a freshly-authored technique can do no more than a cold-start half-probe
+    until live closes confirm it. The LLM never declares its own edge.
+
+    Args:
+        args: name, signal_file, claim, kind, coin, interval, limit, parent, force.
+
+    Returns:
+        A verdict dict: authored id, sandbox result, proven flag, adopted flag, card.
+    """
+    tid = slugify(args.name)
+    body = Path(args.signal_file).read_text(encoding="utf-8")
+    # Validate in the sandbox BEFORE writing anything the loop could pick up.
+    violations = validate_signal_src(body)
+    if violations:
+        return {
+            "ok": False, "authored": tid, "rejected": "sandbox",
+            "violations": violations, "proven": False, "adopted": False,
+        }
+    d = tech_dir(tid)
+    if d.exists() and not args.force:
+        die(f"technique '{tid}' exists — use --force to revise it, or fork it under a new name")
+    d.mkdir(parents=True, exist_ok=True)
+    tech = {
+        "id": tid, "name": args.name, "kind": args.kind, "author": agent_id(),
+        "parent": args.parent, "claim": args.claim or "", "status": "draft",
+        "created_at": now_iso(),
+    }
+    save_technique(tech)
+    (d / "signal.py").write_text(body, encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        SKILL_TEMPLATE.format(
+            name=args.name, kind=args.kind,
+            claim=args.claim or "(state the edge)", author=tech["author"],
+        ),
+        encoding="utf-8",
+    )
+    # Deterministic walk-forward judge — same gate as `prove`. Thin data is a clean
+    # "not proven", not a crash, so the scientist loop never breaks the heartbeat.
+    try:
+        card = backtest(tid, args.coin, args.interval, args.limit)
+    except ValueError as exc:
+        return {"ok": True, "authored": tid, "proven": False, "adopted": False,
+                "verdict": f"could not backtest ({exc}); kept as draft"}
+    (d / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+    tech["status"] = "proven" if card["proven"] else "draft"
+    tech["card"] = {
+        "coin": card["coin"], "interval": card["interval"],
+        "oos": card["out_of_sample"], "proven": card["proven"],
+    }
+    save_technique(tech)
+    adopted = False
+    if card["proven"]:
+        style = load_style()
+        entry = {"id": tid, "coin": card["coin"], "interval": card["interval"]}
+        style["adopted"] = [e for e in style["adopted"] if e["id"] != tid] + [entry]
+        save_style(style)
+        adopted = True
+    return {
+        "ok": True, "authored": tid, "proven": card["proven"], "adopted": adopted, "card": card,
+        "verdict": (
+            "adopted — graduated on out-of-sample edge"
+            if adopted else "kept as draft — did not clear the OOS gate; fork and improve it"
+        ),
+    }
+
+
 def cmd_drop(args: argparse.Namespace) -> dict[str, Any]:
     style = load_style()
     style["adopted"] = [e for e in style["adopted"] if e["id"] != args.id]
@@ -2214,6 +2287,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
     ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
     ap.set_defaults(fn=cmd_autoprove)
+
+    au = sub.add_parser(
+        "author", help="propose a signal body; validate+backtest+adopt-if-proven (never executes)"
+    )
+    au.add_argument("--name", required=True)
+    au.add_argument("--signal-file", dest="signal_file", required=True, help="path to the signal.py body")
+    au.add_argument("--claim", default="")
+    au.add_argument("--kind", choices=["lens", "edge"], default="edge")
+    au.add_argument("--coin", default="BTC")
+    au.add_argument("--interval", default="1h")
+    au.add_argument("--limit", type=int, default=1000)
+    au.add_argument("--parent", default=None)
+    au.add_argument("--force", action="store_true")
+    au.set_defaults(fn=cmd_author)
 
     for name, fn, helptext in [
         ("adopt", cmd_adopt, "adopt a proven technique"),
