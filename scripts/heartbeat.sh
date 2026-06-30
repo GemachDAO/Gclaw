@@ -122,6 +122,13 @@ rm -f "$GCLAW_HOME/forge/veto.json"
   echo "$(ts) evolve: $(uv run --no-project python3 "$SKILL_DIR/scripts/evolve.py" replicate --auto 2>&1 | tr '\n' ' ' | tail -c 220)" >>"$LOG" || true
 }
 
+# Accountable identity: publish the verifiable scorecard (realized PnL from settled fills
+# + forge-graduated proven edge + lineage) to reputation.json. Free, every cycle. The
+# onchain ERC-8004 attestation (erc8004_reputation.js broadcast) reads this file but is
+# gas-gated + needs a non-owner attester key, so it stays a separate, manual/armed step.
+[[ -f "$SKILL_DIR/scripts/reputation.py" ]] &&
+  echo "$(ts) reputation: $(uv run --no-project python3 "$SKILL_DIR/scripts/reputation.py" publish 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
+
 # Adaptive cadence + hybrid model. "active" = a position to manage or a live setup.
 # When active: run every heartbeat on Opus. When idle (flat + quiet): run the LLM
 # only every GCLAW_FLAT_INTERVAL_H hours (default 4) on Sonnet — the deterministic
