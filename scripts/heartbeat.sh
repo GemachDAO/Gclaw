@@ -112,6 +112,16 @@ cd "$HOME"
   echo "$(ts) forge-execute: $(uv run --no-project python3 "$SKILL_DIR/scripts/forge.py" run --execute 2>&1 | tr '\n' ' ' | tail -c 240)" >>"$LOG" || true
 rm -f "$GCLAW_HOME/forge/veto.json"
 
+# Evolution: keep the self-recode count honest (= techniques the agent authored AND
+# graduated), then check the reproduction gate — which is PROVEN, INHERITABLE EDGE
+# (forge-graduated live edge), never raw goodwill (the fragile signal that killed every
+# Spore.fun offspring). Dry-run by default: logs that the organism is breed-ready; it
+# spawns a child (inheriting the proven winners) only when GCLAW_REPRODUCE_LIVE=1.
+[[ -f "$SKILL_DIR/scripts/evolve.py" ]] && {
+  uv run --no-project python3 "$SKILL_DIR/scripts/evolve.py" recode >/dev/null 2>&1 || true
+  echo "$(ts) evolve: $(uv run --no-project python3 "$SKILL_DIR/scripts/evolve.py" replicate --auto 2>&1 | tr '\n' ' ' | tail -c 220)" >>"$LOG" || true
+}
+
 # Adaptive cadence + hybrid model. "active" = a position to manage or a live setup.
 # When active: run every heartbeat on Opus. When idle (flat + quiet): run the LLM
 # only every GCLAW_FLAT_INTERVAL_H hours (default 4) on Sonnet — the deterministic
