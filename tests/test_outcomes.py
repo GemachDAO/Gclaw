@@ -228,3 +228,60 @@ def test_resolve_ignores_settlement_predating_the_ticket(gclaw_home: Path, monke
 def test_calibration_read_never_raises_on_empty(gclaw_home: Path) -> None:
     out = outcomes.read_calibration()
     assert out["ok"] and out["tickets"] == [] and out["aggregates"]["n"] == 0
+
+
+# ── Edgeable partition + honest no-edgeable-market skip ───────────────────────
+
+_CRYPTO_SIDE = {
+    "outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130",
+    "price": 0.75, "volumeUsd": 188506.0, "category": "crypto-price",
+    "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"},
+}
+_MACRO_SIDE = {
+    "outcomeId": 510, "name": "No change", "side": "Yes", "coin": "#5100",
+    "price": 0.6, "volumeUsd": 40000.0, "category": "macro",
+    "description": "resolves to Yes if the July 2026 FOMC decision leaves the rate unchanged",
+}
+_SPORTS_SIDE = {
+    "outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731",
+    "price": 0.81, "volumeUsd": 287125.0, "category": "sports",
+    "description": "resolves to Yes if Argentina is the 2026 FIFA World Cup champion",
+}
+
+
+def test_partition_splits_crypto_and_macro_from_sports() -> None:
+    edgeable, efficient = outcomes.partition_edgeable([_SPORTS_SIDE, _CRYPTO_SIDE, _MACRO_SIDE])
+    assert {s["coin"] for s in edgeable} == {"#7130", "#5100"}
+    assert [s["coin"] for s in efficient] == ["#1731"]
+
+
+def test_partition_treats_uncategorized_side_as_efficient() -> None:
+    # Fail closed: a side with no category (older bridge output) is never called edgeable.
+    edgeable, efficient = outcomes.partition_edgeable([{"coin": "#x", "price": 0.5, "volumeUsd": 99999.0}])
+    assert edgeable == [] and len(efficient) == 1
+
+
+def test_markets_surfaces_edgeable_crypto_market(monkeypatch) -> None:
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: [_SPORTS_SIDE, _CRYPTO_SIDE])
+    out = outcomes.cmd_markets(argparse.Namespace(min_vol=None))
+    assert out["ok"] and out["edgeable_count"] == 1
+    assert out["edgeable"][0]["coin"] == "#7130"
+    assert "no_edgeable_market" not in out  # an edgeable market exists → no honest-skip reason
+
+
+def test_markets_emits_explicit_no_edgeable_reason_when_only_sports(monkeypatch) -> None:
+    # The honest-skip path: only efficient sports clear the floor. The desk must say so
+    # in a structured, observable way — idle by market availability, not by bug.
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: [_SPORTS_SIDE])
+    out = outcomes.cmd_markets(argparse.Namespace(min_vol=None))
+    assert out["ok"] and out["edgeable_count"] == 0
+    assert "no_edgeable_market" in out
+    assert "efficient" in out["no_edgeable_market"] and "sports" in out["no_edgeable_market"]
+
+
+def test_gate_still_refuses_no_edge_sports_side() -> None:
+    # Surfacing the broader set must NOT weaken the gate: an efficient sports side where the
+    # LLM's probability does not diverge past the margin is still cleanly skipped.
+    sides = [_SPORTS_SIDE]
+    v = outcomes.evaluate_bet("#1731", prob=0.83, stake=8.0, sides=sides, open_coins=set(), n_open=0)
+    assert v["placed"] is False and "margin" in v["skipped"]

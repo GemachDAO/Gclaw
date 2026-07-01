@@ -81,6 +81,27 @@ def _f(x: object, default: float = 0.0) -> float:
         return default
 
 
+def _resolution_label(side: dict) -> str:
+    """Human-readable resolution terms for a side, so the LLM sees the actual bet.
+
+    For a price-binary the desk carries a parsed ``resolution`` ({underlying, targetPrice,
+    expiry, period}); render it as e.g. "BTC > 59122 by 20260702-0600". Otherwise fall back
+    to the market description (truncated), and finally to nothing. Never raises.
+
+    Args:
+        side: A tradeable-side row from the desk board.
+
+    Returns:
+        A short resolution string, or "" when no criteria are available.
+    """
+    res = side.get("resolution")
+    if isinstance(res, dict) and res.get("underlying") and res.get("targetPrice") is not None:
+        expiry = res.get("expiry") or "?"
+        return f"{res['underlying']} vs {res['targetPrice']} by {expiry}"
+    desc = str(side.get("description") or "").strip()
+    return (desc[:80] + "…") if len(desc) > 80 else desc
+
+
 def _money(x: object) -> str:
     try:
         return f"${float(x):,.2f}"  # type: ignore[arg-type]
@@ -205,22 +226,33 @@ def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
     Returns:
         Markdown lines, never raising on partial data.
     """
-    sides = outcomes.get("sides") or []
+    # Prefer the desk's edgeable partition (dated crypto/macro) — the markets where a
+    # calibrated probability can honestly diverge. Fall back to the full board only when the
+    # desk reports none, so the LLM analyst is pointed at read-material it can actually beat.
+    edgeable = outcomes.get("edgeable") or []
+    sides = edgeable or (outcomes.get("sides") or [])
     by_market: dict[object, dict] = {}
     for s in sides:
-        m = by_market.setdefault(s.get("outcomeId"), {"name": s.get("name"), "sides": [], "vol": 0.0})
+        m = by_market.setdefault(
+            s.get("outcomeId"),
+            {"name": s.get("name"), "sides": [], "vol": 0.0, "resolution": _resolution_label(s)},
+        )
         m["sides"].append(s)
         m["vol"] += _f(s.get("volumeUsd"))
     top = sorted(by_market.values(), key=lambda m: m["vol"], reverse=True)[:6]
-    lines = ["", "**Event desk (Book A) — top tradeable markets (vol · sides @ implied prob):**"]
+    header = "edgeable markets" if edgeable else "top tradeable markets"
+    lines = ["", f"**Event desk (Book A) — {header} (vol · sides @ implied prob):**"]
     if top:
         for m in top:
             quoted = " / ".join(
                 f"{s.get('side')} {s.get('coin')}@{_f(s.get('price')):.3f}" for s in m["sides"]
             )
-            lines.append(f"  {m['name']} (${m['vol']:,.0f}): {quoted}")
+            label = f"{m['name']} — {m['resolution']}" if m["resolution"] else m["name"]
+            lines.append(f"  {label} (${m['vol']:,.0f}): {quoted}")
     else:
         lines.append("  (no markets clear the volume floor)")
+    if not edgeable and outcomes.get("no_edgeable_market"):
+        lines.append(f"  ↳ NO EDGEABLE MARKET: {outcomes['no_edgeable_market']} — desk idle by design")
     open_t = calibration.get("open") or []
     if open_t:
         held = "; ".join(

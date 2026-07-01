@@ -14,7 +14,7 @@ with ``shadow:true`` and NO order is placed. Real orders are placed ONLY when
 ``GCLAW_OUTCOMES_LIVE=1`` — this lets the LLM's calibration prove out before a
 dollar is risked ("prove before trade").
 
-    outcomes.py markets [--min-vol 10000]          # tradeable sides (price + volume)
+    outcomes.py markets [--min-vol 10000]          # tradeable sides + edgeable subset (crypto/macro vs efficient sports)
     outcomes.py bet --coin "#1731" --prob 0.92 --stake 8 [--reason "..."]
     outcomes.py resolve                            # settle resolved tickets, update Brier
     outcomes.py calibration                        # the proven-calibration board
@@ -44,6 +44,13 @@ LONGSHOT_FLOOR = float(os.environ.get("GCLAW_OUTCOMES_LONGSHOT_FLOOR") or 0.10)
 MAX_STAKE = float(os.environ.get("GCLAW_OUTCOMES_MAX_STAKE") or 15)
 MIN_STAKE = 1.0
 MAX_TICKETS = int(os.environ.get("GCLAW_OUTCOMES_MAX_TICKETS") or 3)
+
+# Categories where a calibrated LLM probability can genuinely diverge from the market:
+# dated crypto price thresholds and macro prints with a clear published resolution. Sports/
+# World-Cup markets are presumptively efficient (no informational edge), so the desk marks
+# them and reports an explicit, structured skip when ONLY those clear the volume floor —
+# making an idle desk observably idle-by-market-availability, not silently idle-by-bug.
+EDGEABLE_CATEGORIES = frozenset({"crypto-price", "macro"})
 
 # Resolution is read from real HL settlement fills (dir:"Settlement", visible by
 # address in userFills — the same feed autosettle books PnL from), NOT guessed from a
@@ -403,14 +410,55 @@ def cmd_resolve(_args: argparse.Namespace) -> dict[str, Any]:
 # ── CLI verbs ────────────────────────────────────────────────────────────────
 
 
+def partition_edgeable(sides: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the board into (edgeable, efficient) by market category.
+
+    A side is edgeable when its category is in ``EDGEABLE_CATEGORIES`` (a dated crypto
+    price threshold or a macro print with a published resolution) — the markets where an
+    LLM's calibrated probability can honestly diverge from the market. Everything else
+    (chiefly efficient sports/World-Cup markets) is efficient. Sides missing a category
+    (older bridge output) are treated as efficient — fail closed, never invent edge.
+
+    Args:
+        sides: The tradeable-sides board from ``fetch_sides``.
+
+    Returns:
+        (edgeable_sides, efficient_sides), each preserving the input order.
+    """
+    edgeable = [s for s in sides if s.get("category") in EDGEABLE_CATEGORIES]
+    efficient = [s for s in sides if s.get("category") not in EDGEABLE_CATEGORIES]
+    return edgeable, efficient
+
+
 def cmd_markets(args: argparse.Namespace) -> dict[str, Any]:
-    """List active tradeable sides at or above the volume floor (deterministic read)."""
+    """List active tradeable sides, partitioned into edgeable vs efficient.
+
+    Surfaces every side at or above the volume floor (unchanged), plus an explicit
+    ``edgeable`` subset and — when the floor admits only efficient sports markets — a
+    structured ``no_edgeable_market`` reason. This is what makes an idle desk observably
+    idle-by-market-availability rather than silently idle-by-bug; it never manufactures a
+    probability or relaxes any gate.
+    """
     min_vol = float(args.min_vol) if args.min_vol is not None else MIN_VOLUME
     try:
         sides = fetch_sides(min_vol)
     except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as exc:
         return {"ok": False, "error": str(exc)}
-    return {"ok": True, "min_vol": min_vol, "count": len(sides), "sides": sides}
+    edgeable, efficient = partition_edgeable(sides)
+    out: dict[str, Any] = {
+        "ok": True,
+        "min_vol": min_vol,
+        "count": len(sides),
+        "sides": sides,
+        "edgeable_count": len(edgeable),
+        "edgeable": edgeable,
+    }
+    if not edgeable:
+        out["no_edgeable_market"] = (
+            f"{len(efficient)} sides clear the ${min_vol:,.0f} floor but all are efficient "
+            "(sports/World-Cup); no dated crypto/macro market to form a divergent probability on"
+        )
+    return out
 
 
 def cmd_calibration(_args: argparse.Namespace) -> dict[str, Any]:
