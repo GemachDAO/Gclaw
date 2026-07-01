@@ -44,7 +44,6 @@ from typing import Any
 # proves it can survive. Keep this ladder in sync with hl_perp.js.
 MAX_LEVERAGE = 20  # absolute ceiling at the top of the ladder
 LEVERAGE_LADDER = [(0, 3), (50, 5), (200, 10), (500, 15), (1000, 20)]
-RISK_PCT = {"thrive": 5, "survive": 2, "hibernate": 0}
 MIN_NOTIONAL = 11
 
 # Default markets each adopted technique is scanned across every run: majors on
@@ -96,11 +95,14 @@ HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
 #   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
 TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
 MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
-# Backtest execution mode must MATCH the live executor (hl_perp.js). Today the executor
-# opens with isMarket:true (taker) with an attached TP/SL, so the entry is taker and the
-# TP exit is maker; a stop-hit or time exit is taker. When maker-first limit entries land
-# (assune-4yt), flip GCLAW_FORGE_MAKER_ENTRY=1 in BOTH the backtest and the executor
-# together so the cost assumption never diverges from how fills actually happen.
+# Backtest execution mode must MATCH the live executor (hl_perp.js), and it does: BOTH
+# read GCLAW_FORGE_MAKER_ENTRY. Unset (default) → the executor opens isMarket:true (taker)
+# with an attached TP/SL and the backtest charges taker entry. Set to 1 → the executor
+# posts a resting maker limit with the stop STILL atomically attached (one hl_create_order
+# action, never naked) on the default dex, and the backtest charges maker entry. The single
+# env var keeps the cost assumption from ever diverging from how fills actually happen.
+# Builder (xyz) coins always stay taker: their attached SL is not armed as a resting order
+# (assune-ehh), so a resting entry there would fill naked — hl_perp.js gates maker off for them.
 def _maker_entry() -> bool:
     """True when entries are modelled as resting maker limits (assune-4yt), else taker."""
     return os.environ.get("GCLAW_FORGE_MAKER_ENTRY") == "1"
@@ -1670,6 +1672,40 @@ def _account() -> dict[str, float]:
         return {"equity": 0.0, "buying_power": 0.0, "positions": 0}
 
 
+# The per-trade risk cap is OWNED by riskguard.js (RISK_CAP_PCT) — the deterministic
+# guard that enforces it after the fact. The forge sizes to the SAME number so a
+# freshly-opened position never exceeds the cap the guard would trim it to (assune-met,
+# assune-ir5): one source of truth, read from the owner, never a duplicated constant.
+_RISK_CAP_PCT: float | None = None
+RISK_CAP_FALLBACK_PCT = 1.5  # used only if riskguard.js can't be read this run
+
+
+def risk_cap_pct() -> float:
+    """Per-trade risk cap (% of equity), read once from riskguard.js and cached.
+
+    riskguard.js is the single owner of the cap; ``riskguard.js cap`` prints it as
+    JSON. If that read fails (SDK/node hiccup), fall back to the documented 1.5% so
+    sizing is never LESS strict than the guard — the guard still backstops either way.
+    """
+    global _RISK_CAP_PCT
+    if _RISK_CAP_PCT is not None:
+        return _RISK_CAP_PCT
+    try:
+        proc = subprocess.run(
+            ["node", str(SCRIPT_DIR / "riskguard.js"), "cap"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        data = json.loads(proc.stdout.strip().splitlines()[-1])
+        pct = float(data["risk_cap_pct"])
+        _RISK_CAP_PCT = pct if pct > 0 else RISK_CAP_FALLBACK_PCT
+    except (ValueError, OSError, KeyError, IndexError):
+        _RISK_CAP_PCT = RISK_CAP_FALLBACK_PCT
+    return _RISK_CAP_PCT
+
+
 # Portfolio circuit breaker — halts NEW entries (never closes/blocks risk-reduction)
 # when the account is in trouble, independent of the GMAC life-energy mode.
 MAX_DRAWDOWN_PCT = 25  # halt new entries if equity falls this far below its high-water mark
@@ -1769,10 +1805,12 @@ def _intent(
 ) -> dict[str, Any]:
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
 
-    Notional AND stop come from ``sizing.py`` (vol-target + sample-shrunk Kelly), not
-    a flat ``RISK_PCT × equity ÷ stop`` fraction: size falls out of the ATR stop and
-    the technique's live regime-matched edge. The buying-power/margin clamp and the
-    $11 min-notional floor are preserved; riskguard.js stays a backstop.
+    Notional AND stop come from ``sizing.py`` (vol-target + sample-shrunk Kelly): size
+    falls out of the ATR stop and the technique's live regime-matched edge. The result
+    is then clamped so the $-at-stop never exceeds the per-trade cap riskguard.js
+    enforces (``risk_cap_pct()`` — one shared source of truth), then to the
+    buying-power/margin ceiling and the $11 min-notional floor. riskguard.js stays a
+    backstop, but a compliant entry never needs trimming (assune-met).
 
     Args:
         tid: The originating technique id.
@@ -1812,10 +1850,24 @@ def _intent(
     # fraction of bankroll, not a veto). Applied to size only, not the entry decision.
     health = _health_size_mult(load_metabolism())
     notional, risk_usd = notional * health, risk_usd * health
+    # Per-trade risk cap (assune-met): the position's $-at-stop must never exceed the
+    # cap riskguard.js enforces. Cap risk HERE, before the order opens, and shrink
+    # notional to match — so the guard never has to trim its own freshly-opened trade
+    # (the churn + orphaned-bracket loss). risk_usd = notional * stop_pct/100, so the
+    # notional that risks exactly the cap is cap_usd / (stop_pct/100). One source of
+    # truth: risk_cap_pct() reads the cap from riskguard.js, never a local copy.
+    risk_cap_usd = equity * (risk_cap_pct() / 100.0)
+    if stop_pct > 0 and risk_usd > risk_cap_usd:
+        # Floor the cap-derived notional to whole cents: the intent reports notional
+        # rounded to 2dp, and rounding UP would let realized risk tip a hair over the
+        # cap. Flooring keeps the opened position strictly at-or-under the cap.
+        notional = math.floor(risk_cap_usd / (stop_pct / 100.0) * 100) / 100
+        risk_usd = notional * (stop_pct / 100.0)
     # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
     max_notional = max(0.0, buying_power * 0.95) * leverage
     if notional > max_notional:
         notional = max_notional
+        risk_usd = notional * (stop_pct / 100.0)  # keep risk honest after the margin clamp
     if notional < MIN_NOTIONAL:
         notional = 0
     return {

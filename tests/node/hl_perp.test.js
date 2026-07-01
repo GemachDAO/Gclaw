@@ -169,3 +169,85 @@ describe('coin normalization + sig rounding (entry-path helpers)', () => {
     expect(roundSig(0.0123456)).toBeCloseTo(0.012346, 6);
   });
 });
+
+// Maker-first limit entries (assune-4yt): when GCLAW_FORGE_MAKER_ENTRY=1 the live
+// executor must POST a resting maker limit — with the stop STILL atomically attached —
+// so the executor matches the maker cost the forge backtest models. The order builder is
+// network-free, so we drive it directly and assert the maker/taker + no-naked-entry
+// contract. Builder (xyz) coins always stay taker: their attached SL is not armed as a
+// resting order (assune-ehh), so a resting entry there would fill naked.
+describe('maker-first limit entries: order construction (assune-4yt)', () => {
+  const { makerEntryEnabled, makerLimitPrice, buildOpenOrder } = loadScript('hl_perp.js');
+  const savedFlag = process.env.GCLAW_FORGE_MAKER_ENTRY;
+  const savedOff = process.env.GCLAW_MAKER_OFFSET_BPS;
+
+  afterEach(() => {
+    if (savedFlag === undefined) delete process.env.GCLAW_FORGE_MAKER_ENTRY;
+    else process.env.GCLAW_FORGE_MAKER_ENTRY = savedFlag;
+    if (savedOff === undefined) delete process.env.GCLAW_MAKER_OFFSET_BPS;
+    else process.env.GCLAW_MAKER_OFFSET_BPS = savedOff;
+  });
+
+  test('default (flag unset) stays taker: isMarket true, entry at the mark', () => {
+    delete process.env.GCLAW_FORGE_MAKER_ENTRY;
+    expect(makerEntryEnabled('BTC')).toBe(false);
+    const o = buildOpenOrder({ coin: 'BTC', isLong: true, mark: 60000, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 5 });
+    expect(o.isMarket).toBe(true);
+    expect(o.maker).toBe(false);
+    expect(o.entryPx).toBe(60000);
+  });
+
+  test('flag on + default dex: resting maker limit, isMarket false', () => {
+    process.env.GCLAW_FORGE_MAKER_ENTRY = '1';
+    expect(makerEntryEnabled('ETH')).toBe(true);
+    const o = buildOpenOrder({ coin: 'ETH', isLong: true, mark: 3000, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 4 });
+    expect(o.isMarket).toBe(false);
+    expect(o.maker).toBe(true);
+  });
+
+  test('flag on but builder (xyz) coin stays taker — its attached SL is not armed resting', () => {
+    process.env.GCLAW_FORGE_MAKER_ENTRY = '1';
+    expect(makerEntryEnabled('xyz:NVDA')).toBe(false);
+    const o = buildOpenOrder({ coin: 'xyz:NVDA', isLong: true, mark: 120, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 2 });
+    expect(o.isMarket).toBe(true);
+    expect(o.maker).toBe(false);
+  });
+
+  test('a maker limit rests PASSIVE — below the mark for a long, above for a short (never crosses)', () => {
+    process.env.GCLAW_FORGE_MAKER_ENTRY = '1';
+    const long = buildOpenOrder({ coin: 'BTC', isLong: true, mark: 60000, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 5 });
+    expect(long.entryPx).toBeLessThan(60000); // a long that crossed the mark would pay taker
+    const short = buildOpenOrder({ coin: 'BTC', isLong: false, mark: 60000, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 5 });
+    expect(short.entryPx).toBeGreaterThan(60000);
+  });
+
+  test('NEVER a naked entry: the built order always carries a stop AND a target, maker or taker', () => {
+    for (const flag of ['1', '0']) {
+      process.env.GCLAW_FORGE_MAKER_ENTRY = flag;
+      for (const isLong of [true, false]) {
+        const o = buildOpenOrder({ coin: 'SOL', isLong, mark: 140, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 2 });
+        expect(o.sl).toBeGreaterThan(0);
+        expect(o.tp).toBeGreaterThan(0);
+        // stop is on the LOSS side of the entry; target on the profit side.
+        if (isLong) { expect(o.sl).toBeLessThan(o.entryPx); expect(o.tp).toBeGreaterThan(o.entryPx); }
+        else { expect(o.sl).toBeGreaterThan(o.entryPx); expect(o.tp).toBeLessThan(o.entryPx); }
+      }
+    }
+  });
+
+  test('stop/target distance is measured from the ENTRY price, not the mark', () => {
+    process.env.GCLAW_FORGE_MAKER_ENTRY = '1';
+    const o = buildOpenOrder({ coin: 'ETH', isLong: true, mark: 3000, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 4 });
+    // sl is 2% below the resting entry (the fill price), so the risk distance holds on fill.
+    expect(o.sl).toBeCloseTo(o.entryPx * 0.98, 0);
+    expect(o.tp).toBeCloseTo(o.entryPx * 1.03, 0);
+  });
+
+  test('maker offset is configurable and always passive', () => {
+    process.env.GCLAW_MAKER_OFFSET_BPS = '20';
+    const long = makerLimitPrice(60000, true);
+    expect(long).toBeCloseTo(roundSig(60000 * (1 - 20 / 10000)), 5);
+    const short = makerLimitPrice(60000, false);
+    expect(short).toBeGreaterThan(60000);
+  });
+});

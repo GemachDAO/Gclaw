@@ -79,11 +79,16 @@ maker (~1.5bp), so the round trip the edge must beat is ~3bp, not ~15bp.
   slippage) and `MAKER_FEE = 0.00015` (1.5bp, no slippage). `round_trip_cost(stop_hit)`
   charges: entry = maker if `GCLAW_FORGE_MAKER_ENTRY=1` else taker; exit = taker if the
   stop was hit (a trigger always crosses the book) else it fills like the entry.
-- **Backtest matches the live executor.** `hl_perp.js` opens `isMarket:true` (taker), so
-  the backtest DEFAULT (flag unset) charges taker on both legs = 15bp — identical to
-  today's fills. A cross-referenced comment in both files requires flipping
-  `isMarket:false` and `GCLAW_FORGE_MAKER_ENTRY=1` TOGETHER when maker-first limit
-  entries land (assune-4yt), so the cost assumption can never silently diverge.
+- **Backtest matches the live executor, both driven by `GCLAW_FORGE_MAKER_ENTRY`**
+  (assune-4yt). Unset (default): `hl_perp.js` opens `isMarket:true` (taker) and the
+  backtest charges taker on both legs = 15bp — identical to today's fills. Set to `1`:
+  the executor posts a resting maker limit (passive to the mark, so it adds liquidity)
+  with the stop STILL atomically attached — a single `hl_create_order` action carrying
+  `price + tpPrice + slPrice + isMarket`, so the entry is NEVER naked — and the backtest
+  charges maker entry. One env var flips both, so the cost model can never diverge from
+  the fill. Builder (`xyz:`) coins always stay taker: their attached SL is not armed as a
+  resting order (assune-ehh), so a resting entry there would fill naked; the executor
+  gates maker off for them.
 - **Scientist prompt biased toward the right setups** (`dna/HEARTBEAT.md` §4b): author
   FEWER, BIGGER, higher-conviction setups that fire rarely and hold long enough that the
   move dwarfs the round trip — not high-frequency scalps that die to fees.
