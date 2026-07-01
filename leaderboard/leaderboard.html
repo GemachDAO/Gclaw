@@ -330,7 +330,11 @@ async function loadAgent(id){
   const uri = decodeString(hex);
   const card = cardFromUri(uri);
   if(!card || !card["x-gclaw"]) return null;       // not a Gclaw creature
-  const g = card["x-gclaw"];
+  const x = card["x-gclaw"];
+  // The ONCHAIN card nests published stats under x-gclaw.stats; a fully-fetched IPFS
+  // manifest carries them at the top level. Hoist stats so provenEdge / goodwill /
+  // breedReady / provenTechniques read the same way from either source.
+  const g = { ...x, ...(x.stats || {}) };
   g.verifiedEquity = await verifyHlEquity(g.managedHlWallet);
   return { id, name: card.name, g };
 }
