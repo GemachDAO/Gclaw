@@ -221,3 +221,9 @@ fi
 # own voice so the human keeps coming back. No-ops without a webhook.
 [[ -f "$SKILL_DIR/scripts/notify.js" ]] &&
   echo "$(ts) celebrate: $(node "$SKILL_DIR/scripts/notify.js" celebrate 2>&1)" >>"$LOG" || true
+# Telegram live feed: voiced, exactly-once drops (GRADUATED / BREED-READY / trade /
+# breaker / …) to the owner chat. Reuses the celebrate cursor+dedupe discipline;
+# no-ops without GCLAW_TELEGRAM_TOKEN + _CHAT. The command bot (telegram.js listen)
+# runs as a separate long-poll daemon supervised by a cron watchdog.
+[[ -f "$SKILL_DIR/scripts/feed.js" ]] &&
+  echo "$(ts) feed: $(node "$SKILL_DIR/scripts/feed.js" run 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
