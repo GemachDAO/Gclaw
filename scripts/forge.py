@@ -1644,14 +1644,16 @@ def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _account() -> dict[str, float]:
-    """Read HL equity + free PERP collateral via hl_perp.js (best effort).
+    """Read HL equity + free trading collateral via hl_perp.js (best effort).
 
-    HL keeps spot and perp as SEPARATE wallets; spot USDC is NOT auto-pledged as
-    perp margin. A new perp draws margin only from the perp wallet's free
-    collateral (`withdrawable`), so that — not the spot `buyingPower` — is what
-    the margin-fit clamp in ``_intent`` must size against. Sizing a perp off spot
-    buying power the perp can't touch yields an intent HL rejects for insufficient
-    margin (assune-4fw.5). ``equity`` stays the whole-account figure for the
+    This HL account is CROSS-COLLATERAL: a perp position draws its margin from the
+    spot USDC pool — the margin shows up as a spot ``hold`` AND inside the perp
+    ``accountValue`` (hl_perp.js's two-wallet equity formula). So the collateral a
+    new perp can actually draw is the FREE spot USDC (``buyingPower`` = spot total −
+    hold), NOT the perp-only ``withdrawable`` (which reads $0 whenever margin is
+    deployed even though ample spot backs it). Sizing off ``withdrawable`` starved
+    every major to $0 notional; ``buyingPower`` is what the margin-fit clamp in
+    ``_intent`` must size against. ``equity`` stays the whole-account figure for the
     drawdown breaker and health sizing.
     """
     try:
@@ -1665,7 +1667,7 @@ def _account() -> dict[str, float]:
         equity = float(st.get("equity") or st.get("spotUsdc") or st.get("accountValue") or 0)
         return {
             "equity": equity,
-            "buying_power": float(st.get("withdrawable") or 0),
+            "buying_power": float(st.get("buyingPower") or 0),
             "positions": len(st.get("positions") or []),
         }
     except Exception:
@@ -2268,11 +2270,10 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
     veto = _read_json(gclaw_home() / "forge" / "veto.json", {})
-    # Legibility: perp margin (buying_power) below the min-notional requirement means a
-    # sized major zeroes at the margin-fit clamp — the trade can't open even with edge.
-    # Spot USDC is NOT auto-collateral on HL; the gdex backend has no spot->perp
-    # transfer, so surface the underfunding as its own signal rather than letting it
-    # look like "no setup" (assune-4fw.5).
+    # Legibility: free collateral (buying_power = free spot USDC, the cross-collateral a
+    # perp draws margin from) below the min-notional requirement means a sized major zeroes
+    # at the margin-fit clamp — the trade can't open even with edge. Surface that as its own
+    # signal rather than letting it look like "no setup" (assune-4fw.5).
     perp_underfunded = bool(intents) and (buying_power * 0.95 * cap) < MIN_NOTIONAL
     result = {
         "ok": True,
