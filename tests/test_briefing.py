@@ -83,6 +83,48 @@ def test_render_never_raises_on_empty_or_partial_data():
         assert isinstance(b, str) and "Cycle briefing" in b
 
 
+def _crypto_binary_market() -> dict:
+    return {
+        "sides": [
+            {"outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731", "price": 0.81,
+             "volumeUsd": 287125.0, "category": "sports"},
+            {"outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130", "price": 0.75,
+             "volumeUsd": 188506.0, "category": "crypto-price",
+             "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"}},
+        ],
+        "edgeable": [
+            {"outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130", "price": 0.75,
+             "volumeUsd": 188506.0, "category": "crypto-price",
+             "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"}},
+        ],
+        "edgeable_count": 1,
+    }
+
+
+def test_event_desk_shows_edgeable_market_with_resolution_criteria():
+    d = _full()
+    d["outcomes"] = _crypto_binary_market()
+    b = briefing.render_briefing(d)
+    # The edgeable header + the actual bet terms (not the bare "Recurring" name) must show.
+    assert "edgeable markets" in b
+    assert "BTC vs 59122 by 20260702-0600" in b
+    # An efficient sports market that is NOT edgeable is demoted out of the edgeable view.
+    assert "Argentina" not in b.split("Event desk")[1].split("Open tickets")[0]
+
+
+def test_event_desk_shows_explicit_no_edgeable_market_when_only_sports():
+    d = _full()
+    d["outcomes"] = {
+        "sides": [{"outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731",
+                   "price": 0.81, "volumeUsd": 287125.0, "category": "sports"}],
+        "edgeable": [],
+        "edgeable_count": 0,
+        "no_edgeable_market": "1 sides clear the $10,000 floor but all are efficient (sports/World-Cup)",
+    }
+    b = briefing.render_briefing(d)
+    assert "NO EDGEABLE MARKET" in b and "desk idle by design" in b
+
+
 def test_gather_is_resilient_when_subprocesses_fail(monkeypatch, gclaw_home):
     # a failing helper must yield a default, not propagate — gather feeds a deterministic step
     def boom(*_a, **_k):

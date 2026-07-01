@@ -36,6 +36,44 @@ function die(msg) {
   process.exit(1);
 }
 
+// Classify a market by its name + description into a coarse edgeability category.
+// This is the ONLY place category is derived, so the rule is auditable in one spot.
+// It never fabricates a probability — it only labels what HL already published, so the
+// desk can tell a dated, clearly-resolved market (crypto price threshold, macro print)
+// apart from an efficient sports/World-Cup market where an LLM has no informational edge.
+//   - "crypto-price": HL price-binary markets (description class:priceBinary|underlying:...)
+//   - "macro": FOMC/rate/CPI/inflation prints with a dated BLS/FOMC resolution
+//   - "sports": World Cup / FIFA / champion / head-to-head match markets
+//   - "other": anything else (fallbacks, unnamed recurring indices)
+// Only "sports" is treated as presumptively efficient; the rest are candidate-edgeable.
+function classifyMarket(name, description) {
+  const n = String(name || '').toLowerCase();
+  const d = String(description || '').toLowerCase();
+  if (d.includes('class:pricebinary') || d.includes('underlying:')) return 'crypto-price';
+  if (/\b(fomc|federal funds|cpi|inflation|bls|rate range|unemployment|gdp|jobs)\b/.test(d)) return 'macro';
+  if (/\b(world cup|fifa|champion|vs |vs\.|round of)\b/.test(n + ' ' + d)) return 'sports';
+  return 'other';
+}
+
+// Parse an HL price-binary description into its structured resolution terms so the LLM
+// sees the actual bet (underlying, target price, expiry) instead of a bare "Recurring"
+// label. Returns null for non-price-binary markets. Pure string parsing, no fabrication.
+function parsePriceBinary(description) {
+  const d = String(description || '');
+  if (!d.includes('class:priceBinary') && !d.toLowerCase().includes('class:pricebinary')) return null;
+  const terms = {};
+  for (const part of d.split('|')) {
+    const idx = part.indexOf(':');
+    if (idx > 0) terms[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+  }
+  return {
+    underlying: terms.underlying || null,
+    targetPrice: terms.targetPrice ? Number(terms.targetPrice) : null,
+    expiry: terms.expiry || null,
+    period: terms.period || null,
+  };
+}
+
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -111,6 +149,9 @@ async function cmdMarkets(_w, args) {
   const sides = [];
   for (const m of meta) {
     const specs = m.sideSpecs || [];
+    const description = m.description || '';
+    const category = classifyMarket(m.name, description);
+    const resolution = parsePriceBinary(description);
     for (let s = 0; s < specs.length; s += 1) {
       const coin = `#${m.outcome}${s}`;
       const price = mids[coin];
@@ -122,6 +163,13 @@ async function cmdMarkets(_w, args) {
         coin,
         price: Number(price),
         volumeUsd: Number(vols[coin] || 0),
+        // The resolution criteria + category: for "Recurring"-named price binaries the
+        // description is the ONLY place the target/expiry lives, so the LLM cannot form a
+        // calibrated probability without it. Passing it through is not a bet — it is the
+        // read material the divergence gate then acts on.
+        description,
+        category,
+        ...(resolution ? { resolution } : {}),
       });
     }
   }
@@ -221,6 +269,12 @@ async function main() {
 }
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.
-main()
-  .then(() => process.exit(0))
-  .catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));
+// Guard the auto-run so `require('hl_outcomes.js')` in a unit test loads the pure
+// classifiers without firing a real sign-in / network call.
+if (require.main === module) {
+  main()
+    .then(() => process.exit(0))
+    .catch((e) => die(e?.responseBody ? JSON.stringify(e.responseBody) : e.message || String(e)));
+}
+
+module.exports = { classifyMarket, parsePriceBinary };

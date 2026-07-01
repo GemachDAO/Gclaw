@@ -315,6 +315,12 @@ async function cmdOpen(wallet, args) {
 
   const sl = roundSig(isLong ? px * (1 - slPct / 100) : px * (1 + slPct / 100));
   const tp = roundSig(isLong ? px * (1 + tpPct / 100) : px * (1 - tpPct / 100));
+  // COST-MODEL CONTRACT: this entry is a TAKER fill (isMarket:true). The forge backtest
+  // charges the matching taker cost by default (forge.py round_trip_cost, with
+  // GCLAW_FORGE_MAKER_ENTRY unset). When maker-first resting-limit entries land
+  // (assune-4yt), flip isMarket:false HERE and set GCLAW_FORGE_MAKER_ENTRY=1 for the forge
+  // TOGETHER — never one without the other, or the graduation cost model diverges from how
+  // fills actually happen and sub-fee noise could graduate.
   const res = await skill.hlCreateOrder({
     coin,
     isLong,
