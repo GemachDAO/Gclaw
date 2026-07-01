@@ -59,6 +59,18 @@ def gather() -> dict:
         "economics": _run_json(
             ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"], {}
         ),
+        # Scientist board: the adopted loadout (each entry carries weight/e/trades) and
+        # the learned per-(technique, regime) edge — the raw material for authoring.
+        "style": _read_json(h / "forge" / "style.json", {}),
+        "regime_stats": _read_json(h / "forge" / "regime_stats.json", {}),
+        # Event desk (Book A): the top-by-volume tradeable outcome-market sides and the
+        # agent's open tickets + proven calibration — the raw material for an event read.
+        "outcomes": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "markets"], {}
+        ),
+        "calibration": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "calibration"], {}
+        ),
     }
 
 
@@ -137,13 +149,103 @@ def render_briefing(d: dict) -> str:
             f"**Edge check:** {econ.get('n')} real closes · win rate {econ.get('win_rate')} · "
             f"expectancy {_money(econ.get('expectancy'))}/trade · {econ.get('verdict', '')}"
         )
+    out += _scientist_board(d.get("style") or {}, d.get("regime_stats") or {}, intel)
+    out += _event_desk_board(d.get("outcomes") or {}, d.get("calibration") or {})
     out += [
         "",
-        "**Decide from the above — it is complete. Act ONLY on a PROVEN, regime-matched intent "
-        "above your conviction floor: `forge.py run --execute` (top proven intent) or `hl_perp.js "
-        "open ...`. Otherwise HOLD; do not force a trade. You should rarely need to re-fetch anything.**",
+        "**Origination is forge-only and already done; you do NOT open trades. With a flat book your "
+        "MAIN job is SCIENTIST: from the board above, if you have a specific edge hypothesis for an "
+        "under-served or losing regime, author ONE technique (write signal.py → forge.py author …) and "
+        "let the backtest judge it — it adopts only on out-of-sample edge. If positioned, MANAGE the "
+        "risk first. VETO the next forge open via ~/.gclaw/forge/veto.json if warranted. Don't author "
+        "busywork — no hypothesis, no technique. Decide from the above; it is complete.**",
     ]
     return "\n".join(out)
+
+
+def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
+    """Render the strategy-R&D board: adopted techniques with fitness, and the regime gaps.
+
+    Gives the LLM-scientist the raw material to form an edge hypothesis — which techniques
+    are decaying (low weight / negative edge) and which live regimes no proven technique
+    covers — without it having to re-derive any of it.
+    """
+    adopted = style.get("adopted") or []
+    lines = ["", "**Scientist board — your techniques (weight · edge · trades):**"]
+    if adopted:
+        for e in sorted(adopted, key=lambda x: _f(x.get("weight")), reverse=True):
+            lines.append(
+                f"  {e.get('id')} [{e.get('coin')}] w={_f(e.get('weight')):.2f} "
+                f"e={_f(e.get('e')):+.3f} n={e.get('trades', 0)}"
+            )
+    else:
+        lines.append("  (none adopted)")
+    # Which live (non-chop) regimes have NO technique with positive learned edge → gaps to invent for.
+    live_regimes = {f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")}
+    covered = {
+        rg for stats in regime_stats.values() for rg, s in stats.items() if _f(s.get("e")) > 0
+    }
+    gaps = sorted(live_regimes - covered)
+    if gaps:
+        lines.append(f"**Regime gaps (live now, no positive-edge technique):** {', '.join(gaps)}")
+    return lines
+
+
+def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
+    """Render the Event Desk (Book A): top tradeable markets, open tickets, calibration.
+
+    Gives the LLM-as-event-analyst the deterministic board it reads: the top-by-volume
+    sides with both side prices, the agent's open defined-risk tickets, and the running
+    Brier calibration vs the no-skill baseline (the event-desk analogue of edge_real).
+
+    Args:
+        outcomes: ``outcomes.py markets`` output ({sides:[...]}).
+        calibration: ``outcomes.py calibration`` output ({open, aggregates}).
+
+    Returns:
+        Markdown lines, never raising on partial data.
+    """
+    sides = outcomes.get("sides") or []
+    by_market: dict[object, dict] = {}
+    for s in sides:
+        m = by_market.setdefault(s.get("outcomeId"), {"name": s.get("name"), "sides": [], "vol": 0.0})
+        m["sides"].append(s)
+        m["vol"] += _f(s.get("volumeUsd"))
+    top = sorted(by_market.values(), key=lambda m: m["vol"], reverse=True)[:6]
+    lines = ["", "**Event desk (Book A) — top tradeable markets (vol · sides @ implied prob):**"]
+    if top:
+        for m in top:
+            quoted = " / ".join(
+                f"{s.get('side')} {s.get('coin')}@{_f(s.get('price')):.3f}" for s in m["sides"]
+            )
+            lines.append(f"  {m['name']} (${m['vol']:,.0f}): {quoted}")
+    else:
+        lines.append("  (no markets clear the volume floor)")
+    open_t = calibration.get("open") or []
+    if open_t:
+        held = "; ".join(
+            f"{t.get('coin')} {t.get('name')}/{t.get('side')} p={_f(t.get('prob')):.2f} "
+            f"vs px={_f(t.get('price')):.2f} ${_f(t.get('stake')):.0f}{'(shadow)' if t.get('shadow') else '(LIVE)'}"
+            for t in open_t
+        )
+        lines.append(f"**Open tickets ({len(open_t)}):** {held}")
+    else:
+        lines.append("**Open tickets:** none")
+    agg = calibration.get("aggregates") or {}
+    brier, baseline = agg.get("brier_mean"), agg.get("baseline_mean")
+    if agg.get("n_resolved"):
+        verdict = "BEATING no-skill" if brier is not None and baseline is not None and brier < baseline else "below no-skill baseline"
+        lines.append(
+            f"**Calibration:** {agg.get('n')} tickets ({agg.get('n_shadow')} shadow / "
+            f"{agg.get('n_live')} live) · {agg.get('n_resolved')} resolved · "
+            f"Brier {brier} vs no-skill {baseline} — {verdict}"
+        )
+    else:
+        lines.append(
+            f"**Calibration:** {agg.get('n', 0)} tickets, none resolved yet — "
+            "shadow-mode until proven (no order placed)"
+        )
+    return lines
 
 
 def main() -> int:

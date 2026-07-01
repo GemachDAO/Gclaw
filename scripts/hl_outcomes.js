@@ -10,6 +10,7 @@
  * then the SDK outcome methods. Emits JSON.
  *
  *   node hl_outcomes.js list [--limit 15]                       # active markets + volume
+ *   node hl_outcomes.js markets [--status active]               # per-side {coin,price,volumeUsd} (joins meta+mids+coinVolumes)
  *   node hl_outcomes.js account --outcome <id>                  # your positions/balance in a market
  *   node hl_outcomes.js enable                                  # one-time: enable HL trading (required first)
  *   node hl_outcomes.js order --outcome <id> --coin <side> --buy --price <0..1> --size <n> [--market]
@@ -97,6 +98,69 @@ async function cmdList(_w, args) {
   };
 }
 
+async function cmdMarkets(_w, args) {
+  // Join meta + mids + coinVolumes into one row per tradeable side. mids["#<id><side>"]
+  // is the side's implied probability in [0,1]; coinVolumes is its 24h USD volume. No
+  // signing required — a pure public read, so the deterministic gate in outcomes.py can
+  // fetch the full board cheaply every cycle.
+  const skill = loginOnly();
+  const resp = await skill.getHlOutcomesWithVolume({ status: args.status || 'active' });
+  const meta = resp?.data?.meta?.outcomes || [];
+  const mids = resp?.data?.mids || {};
+  const vols = resp?.data?.coinVolumes || {};
+  const sides = [];
+  for (const m of meta) {
+    const specs = m.sideSpecs || [];
+    for (let s = 0; s < specs.length; s += 1) {
+      const coin = `#${m.outcome}${s}`;
+      const price = mids[coin];
+      if (price === undefined || price === null) continue;
+      sides.push({
+        outcomeId: m.outcome,
+        name: m.name,
+        side: specs[s]?.name || String(s),
+        coin,
+        price: Number(price),
+        volumeUsd: Number(vols[coin] || 0),
+      });
+    }
+  }
+  return { ok: true, total: meta.length, sides };
+}
+
+// Public HL info POST (no auth) — settlement fills are visible by address, the same
+// userFills feed autosettle books PnL from. This is the DEFINITIVE resolution signal:
+// HL emits a fill with dir:"Settlement" and the settled px (0 or 1) when an outcome
+// position resolves — far more reliable than guessing from a live market's mid.
+function hlInfo(body) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = require('node:https').request(
+      {
+        hostname: 'api.hyperliquid.xyz', path: '/info', method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) },
+      },
+      (res) => {
+        let b = '';
+        res.on('data', (c) => (b += c));
+        res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
+      },
+    );
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+async function cmdSettlements(wallet) {
+  const fills = await hlInfo({ type: 'userFills', user: wallet.managed, aggregateByTime: false });
+  const arr = Array.isArray(fills) ? fills : fills.fills || [];
+  const settlements = arr
+    .filter((f) => f.dir === 'Settlement' && String(f.coin).startsWith('#'))
+    .map((f) => ({ coin: String(f.coin), settlePx: Number(f.px), closedPnl: Number(f.closedPnl || 0), time: f.time, tid: f.tid }));
+  return { ok: true, settlements };
+}
+
 async function cmdAccount(wallet, args) {
   if (!args.outcome) die('--outcome <id> required');
   const { skill } = await signedSkill(wallet);
@@ -147,10 +211,11 @@ async function cmdClose(wallet, args) {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
-  const wallet = loadWallet();
-  const handlers = { list: cmdList, account: cmdAccount, enable: cmdEnable, order: cmdOrder, close: cmdClose };
+  const handlers = { list: cmdList, markets: cmdMarkets, settlements: cmdSettlements, account: cmdAccount, enable: cmdEnable, order: cmdOrder, close: cmdClose };
   const handler = handlers[cmd];
-  if (!handler) die(`unknown command '${cmd}'. Use: list | account | enable | order | close`);
+  if (!handler) die(`unknown command '${cmd}'. Use: list | markets | account | enable | order | close`);
+  // list/markets are public reads — don't require a wallet so the board fetch is cheap.
+  const wallet = ['list', 'markets'].includes(cmd) ? null : loadWallet();
   const result = await handler(wallet, args);
   process.stdout.write(JSON.stringify(result) + '\n');
 }

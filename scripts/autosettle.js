@@ -134,6 +134,13 @@ async function main() {
   // briefing / model_select don't read the just-closed position as still open this cycle.
   if (closes > 0) {
     try { fs.unlinkSync(path.join(GCLAW_HOME, 'status_cache.json')); } catch { /* nothing to clear */ }
+    // Stamp a per-coin cooldown marker so hl_perp.js cmdOpen refuses re-entry on
+    // this coin for GCLAW_COOLDOWN_H — the deterministic brake on revenge churn.
+    const closedCoins = new Set(fresh.filter((f) => Number(f.closedPnl || 0) !== 0).map((f) => String(f.coin)));
+    for (const coin of closedCoins) {
+      const file = path.join(GCLAW_HOME, `cooldown_${coin.replace(':', '_')}.json`);
+      try { writeAtomic(file, JSON.stringify({ coin, closedAt: Date.now() })); } catch { /* best-effort */ }
+    }
   }
   const maxFundingTime = freshFunding.reduce((m, x) => Math.max(m, x.time), cursor.lastFundingTime || 0);
 

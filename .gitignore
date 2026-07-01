@@ -25,3 +25,6 @@ wallet.json
 __pycache__/
 mutants/
 *.pyc
+assets/generated/*-shot.png
+assets/generated/*-ticker*.png
+assets/generated/dashboard-preview.html

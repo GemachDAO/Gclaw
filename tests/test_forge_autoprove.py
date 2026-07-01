@@ -28,7 +28,7 @@ def _card(proven, n=50, exp=0.01):
 def test_autoprove_registers_only_pairs_with_out_of_sample_edge(gclaw_home, monkeypatch):
     universe = {"ETH": {"regime": "range"}, "xyz:MU": {"regime": "range"}, "xyz:DUST": {"regime": "range"}}
 
-    def bt(_fn, coin, _interval, _limit):
+    def bt(_fn, coin, _interval, _limit, _tid=None):
         return _card(coin == "xyz:MU")  # only MU has edge
 
     _wire(monkeypatch, universe, bt)
@@ -45,7 +45,7 @@ def test_autoprove_cooldown_skips_a_recently_attempted_pair(gclaw_home, monkeypa
     universe = {"xyz:MU": {"regime": "range"}}
     calls = []
 
-    def bt(_fn, coin, _interval, _limit):
+    def bt(_fn, coin, _interval, _limit, _tid=None):
         calls.append(coin)
         return _card(False)  # never proves → would be retried every run without a cooldown
 

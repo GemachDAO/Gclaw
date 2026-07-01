@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Gclaw ERC-8004 reputation sync — push earned goodwill onchain (Base mainnet).
+ * Gclaw ERC-8004 reputation sync — attest SETTLED PERFORMANCE onchain (Base mainnet).
  *
- * Records the creature's goodwill as feedback in the ERC-8004 ReputationRegistry,
- * tied to its identity agentId. Reputation earned from real trading becomes a
- * portable, verifiable onchain signal.
+ * Posts the verifiable scorecard (reputation.py: realized PnL from settled HyperLiquid
+ * fills + forge-graduated proven edge + lineage) as feedback in the ERC-8004
+ * ReputationRegistry, tied to the agentId. This makes the reputation a portable,
+ * re-derivable signal of real financial performance — not social activity.
  *
  * The registry forbids SELF-feedback (the agent owner cannot rate its own agent —
  * the correct trust model), so feedback must be posted by a distinct ATTESTER
@@ -43,7 +44,22 @@ async function main() {
   const identity = state.onchain_identity;
   if (!identity || !identity.agentId) throw new Error('no onchain identity — run erc8004_register.js broadcast first');
   const agentId = BigInt(identity.agentId);
-  const goodwill = Number(state.goodwill || 0);
+  // Reputation is SETTLED PERFORMANCE, not goodwill: load the verifiable scorecard
+  // (reputation.py writes it every heartbeat from real closed fills + forge graduation).
+  let scorecard;
+  try {
+    scorecard = JSON.parse(fs.readFileSync(path.join(GCLAW_HOME, 'reputation.json'), 'utf8'));
+  } catch {
+    scorecard = JSON.parse(
+      require('node:child_process').execFileSync(
+        'uv', ['run', '--no-project', 'python3', path.join(__dirname, 'reputation.py'), 'card'],
+        { encoding: 'utf8' },
+      ),
+    );
+  }
+  const realizedPnl = Number(scorecard?.trading?.realized_pnl_usd ?? 0);
+  const closedTrades = Number(scorecard?.trading?.closed_trades ?? 0);
+  const pnlCents = Math.round(realizedPnl * 100);
 
   const provider = new ethers.JsonRpcProvider(BASE_RPC);
   const code = await provider.getCode(REPUTATION_REGISTRY);
@@ -55,10 +71,13 @@ async function main() {
   const wallet = new ethers.Wallet(attesterKey, provider);
   const registry = new ethers.Contract(REPUTATION_REGISTRY, ABI, wallet);
 
-  const card = { goodwill, heartbeats: state.heartbeats, gmacTokensHeld: state.gmac_tokens_held ?? 0 };
-  const feedbackURI = `data:application/json;base64,${Buffer.from(JSON.stringify(card)).toString('base64')}`;
-  const args = [agentId, BigInt(goodwill), 0, 'goodwill', 'gclaw-trading', '', feedbackURI, ZERO_HASH];
-  console.log(`agentId ${agentId} · goodwill ${goodwill} · registry code present (${code.length} bytes)`);
+  const feedbackURI = `data:application/json;base64,${Buffer.from(JSON.stringify(scorecard)).toString('base64')}`;
+  // value = realized PnL in cents (int128, signed — an honest, re-derivable bottom line);
+  // the tags name the basis so any reader knows this reputation is SETTLED trading + proven
+  // edge, not social activity. The full scorecard rides in the feedbackURI.
+  const args = [agentId, BigInt(pnlCents), 2, 'settled-pnl', 'gclaw-evolution-lab', '', feedbackURI, ZERO_HASH];
+  const provenEdge = scorecard?.evolution?.proven_edge_count ?? 0;
+  console.log(`agentId ${agentId} · realized $${realizedPnl} (${closedTrades} closes) · proven-edge ${provenEdge} · registry code ${code.length} bytes`);
 
   if (mode === 'dry-run') {
     await registry.giveFeedback.staticCall(...args);
@@ -66,19 +85,19 @@ async function main() {
     try {
       gas = (await registry.giveFeedback.estimateGas(...args)).toString();
     } catch { /* needs gas balance to estimate */ }
-    console.log(`DRY-RUN OK — giveFeedback would succeed | gas≈${gas}`);
+    console.log(`DRY-RUN OK — giveFeedback would post the settled scorecard | gas≈${gas}`);
     return;
   }
 
-  if (goodwill <= 0) throw new Error('goodwill is 0 — nothing meaningful to post yet');
+  if (closedTrades <= 0) throw new Error('no settled trades yet — nothing verifiable to attest');
   const bal = await provider.getBalance(wallet.address);
-  if (bal === 0n) throw new Error('control wallet has 0 Base ETH — fund gas first');
+  if (bal === 0n) throw new Error('attester wallet has 0 Base ETH — fund gas first');
   const tx = await registry.giveFeedback(...args);
   console.log(`broadcast ${tx.hash} — waiting...`);
   const receipt = await tx.wait();
-  state.onchain_reputation = { lastGoodwill: goodwill, txHash: tx.hash, block: receipt.blockNumber, at: new Date().toISOString() };
+  state.onchain_reputation = { realizedPnl, closedTrades, provenEdge, txHash: tx.hash, block: receipt.blockNumber, at: new Date().toISOString() };
   fs.writeFileSync(path.join(GCLAW_HOME, 'metabolism.json'), JSON.stringify(state, null, 2) + '\n');
-  console.log(`REPUTATION SYNCED — goodwill ${goodwill} onchain, tx ${tx.hash}`);
+  console.log(`REPUTATION SYNCED — settled scorecard onchain, tx ${tx.hash}`);
 }
 
 main().catch((e) => {

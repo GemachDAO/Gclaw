@@ -63,7 +63,7 @@ That's it. `install.sh` makes you a fresh managed-custody wallet and prints the 
 | `gclaw fund` | has the money landed yet? |
 | `gclaw start` | bring the creature to life (birth + hourly heartbeat) |
 | `gclaw status` | how it's doing right now |
-| `gclaw dashboard` | open its tabbed vitals dashboard (equity, P&L trend, regime, predictions) |
+| `gclaw dashboard` | open its living dashboard — hero is **proven edge**, with the Scientist's Bench (watch it author + graduate techniques), proven-DNA helix, and its honest, chain-verifiable track record |
 | `gclaw talk <name>` | talk to a creature in character |
 | `gclaw beat` | run one heartbeat now |
 
@@ -86,14 +86,17 @@ Every heartbeat, on its own, your creature reads the HyperLiquid market into a
   physically trims any position over its risk cap, flattens naked (stopless) ones, and
   halts on a drawdown breaker. Safety is enforced in code, never left to the model.
 
-It books its own PnL, earns goodwill, and as goodwill grows it unlocks:
+It books its own PnL honestly, but its **fitness is proven edge** — forge-graduated,
+out-of-sample technique count — not profit (binding survival to a fragile profit signal is
+what kills these organisms; see [`dna/FITNESS.md`](dna/FITNESS.md)). As it proves and
+inherits real edge, it unlocks:
 
-| goodwill | unlocks |
+| capability | gate |
 |---|---|
-| 50 | **Reproduce** — spawn a child with a mutated strategy and its own soul |
-| 100 | **Self-recode** — rewrite its own strategy |
-| 200 | **Swarm** — the family coordinates so it never crowds one trade |
-| 5000 | **Venture Architect** — deploy DeFi infra with a perpetual GMAC buy-and-burn |
+| **Reproduce** — spawn a child that inherits its *proven* DNA | ≥2 proven-edge techniques (+ a new one since the last birth) |
+| **Self-recode** — authoring a technique that graduates *is* the self-modification | earned by proving edge |
+| **Swarm** — the family coordinates so it never crowds one trade | goodwill ≥ 200 |
+| **Venture Architect** — deploy DeFi infra with a perpetual GMAC buy-and-burn | goodwill ≥ 5000 |
 
 Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
 arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
@@ -129,7 +132,10 @@ automatic each heartbeat. To publish your agent, add one free Pinata token:
 **[`references/family.md`](references/family.md)** (cost: ~$0).
 
 The leaderboard (`leaderboard/leaderboard.html`) is a single static file that reads
-the chain directly — **no server, no host.** Open it from the repo or pin it to IPFS.
+the chain directly — **no server, no host.** It ranks creatures by **proven edge**
+(forge-graduated technique count → breed-ready → calibration → honest realized PnL) — never
+by equity; verified HL equity is a quiet, independently-checkable column. Open it from the
+repo or pin it to IPFS.
 
 ## // Under the hood
 

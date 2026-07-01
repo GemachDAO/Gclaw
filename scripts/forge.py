@@ -72,9 +72,17 @@ SCAN_UNIVERSE = (
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
 IS_FRACTION = 0.6
-HORIZON = 4  # bars held per backtest trade
-TAKER_COST = 0.0006  # round-trip fee + slippage estimate
-WARMUP = 26  # bars before features are valid
+HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
+# Per-technique hold horizon (bars, 1h candles). doc 02 §1: momentum-stack's thin
+# trend-continuation edge only clears the round-trip fee at a ~24h hold; at the old
+# 4h hold it churns a sub-fee edge into a loss. Mean-reversion (stop-hunt-revert)
+# wants the snap-back fast and decays to negative by 8-12h, so it stays short.
+HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
+# doc 02 §"Cross-cutting" 3: HL taker is 0.045%/side = 9bp RT, plus realistic slippage
+# into a stop-hunt/cascade (~6bp RT) = 15bp all-in. The old 0.0006 (6bp) under-charged
+# and let sub-fee signals graduate as "proven".
+TAKER_COST = 0.0015  # 15bp round-trip all-in (taker fee + slippage), realistic
+WARMUP = 50  # bars before EMA-50 / intel features are valid
 
 # signal.py sandbox.
 ALLOWED_IMPORTS = {"math", "statistics"}
@@ -416,7 +424,6 @@ def features_at(
         f["mark"] = live.get("mark") or price
         f["prevDayPx"] = live.get("prevDayPx")
         # Live only: inject the intel.js scan's offensive senses so the arsenal can fire.
-        # Backtests stay price-derived (live=None) — never leak the current regime into history.
         iv = _intel_features().get(coin) or {}
         for k in INTEL_KEYS:
             if iv.get(k) is not None:
@@ -425,7 +432,125 @@ def features_at(
             f["funding"] = iv["funding_now"]
         if iv.get("open_interest") is not None:
             f["oi"] = iv["open_interest"]
+    else:
+        # Backtest: reconstruct the price-derived intel.js feature vector so the
+        # arsenal signals actually fire (doc 02 §"Cross-cutting" 3). Without this,
+        # ema_stack/efficiency/bb_z/rsi/flow stayed at defaults and every signal
+        # returned "flat", so "proven" was meaningless. Funding/OI/premium stay
+        # None (live-only, no historical series here) — neither surviving technique
+        # (momentum-stack, stop-hunt-revert) reads them, so this is exact for them.
+        f.update(_intel_features_at(candles, i))
     return f
+
+
+def _ema(values: list[float], n: int) -> float:
+    """EMA over ``values`` seeded on the first element (mirrors intel.js ema())."""
+    if not values:
+        return 0.0
+    k = 2 / (n + 1)
+    e = values[0]
+    for v in values[1:]:
+        e = v * k + e * (1 - k)
+    return e
+
+
+def _wilder_rsi(closes: list[float], n: int = 14) -> float:
+    """Canonical Wilder RSI (mirrors intel.js rsi())."""
+    if len(closes) <= n:
+        return 50.0
+    avg_gain = avg_loss = 0.0
+    for i in range(1, n + 1):
+        d = closes[i] - closes[i - 1]
+        if d >= 0:
+            avg_gain += d
+        else:
+            avg_loss -= d
+    avg_gain /= n
+    avg_loss /= n
+    for i in range(n + 1, len(closes)):
+        d = closes[i] - closes[i - 1]
+        avg_gain = (avg_gain * (n - 1) + max(d, 0.0)) / n
+        avg_loss = (avg_loss * (n - 1) + max(-d, 0.0)) / n
+    if avg_loss == 0:
+        return 100.0
+    return 100 - 100 / (1 + avg_gain / avg_loss)
+
+
+def _wilder_atr_pct(candles: list[dict[str, float]], n: int = 14) -> float:
+    """Canonical Wilder ATR as a percent of last close (mirrors intel.js atrPct())."""
+    if len(candles) <= n:
+        return 0.0
+
+    def tr(c: dict[str, float], prev: dict[str, float]) -> float:
+        return max(c["h"] - c["l"], abs(c["h"] - prev["c"]), abs(c["l"] - prev["c"]))
+
+    atr = sum(tr(candles[i], candles[i - 1]) for i in range(1, n + 1)) / n
+    for i in range(n + 1, len(candles)):
+        atr = (atr * (n - 1) + tr(candles[i], candles[i - 1])) / n
+    last = candles[-1]["c"]
+    return (atr / last) * 100 if last else 0.0
+
+
+def _efficiency_ratio(closes: list[float], n: int = 20) -> float:
+    """Kaufman efficiency ratio: net move / total path (mirrors intel.js)."""
+    if len(closes) <= n:
+        return 0.0
+    sl = closes[-n - 1 :]
+    net = abs(sl[-1] - sl[0])
+    path = sum(abs(sl[i] - sl[i - 1]) for i in range(1, len(sl)))
+    return net / path if path else 0.0
+
+
+def _classify_regime(efficiency: float, ema_stack: int) -> str:
+    """Regime from efficiency + EMA stack (mirrors intel.js classifyRegime())."""
+    trend_er = float(os.environ.get("GCLAW_TREND_ER") or 0.40)
+    chop_er = float(os.environ.get("GCLAW_CHOP_ER") or 0.18)
+    if efficiency >= trend_er:
+        return "trend_up" if ema_stack >= 0 else "trend_down"
+    if efficiency < chop_er:
+        return "chop"
+    return "range"
+
+
+def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any]:
+    """Reconstruct the price-derived intel.js feature vector at bar ``i``.
+
+    Mirrors ``intel.js coinIntel`` 1:1 for every feature that derives from candles
+    alone (the offensive senses the surviving arsenal trades on): ema_stack,
+    ema_slope_pct, rsi, atr_pct, realized_vol_pct, bb_z, flow_pressure, efficiency,
+    regime, plus mark/prevDayPx. Funding/OI/premium are live-only and stay absent.
+
+    Args:
+        candles: The OHLC series.
+        i: The bar index to evaluate at (uses bars up to and including ``i``).
+
+    Returns:
+        A feature dict to merge into the bar's price-derived features.
+    """
+    closes = [c["c"] for c in candles[: i + 1]]
+    last = candles[i]
+    e9, e21, e50 = _ema(closes[-40:], 9), _ema(closes[-60:], 21), _ema(closes, 50)
+    ema_stack = (1 if e9 > e21 else -1) + (1 if e21 > e50 else -1)
+    win20 = closes[-20:]
+    sd20 = statistics.stdev(win20) if len(win20) > 1 else 0.0
+    bb_z = (closes[-1] - statistics.fmean(win20)) / sd20 if sd20 else 0.0
+    span = last["h"] - last["l"]
+    flow = ((last["c"] - last["l"]) / span - 0.5) * 2 if span > 0 else 0.0
+    rets24 = [closes[k] / closes[k - 1] - 1 for k in range(max(1, len(closes) - 23), len(closes))]
+    efficiency = _efficiency_ratio(closes)
+    return {
+        "ema_stack": ema_stack,
+        "ema_slope_pct": ((e9 - e50) / e50) * 100 if e50 else 0.0,
+        "rsi": round(_wilder_rsi(closes) * 10) / 10,
+        "atr_pct": round(_wilder_atr_pct(candles[: i + 1]) * 100) / 100,
+        "realized_vol_pct": round(statistics.pstdev(rets24) * 100 * 100) / 100 if rets24 else 0.0,
+        "bb_z": round(bb_z * 100) / 100,
+        "flow_pressure": round(flow * 100) / 100,
+        "efficiency": round(efficiency * 100) / 100,
+        "regime": _classify_regime(efficiency, ema_stack),
+        "mark": last["c"],
+        "prevDayPx": candles[i - 24]["c"] if i >= 24 else closes[0],
+    }
 
 
 # ── signal.py sandbox ────────────────────────────────────────────────────────
@@ -517,17 +642,35 @@ def call_signal(fn: Callable[[dict[str, Any]], Any], f: dict[str, Any]) -> dict[
 # ── Backtest ─────────────────────────────────────────────────────────────────
 
 
-def trade_return(candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float) -> float:
-    """Forward return of a HORIZON-bar trade opened at bar i close, with a stop."""
+def horizon_for(tid: str | None) -> int:
+    """Bars a backtest trade is held for this technique (doc 02 §1).
+
+    Momentum holds ~24h so its trend-continuation edge clears the round-trip fee;
+    mean-reversion holds the default short window. Unknown/None techniques use the
+    default ``HORIZON``.
+
+    Args:
+        tid: The technique id, or None when backtesting an anonymous signal.
+
+    Returns:
+        The hold horizon in bars.
+    """
+    return HORIZON_BY_TECHNIQUE.get(tid or "", HORIZON)
+
+
+def trade_return(
+    candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float, horizon: int = HORIZON
+) -> float:
+    """Forward return of a ``horizon``-bar trade opened at bar i close, with a stop."""
     entry = candles[i]["c"]
     stop = stop_pct / 100.0
-    for h in range(1, HORIZON + 1):
+    for h in range(1, horizon + 1):
         bar = candles[i + h]
         if is_long and bar["l"] <= entry * (1 - stop):
             return -stop - TAKER_COST
         if not is_long and bar["h"] >= entry * (1 + stop):
             return -stop - TAKER_COST
-    exit_px = candles[i + HORIZON]["c"]
+    exit_px = candles[i + horizon]["c"]
     raw = (exit_px / entry - 1) if is_long else (entry / exit_px - 1)
     return raw - TAKER_COST
 
@@ -538,8 +681,14 @@ def score_window(
     coin: str,
     lo: int,
     hi: int,
+    horizon: int = HORIZON,
 ) -> dict[str, Any]:
-    """Run the signal across bars [lo, hi) and summarise the trades."""
+    """Run the signal across bars [lo, hi) and summarise the trades.
+
+    ``features_at`` (live=None here) now reconstructs the full price-derived intel
+    feature vector per bar, so arsenal signals reading ema_stack/efficiency/bb_z/
+    rsi/flow actually fire instead of seeing defaults.
+    """
     rets: list[float] = []
     for i in range(lo, hi):
         decision = call_signal(fn, features_at(candles, i, coin))
@@ -548,7 +697,7 @@ def score_window(
         stop_pct = float(decision.get("stop_pct") or 0)
         if stop_pct <= 0:
             continue
-        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct))
+        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, horizon))
     return summarise(rets)
 
 
@@ -571,16 +720,25 @@ def summarise(rets: list[float]) -> dict[str, Any]:
 
 
 def _backtest_with(
-    fn: Callable[[dict[str, Any]], Any], coin: str, interval: str, limit: int
+    fn: Callable[[dict[str, Any]], Any],
+    coin: str,
+    interval: str,
+    limit: int,
+    tid: str | None = None,
 ) -> dict[str, Any]:
-    """Walk-forward backtest of a signal fn; raises ValueError on thin data."""
+    """Walk-forward backtest of a signal fn; raises ValueError on thin data.
+
+    ``tid`` selects the per-technique hold horizon (doc 02 §1: momentum holds ~24h,
+    mean-reversion holds short). None → the default horizon.
+    """
+    horizon = horizon_for(tid)
     candles = get_candles(coin, interval, limit)
-    if len(candles) < WARMUP + HORIZON + 60:
+    if len(candles) < WARMUP + horizon + 60:
         raise ValueError(f"not enough candles ({len(candles)}) — widen --limit or --interval")
-    last = len(candles) - HORIZON
+    last = len(candles) - horizon
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
-    is_stats = score_window(candles, fn, coin, WARMUP, split)
-    oos_stats = score_window(candles, fn, coin, split, last)
+    is_stats = score_window(candles, fn, coin, WARMUP, split, horizon)
+    oos_stats = score_window(candles, fn, coin, split, last, horizon)
     proven = (
         oos_stats["n"] >= MIN_OOS_SAMPLE
         and oos_stats["expectancy"] > 0
@@ -600,7 +758,7 @@ def _backtest_with(
 def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
     """Walk-forward backtest: fit-free IS/OOS split, gate on out-of-sample edge."""
     try:
-        return _backtest_with(load_signal(tid), coin, interval, limit)
+        return _backtest_with(load_signal(tid), coin, interval, limit, tid)
     except ValueError as exc:
         die(str(exc))
 
@@ -710,6 +868,79 @@ def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
     return {"ok": True, "adopted": style["adopted"]}
 
 
+def cmd_author(args: argparse.Namespace) -> dict[str, Any]:
+    """One gated R&D transaction — the scientist loop's single primitive.
+
+    Validate an LLM-proposed signal body in the sandbox, backtest it walk-forward,
+    and adopt it ONLY if it graduates on out-of-sample edge. Never touches the execute
+    path: the LLM proposes strategy code, a deterministic backtest is the judge, and
+    adoption merely joins the loadout — the live ``edge_real`` gate still governs real
+    sizing, so a freshly-authored technique can do no more than a cold-start half-probe
+    until live closes confirm it. The LLM never declares its own edge.
+
+    Args:
+        args: name, signal_file, claim, kind, coin, interval, limit, parent, force.
+
+    Returns:
+        A verdict dict: authored id, sandbox result, proven flag, adopted flag, card.
+    """
+    tid = slugify(args.name)
+    body = Path(args.signal_file).read_text(encoding="utf-8")
+    # Validate in the sandbox BEFORE writing anything the loop could pick up.
+    violations = validate_signal_src(body)
+    if violations:
+        return {
+            "ok": False, "authored": tid, "rejected": "sandbox",
+            "violations": violations, "proven": False, "adopted": False,
+        }
+    d = tech_dir(tid)
+    if d.exists() and not args.force:
+        die(f"technique '{tid}' exists — use --force to revise it, or fork it under a new name")
+    d.mkdir(parents=True, exist_ok=True)
+    tech = {
+        "id": tid, "name": args.name, "kind": args.kind, "author": agent_id(),
+        "parent": args.parent, "claim": args.claim or "", "status": "draft",
+        "created_at": now_iso(),
+    }
+    save_technique(tech)
+    (d / "signal.py").write_text(body, encoding="utf-8")
+    (d / "SKILL.md").write_text(
+        SKILL_TEMPLATE.format(
+            name=args.name, kind=args.kind,
+            claim=args.claim or "(state the edge)", author=tech["author"],
+        ),
+        encoding="utf-8",
+    )
+    # Deterministic walk-forward judge — same gate as `prove`. Thin data is a clean
+    # "not proven", not a crash, so the scientist loop never breaks the heartbeat.
+    try:
+        card = backtest(tid, args.coin, args.interval, args.limit)
+    except ValueError as exc:
+        return {"ok": True, "authored": tid, "proven": False, "adopted": False,
+                "verdict": f"could not backtest ({exc}); kept as draft"}
+    (d / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+    tech["status"] = "proven" if card["proven"] else "draft"
+    tech["card"] = {
+        "coin": card["coin"], "interval": card["interval"],
+        "oos": card["out_of_sample"], "proven": card["proven"],
+    }
+    save_technique(tech)
+    adopted = False
+    if card["proven"]:
+        style = load_style()
+        entry = {"id": tid, "coin": card["coin"], "interval": card["interval"]}
+        style["adopted"] = [e for e in style["adopted"] if e["id"] != tid] + [entry]
+        save_style(style)
+        adopted = True
+    return {
+        "ok": True, "authored": tid, "proven": card["proven"], "adopted": adopted, "card": card,
+        "verdict": (
+            "adopted — graduated on out-of-sample edge"
+            if adopted else "kept as draft — did not clear the OOS gate; fork and improve it"
+        ),
+    }
+
+
 def cmd_drop(args: argparse.Namespace) -> dict[str, Any]:
     style = load_style()
     style["adopted"] = [e for e in style["adopted"] if e["id"] != args.id]
@@ -789,7 +1020,7 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
     for _pri, tid, interval, coin in gap[:budget]:
         attempts[f"{tid}|{coin}"] = now_iso()  # record the attempt regardless of outcome
         try:
-            card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT)
+            card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT, tid)
         except (ValueError, OSError, KeyError):
             continue  # thin data / bad market — skip, the cooldown stops a re-try storm
         tried += 1
@@ -1201,7 +1432,7 @@ def cmd_tournament(args: argparse.Namespace) -> dict[str, Any]:
         per_coin: dict[str, float] = {}
         for coin in coins:
             try:
-                card = _backtest_with(fn, coin, args.interval, args.limit)
+                card = _backtest_with(fn, coin, args.interval, args.limit, m.get("id"))
             except ValueError:
                 continue
             per_coin[coin] = edge_score(card["out_of_sample"])
@@ -1444,6 +1675,38 @@ def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
     }
 
 
+def _size_via_brain(
+    equity: float, price: float, atr_pct: float, edge: dict[str, Any], confidence: float
+) -> dict[str, Any]:
+    """Run sizing.py to get notional + ATR-stop from the risk brain (doc 04 §3b).
+
+    Notional and stop fall out of vol-target + sample-shrunk fractional Kelly, fed
+    the technique's live regime-matched expectancy (win_rate/payoff/trades) and
+    current goodwill. Returns the parsed sizing.py JSON, or {} on failure.
+    """
+    sz = subprocess.run(
+        [
+            "uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "sizing.py"), "size",
+            "--equity", str(equity),
+            "--price", str(price),
+            "--atr-pct", str(atr_pct),
+            "--win-rate", str(edge.get("win_rate", 0.5)),
+            "--payoff", str(edge.get("payoff", 1.5)),
+            "--trades", str(edge.get("trades", 0)),
+            "--goodwill", str(float(load_metabolism().get("goodwill", 0) or 0)),
+            "--confidence", str(confidence),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    try:
+        return json.loads(sz.stdout[sz.stdout.find("{") :])
+    except (ValueError, OSError):
+        return {}
+
+
 def _intent(
     tid: str,
     coin: str,
@@ -1452,22 +1715,60 @@ def _intent(
     equity: float,
     cap: int,
     buying_power: float,
-    risk_mult: float = 1.0,
+    intel: dict[str, Any] | None = None,
+    edge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Turn a signal decision into a cap-enforced order intent (cap = earned ceiling).
 
-    ``risk_mult`` is the genome's Aggression-derived risk envelope (>1 sizes up,
-    <1 down); the per-trade risk cap that riskguard.js enforces is unchanged.
+    Notional AND stop come from ``sizing.py`` (vol-target + sample-shrunk Kelly), not
+    a flat ``RISK_PCT × equity ÷ stop`` fraction: size falls out of the ATR stop and
+    the technique's live regime-matched edge. The buying-power/margin clamp and the
+    $11 min-notional floor are preserved; riskguard.js stays a backstop.
+
+    Args:
+        tid: The originating technique id.
+        coin: The market.
+        decision: The ensemble decision (action/confidence/leverage/stop_pct).
+        mode: Survival mode (hibernate suppresses entry upstream).
+        equity: Account equity.
+        cap: The earned leverage ceiling.
+        buying_power: Free collateral for margin.
+        intel: Live intel features for this coin (atr_pct, price).
+        edge: Memory expectancy (win_rate/payoff/trades) for Kelly sizing.
+
+    Returns:
+        The order intent dict.
     """
     leverage = max(1, min(cap, int(decision.get("leverage") or cap)))
-    stop_pct = float(decision.get("stop_pct") or 0)
-    risk_pct = RISK_PCT.get(mode, 0)
-    risk_usd = equity * risk_pct / 100.0 * max(0.3, min(2.0, risk_mult))
-    notional = max(MIN_NOTIONAL + 1, risk_usd / (stop_pct / 100.0)) if stop_pct > 0 else 0
+    intel = intel or {}
+    edge = edge or {}
+    confidence = float(decision.get("confidence") or 0.6)
+    # Defense in depth: a decision that did not commit a stop has not committed risk,
+    # so it is never sized — even if it reached here past the _coin_votes/backtest
+    # skip. The live stop below is ATR-derived, but the DECISION must carry one first.
+    if float(decision.get("stop_pct") or 0) <= 0:
+        return {
+            "technique": tid, "coin": coin, "side": decision["action"], "leverage": leverage,
+            "sl_pct": 0.0, "confidence": float(decision.get("confidence") or 0),
+            "notional": 0, "risk_usd": 0.0, "reason": str(decision.get("reason") or "")[:120],
+        }
+    atr_pct = float(intel.get("atr_pct") or decision.get("stop_pct") or 1.0)
+    price = float(intel.get("price") or decision.get("price") or 0)
+    s = _size_via_brain(equity, price, atr_pct, edge, confidence)
+    notional = float(s.get("notional_usd") or 0)
+    stop_pct = float(s.get("stop_distance_pct") or decision.get("stop_pct") or 0)
+    risk_usd = float(s.get("risk_usd") or 0)
+    # Survival sizing: sizing.py is the brain, but shrink its notional as life energy
+    # (GMAC) falls — bet smaller when low, never refuse the +EV setup (it's a Kelly
+    # fraction of bankroll, not a veto). Applied to size only, not the entry decision.
+    health = _health_size_mult(load_metabolism())
+    notional, risk_usd = notional * health, risk_usd * health
     # Margin = notional / leverage must fit the free collateral (95% headroom for fees).
     max_notional = max(0.0, buying_power * 0.95) * leverage
     if notional > max_notional:
-        notional = max_notional if max_notional >= MIN_NOTIONAL else 0
+        notional = max_notional
+    if notional < MIN_NOTIONAL:
+        notional = 0
     return {
         "technique": tid,
         "coin": coin,
@@ -1476,6 +1777,7 @@ def _intent(
         "sl_pct": round(stop_pct, 3),
         "confidence": float(decision.get("confidence") or 0),
         "notional": round(notional, 2),
+        "risk_usd": round(risk_usd, 2),
         "reason": str(decision.get("reason") or "")[:120],
     }
 
@@ -1675,6 +1977,124 @@ def _coin_votes(
     return votes
 
 
+def _read_json(path: Path, default: Any) -> Any:
+    """Read a JSON file, returning ``default`` if missing or unparseable."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _memory_edge_ok(technique: str, regime: str) -> tuple[bool, dict[str, Any]]:
+    """Live gate: does trade-memory show a REAL (CI>0), regime-matched edge here?
+
+    doc 04 §3a — "proven backtest" is not enough; an auto-execute also needs live
+    regime-matched ``edge_real`` from memory.py. Cold start (no rows) → (False, {}).
+
+    Args:
+        technique: The technique id.
+        regime: The current regime to match.
+
+    Returns:
+        (ok, stats) where ok is True only with edge_real and >=3 trades; stats is the
+        memory.py expectancy row (win_rate/payoff/trades) for sizing.
+    """
+    out = subprocess.run(
+        [
+            "uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "memory.py"),
+            "expectancy", "--technique", technique, "--regime", regime,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    try:
+        st = json.loads(out.stdout[out.stdout.find("{") :])
+    except (ValueError, OSError):
+        return (False, {})
+    return (bool(st.get("edge_real")) and int(st.get("trades", 0)) >= 3, st)
+
+
+def _cold_start_ok(intent: dict[str, Any], conv_floor: float) -> bool:
+    """Bounded cold-start carve-out (doc 04 §3 carve-out 3).
+
+    With no regime-matched ``edge_real`` yet, allow ONE half-size probe only if the
+    signal is proven-market AND well above the conviction floor (>=1.1x), so memory
+    can bootstrap without opening the discretionary door.
+    """
+    return bool(intent.get("proven")) and intent["confidence"] >= conv_floor * 1.1
+
+
+def _cooling(coin: str) -> bool:
+    """Skip a coin still inside the executor's post-close cooldown (contract 4).
+
+    autosettle.js writes ``~/.gclaw/cooldown_{COIN}.json`` (':' → '_') on close as
+    ``{"coin":..., "closedAt": <ms epoch>}`` and hl_perp.js refuses re-entry within
+    GCLAW_COOLDOWN_H (default 4h). The forge reads the SAME files so the single
+    deterministic execute isn't spent on a coin the executor will reject anyway.
+    """
+    cooldown_h = float(os.environ.get("GCLAW_COOLDOWN_H") or 4)
+    path = gclaw_home() / f"cooldown_{coin.replace(':', '_')}.json"
+    cd = _read_json(path, {})
+    closed_at = float(cd.get("closedAt") or 0)
+    if not closed_at:
+        return False
+    age_h = (datetime.now(UTC).timestamp() * 1000 - closed_at) / 3600e3
+    return age_h < cooldown_h
+
+
+def _gate_intents(
+    intents: list[dict[str, Any]], caps: dict[str, float], veto: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Assemble the hard edge gate (doc 04 §3a + §4.3) → executable intents.
+
+    An intent auto-executes only if proven, notional>=MIN_NOTIONAL, confidence>=
+    0.75*conviction_cap, the coin is not cooling, and memory shows regime-matched
+    edge_real (>=3 trades) — OR it passes the bounded cold-start rule (then half-size).
+    A truthy veto (contract 3) empties the gate. Returns intents sorted by confidence.
+    """
+    if veto.get("veto"):
+        return []
+    conv_floor = 0.75 * caps["conviction_cap"]
+    allow_xyz = os.environ.get("GCLAW_ALLOW_XYZ_OPEN") == "1"
+    gated: list[dict[str, Any]] = []
+    for i in intents:
+        if not (i["proven"] and i["notional"] >= MIN_NOTIONAL):
+            continue
+        # xyz builder-dex opens land NAKED — managed custody does not arm the attached
+        # SL trigger as a resting order there, so riskguard flattens them on sight for a
+        # guaranteed loss (assune-opy). Gate xyz out of auto-origination until that SL
+        # attachment is verified; flip GCLAW_ALLOW_XYZ_OPEN=1 once it is fixed.
+        if ":" in i["coin"] and not allow_xyz:
+            continue
+        if i["confidence"] < conv_floor:
+            continue
+        if _cooling(i["coin"]):
+            continue
+        # Reuse the per-coin memory read stashed by cmd_run (cmd_run sets edge_real_mem
+        # so the gate never re-queries memory.py per intent).
+        ok = bool(i.get("edge_real_mem")) if "edge_real_mem" in i else _memory_edge_ok(
+            i["technique"], i.get("regime", "range")
+        )[0]
+        # Cold-start means NO live history, not LOSING history: once a technique has a
+        # real sample (>=3 closes) that failed edge_real, it has been measured and must
+        # be benched — not probed forever at half size. Only a genuinely cold technique
+        # (sample below the edge_real threshold) earns the bounded probe.
+        is_cold = i.get("edge_trades_mem", 0) < 3
+        cold_ok = is_cold and _cold_start_ok(i, conv_floor)
+        if not (ok or cold_ok):
+            continue
+        i["edge_real"] = ok
+        if not ok:
+            i["cold_start"] = True
+            i["notional"] = round(i["notional"] * 0.5, 2)  # half-size cold-start probe
+        if i["notional"] >= MIN_NOTIONAL:
+            gated.append(i)
+    gated.sort(key=lambda x: x["confidence"], reverse=True)
+    return gated
+
+
 def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     """Combine every adopted technique into one ensemble decision per coin; execute the
     strongest proven-market signal. Techniques vote (gated by regime + genome weight)
@@ -1696,9 +2116,6 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "agree_min": float(style.get("agree_min", 0.60)),
         "conv_min": float(style.get("conv_min", 0.22)),
     }
-    # Size = genome aggression x survival health (shrink when low on GMAC); the entry
-    # gate (conviction) is NOT touched by life-energy, so recovery stays possible.
-    risk_mult = float(style.get("risk_mult", 1.0)) * _health_size_mult(meta)
     proven_coins = {e["coin"] for e in style["adopted"]}
     proven_by_tech = {e["id"]: e["coin"] for e in style["adopted"]}
     proven_mkts = proven_pairs()  # (technique, coin) pairs auto-proven on the wider universe
@@ -1720,23 +2137,28 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         if len(cs) <= WARMUP:
             continue
         f = features_at(cs, len(cs) - 1, coin, live.get(coin))
-        decision = _combine(
-            _coin_votes(coin, f, style["adopted"], rstats), f.get("regime", "range"), caps, scaler
-        )
+        regime = f.get("regime", "range")
+        decision = _combine(_coin_votes(coin, f, style["adopted"], rstats), regime, caps, scaler)
         if not decision:
             continue
+        # Live regime-matched edge from memory: feeds both sizing.py (Kelly) and the
+        # hard gate; query once here and stash it so the gate never re-queries.
+        ok, st = _memory_edge_ok(decision["technique"], regime)
         intent = _intent(
-            decision["technique"], coin, decision, mode, equity, cap, buying_power, risk_mult
+            decision["technique"], coin, decision, mode, equity, cap, buying_power, f, st
         )
         intent["proven"] = coin in proven_coins or any(
             proven_by_tech.get(t) == coin or (t, coin) in proven_mkts
             for t in decision["contributors"]
         )
         intent["reason"], intent["contributors"] = decision["reason"], decision["contributors"]
-        intent["regime"] = f.get("regime", "range")
+        intent["regime"] = regime
+        intent["edge_real_mem"] = ok
+        intent["edge_trades_mem"] = int((st or {}).get("trades", 0) or 0)
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
+    veto = _read_json(gclaw_home() / "forge" / "veto.json", {})
     result = {
         "ok": True,
         "mode": mode,
@@ -1744,14 +2166,19 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         "equity": equity,
         "buying_power": round(buying_power, 2),
         "breaker": breaker,
+        "veto": bool(veto.get("veto")),
         "intents": intents,
     }
-    # Auto-execute only a signal on its proven market; cross-market signals are
-    # surfaced as exploration for the heartbeat to act on (or prove next). The
-    # circuit breaker can halt new entries (it never blocks closing risk).
-    proven = [i for i in intents if i["proven"] and i["notional"] >= MIN_NOTIONAL]
-    if args.execute and proven and mode != "hibernate" and breaker["allow_entry"]:
-        top = proven[0]
+    # The ONLY origination path: the assembled hard edge gate (doc 04 §3a + §4.3) —
+    # proven + regime-matched edge_real (or bounded cold-start) + conviction floor +
+    # cooldown, vetoable by the LLM. Execute only the single top-confidence survivor.
+    gated = _gate_intents(intents, caps, veto)
+    if args.execute and veto.get("veto"):
+        result["executed"] = {"skipped": f"LLM veto: {str(veto.get('reason', ''))[:120]}"}
+    elif args.execute and not breaker["allow_entry"]:
+        result["executed"] = {"skipped": f"circuit breaker: {breaker['reason']}"}
+    elif args.execute and gated and mode != "hibernate":
+        top = gated[0]
         result["executed"] = _execute(top)
         if result["executed"].get("ok"):
             ref, _ = royalty_ref(load_technique(top["technique"]))
@@ -1765,17 +2192,22 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             }
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
-    elif args.execute and not breaker["allow_entry"]:
-        result["executed"] = {"skipped": f"circuit breaker: {breaker['reason']}"}
     elif args.execute:
         result["executed"] = {
-            "skipped": "no proven-market signal (exploration intents not auto-traded)"
+            "skipped": "no intent cleared the edge_real + conviction gate"
         }
     return result
 
 
 def _execute(intent: dict[str, Any]) -> dict[str, Any]:
-    """Place the intent through hl_perp.js — the single cap-enforced path."""
+    """Place the intent through hl_perp.js — the single cap-enforced origination path.
+
+    Sets ``GCLAW_FORGE_EXECUTE=1`` (contract 1): hl_perp.js cmdOpen now refuses to
+    open unless that env var is present, so the gated forge execute is the ONLY way a
+    position can open — discretionary opens are structurally impossible. Always passes
+    both --sl-pct and --tp-pct=sl*1.5 (contract 2): the executor requires both (>0) or
+    it dies, so no naked entry can slip through.
+    """
     cmd = [
         "node",
         str(SCRIPT_DIR / "hl_perp.js"),
@@ -1793,7 +2225,8 @@ def _execute(intent: dict[str, Any]) -> dict[str, Any]:
         "--tp-pct",
         str(round(intent["sl_pct"] * 1.5, 2)),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    env = {**os.environ, "GCLAW_FORGE_EXECUTE": "1"}
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
     try:
         return json.loads(proc.stdout.strip().splitlines()[-1])
     except Exception:
@@ -1854,6 +2287,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
     ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
     ap.set_defaults(fn=cmd_autoprove)
+
+    au = sub.add_parser(
+        "author", help="propose a signal body; validate+backtest+adopt-if-proven (never executes)"
+    )
+    au.add_argument("--name", required=True)
+    au.add_argument("--signal-file", dest="signal_file", required=True, help="path to the signal.py body")
+    au.add_argument("--claim", default="")
+    au.add_argument("--kind", choices=["lens", "edge"], default="edge")
+    au.add_argument("--coin", default="BTC")
+    au.add_argument("--interval", default="1h")
+    au.add_argument("--limit", type=int, default=1000)
+    au.add_argument("--parent", default=None)
+    au.add_argument("--force", action="store_true")
+    au.set_defaults(fn=cmd_author)
 
     for name, fn, helptext in [
         ("adopt", cmd_adopt, "adopt a proven technique"),

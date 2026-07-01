@@ -44,7 +44,9 @@ def test_briefing_has_every_section_and_the_live_numbers():
     assert "xyz:SNDK long conf 0.542 — unproven" in b
     assert "SOL short conf 0.371 ✅ PROVEN" in b
     assert "11 real closes" in b and "still -EV" in b
-    assert "do not force a trade" in b.lower() or "Otherwise HOLD" in b
+    # the scientist board + a closer that discourages forced action (no-hypothesis → no technique)
+    assert "Scientist board" in b
+    assert "don't author busywork" in b.lower()
 
 
 def test_open_positions_are_summarised_not_hidden():
@@ -52,7 +54,9 @@ def test_open_positions_are_summarised_not_hidden():
     d["account"]["positions"] = [{"coin": "xyz:MU", "size": "2", "entryPx": 150, "unrealizedPnl": 1.25}]
     b = briefing.render_briefing(d)
     assert "1 OPEN" in b and "xyz:MU long 2.0@$150.00" in b
-    assert "flat" not in b
+    # the ACCOUNT line must not claim a flat book when positioned (the closer's generic
+    # "a flat book your MAIN job…" guidance is instructional, not a state claim).
+    assert "flat (0 open positions)" not in b
 
 
 def test_tripped_breaker_says_no_entries():
