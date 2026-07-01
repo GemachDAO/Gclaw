@@ -1,10 +1,13 @@
-"""Behavior tests for the spot/perp collateral split (assune-4fw.5).
+"""Behavior tests for forge perp sizing against the cross-collateral pool (assune-4fw.5).
 
-HL keeps spot and perp as SEPARATE wallets; spot USDC is NOT auto-pledged as perp
-margin. ``forge._account`` must therefore report the PERP wallet's free collateral
-(``withdrawable``) as ``buying_power`` — the capital a new perp can actually draw as
-margin — not the spot ``buyingPower``. Sizing a perp off spot buying power the perp
-cannot touch produces an intent HL rejects for insufficient margin.
+This HL account is CROSS-COLLATERAL: a perp draws its margin from the spot USDC pool
+(the margin shows as a spot ``hold`` AND inside the perp ``accountValue`` — hl_perp.js's
+two-wallet equity formula). So ``forge._account`` must report the FREE spot USDC
+(``buyingPower`` = spot total − hold) as ``buying_power`` — the capital a new perp can
+actually draw — NOT the perp-only ``withdrawable`` (which reads $0 whenever margin is
+deployed even though ample spot backs it). Sizing off ``withdrawable`` starved every
+major to $0 notional; sizing off ``buyingPower`` is correct and is what let a live probe
+open.
 
 These tests mock only the ``hl_perp.js status`` subprocess (an external-process
 boundary); the sizing/clamp logic under test runs for real.
@@ -29,58 +32,61 @@ def _status(**fields: object) -> SimpleNamespace:
     return SimpleNamespace(stdout=json.dumps(fields) + "\n", returncode=0)
 
 
-class TestAccountUsesPerpFreeCollateral:
-    """buying_power must be the perp wallet's withdrawable, never the spot balance."""
+class TestAccountUsesFreeSpotCollateral:
+    """buying_power must be the FREE spot USDC (buyingPower), the cross-collateral pool."""
 
-    def test_all_capital_in_spot_reads_zero_perp_buying_power(self, monkeypatch) -> None:
-        # The live .5 state: $176 in spot, perp fully consumed by a position.
+    def test_capital_in_spot_is_usable_perp_collateral(self, monkeypatch) -> None:
+        # The live state: $176 in spot backing a small perp position (perp margin is
+        # drawn from spot). withdrawable reads $0 while margin is deployed, but the
+        # ~$172 free spot IS the collateral a new perp can draw.
         monkeypatch.setattr(
             forge.subprocess,
             "run",
             lambda *a, **k: _status(
-                equity=176.0, spotUsdc=176.0, buyingPower=176.0,
+                equity=176.0, spotUsdc=176.0, buyingPower=172.0,
                 accountValue=4.0, withdrawable=0.0, positions=[{"coin": "ETH"}],
             ),
         )
         acct = forge._account()
-        assert acct["buying_power"] == 0.0, (
-            "spot USDC was treated as perp margin — a perp sized off it is unfillable"
+        assert acct["buying_power"] == 172.0, (
+            "free spot USDC (buyingPower) is the cross-collateral a perp draws margin from; "
+            "sizing off withdrawable=$0 wrongly starves every major to $0 notional"
         )
-        # equity stays whole-account for the breaker / health sizing.
         assert acct["equity"] == 176.0
         assert acct["positions"] == 1
 
-    def test_perp_funded_reads_perp_free_collateral(self, monkeypatch) -> None:
+    def test_buying_power_tracks_free_spot_after_hold(self, monkeypatch) -> None:
+        # hl_perp.js already nets the margin hold out of buyingPower; forge just uses it.
         monkeypatch.setattr(
             forge.subprocess,
             "run",
             lambda *a, **k: _status(
-                equity=200.0, spotUsdc=20.0, buyingPower=20.0,
-                accountValue=180.0, withdrawable=150.0, positions=[],
+                equity=200.0, spotUsdc=200.0, buyingPower=20.0,
+                accountValue=180.0, withdrawable=0.0, positions=[{"coin": "BTC"}],
             ),
         )
         acct = forge._account()
-        assert acct["buying_power"] == 150.0
+        assert acct["buying_power"] == 20.0
         assert acct["equity"] == 200.0
 
-    def test_missing_withdrawable_is_conservative_zero(self, monkeypatch) -> None:
-        # A partial/rate-limited read that omits withdrawable must NOT fall back to
-        # equity (the old bug) — an unknown perp balance is treated as $0 margin.
+    def test_missing_buying_power_is_conservative_zero(self, monkeypatch) -> None:
+        # A partial/rate-limited read that omits buyingPower must NOT fall back to equity
+        # (the old bug) — an unknown free balance is treated as $0 tradeable collateral.
         monkeypatch.setattr(
             forge.subprocess,
             "run",
-            lambda *a, **k: _status(equity=176.0, spotUsdc=176.0, buyingPower=176.0),
+            lambda *a, **k: _status(equity=176.0, spotUsdc=176.0, accountValue=4.0),
         )
         assert forge._account()["buying_power"] == 0.0
 
 
-class TestIntentZeroesWhenPerpUnfunded:
-    """The margin-fit clamp: zero perp collateral => zero notional, regardless of edge."""
+class TestIntentSizesAgainstBuyingPower:
+    """The margin-fit clamp: zero collateral => zero notional; funded => a real notional."""
 
     def _decision(self) -> dict[str, object]:
         return {"action": "long", "stop_pct": 2.0, "confidence": 1.0, "leverage": 3}
 
-    def test_zero_perp_collateral_zeroes_a_valid_major_intent(self, gclaw_home: Path) -> None:
+    def test_zero_collateral_zeroes_a_valid_major_intent(self, gclaw_home: Path) -> None:
         intent = forge._intent(
             "t", "ETH", self._decision(), "thrive",
             equity=176.0, cap=3, buying_power=0.0,
@@ -88,14 +94,16 @@ class TestIntentZeroesWhenPerpUnfunded:
             edge={"win_rate": 0.6, "payoff": 1.5, "trades": 40},
         )
         assert intent["notional"] == 0, (
-            "a major sized with $0 perp margin must clamp to 0, not a phantom notional"
+            "a major sized with $0 free collateral must clamp to 0, not a phantom notional"
         )
 
-    def test_funded_perp_sizes_a_real_major_notional(self, gclaw_home: Path) -> None:
+    def test_funded_collateral_sizes_a_real_major_notional(self, gclaw_home: Path) -> None:
         intent = forge._intent(
             "t", "ETH", self._decision(), "thrive",
             equity=176.0, cap=3, buying_power=150.0,
             intel={"atr_pct": 1.5, "price": 1600.0},
             edge={"win_rate": 0.6, "payoff": 1.5, "trades": 40},
         )
-        assert intent["notional"] == 0 or intent["notional"] >= forge.MIN_NOTIONAL
+        assert intent["notional"] >= forge.MIN_NOTIONAL, (
+            "with ample cross-collateral a proven major must size to a real, fillable notional"
+        )
