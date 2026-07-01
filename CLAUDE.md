@@ -57,6 +57,17 @@ node scripts/gdex_sign.js                              # instant, prints a signe
 ## Trading invariants (do not regress)
 
 - HL funds/positions are under the **managed** Arbitrum/HL address, never the control wallet.
+- **The HL account is CROSS-COLLATERAL — spot USDC backs perp margin (one pool, "trades out
+  the same wallet").** Size perps off `buyingPower` (= spot `total − hold`, from
+  `hl_perp.js status`), NEVER off the perp-only `withdrawable` (it reads ~$0 whenever margin
+  is deployed even though ample spot backs it). The position margin double-represents — it
+  shows as a spot `hold` AND inside the perp `accountValue` (see `computeEquity` in
+  `hl_perp.js`, the source of truth). Do **not** conclude spot and perp are separate wallets,
+  and do **not** try to add a spot→perp `usdClassTransfer` / fund the perp wallet — no
+  transfer is needed; the spot balance IS the collateral. (Regression history: PR #116 sized
+  off `withdrawable` → starved every major to $0 and triggered a false "needs a transfer"
+  investigation; fixed in PR #117. Don't trust a generic HL-docs "separate wallets" claim —
+  or a subagent asserting one — over this account's real behavior and gclaw's own model.)
 - Every perp entry carries a stop. The $11 HL min notional is enforced.
 - The GMAC balance changes ONLY through `metabolism.py`; PnL is settled ONLY from real closed positions.
 - Majors first (BTC/ETH/SOL), low size, conservative leverage. No memecoins.
@@ -69,6 +80,25 @@ node scripts/gdex_sign.js                              # instant, prints a signe
   touching `heartbeat.sh` deny-list or `forge.py` validators.
 - The agent trades on the **regime** (`intel.js`): no entries in `chop`; size via `sizing.py`;
   open only on memory-proven, regime-matched edge.
+
+## Custody & HL signing (don't re-investigate — this is settled)
+
+gclaw runs under **GDEX managed custody**. The wallet (`~/gdex-test-wallet.json`) holds the
+**control** key (`0xA328…`) + a **session** key; each sign-in mints a fresh **ephemeral agent**
+that is NOT an HL-approved agent (`extraAgents` on the managed account is `[]`). So **gclaw
+cannot sign HL exchange actions directly** — it authenticates a session to the **gdex backend**
+(`trade-api.gemach.io`, hosted/remote, NOT on the box), which signs every HL action with the
+managed account's master key. The SDK (`~/gdex-skill`, v4.7.0) has **no direct HL `/exchange`
+POST**; all writes go through the backend as encrypted `computedData`.
+
+Backend HL routes (authenticated-probed): `deposit` (Arbitrum→perp bridge), `withdraw`,
+`swap_collateral` (spot-stablecoin USDC⇄USDH/USDE), orders, `enable_trading`, outcomes — and
+**no** `class_transfer` / spot↔perp route (all such paths 404). `@nktkas/hyperliquid` in
+`node_modules` has `usdClassTransfer`, but gclaw holds no key HL accepts for the managed
+account, so a direct transfer just hits its own empty agent account. **None of this matters
+for funding** — the account is cross-collateral (above), so no transfer is ever needed. Only
+revisit if you actually need a NEW backend action (that's a change to the hosted backend repo,
+which is not on this box).
 
 ## Issue tracking — beads
 
