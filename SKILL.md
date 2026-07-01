@@ -37,10 +37,11 @@ itself about its own balance.
 - `scripts/venture.py` + `scripts/venture_deploy.js` + `contracts/GmacBuyAndBurn.sol` — Venture Architect (goodwill ≥ 5000): deploy DeFi infra with a perpetual GMAC buy-and-burn. See `references/venture.md`.
 - `scripts/autosettle.js` — deterministic realized-PnL settle from HL fills (`run`/`peek`).
 - `scripts/forge.py` + `scripts/forge_data.js` — technique forge: author/prove/adopt/run self-made trading skills (`draft`/`prove`/`adopt`/`run`); `references/forge.md`.
-- `scripts/dashboard.py` — renders the DNA visualization (`render` / `serve`).
+- `scripts/dashboard.py` — renders the living dashboard (`render` / `serve`): refresh(state)/render(state) split; hero is **proven edge**, with the Scientist's Bench, proven-DNA helix, and the honest chain-verifiable track record.
+- `scripts/reputation.py` — the accountable scorecard (`card` / `publish`): settled PnL + forge-graduated proven edge + lineage, re-derivable from the chain.
 - `scripts/gmac_buy.js` — GMAC buy-back (`plan` / `buy`); `references/gmac.md`.
 - `scripts/erc8004_register.js` — ERC-8004 identity mint, self + `--child <name>` (`dry-run`/`broadcast`); `references/onchain-identity.md`.
-- `scripts/erc8004_reputation.js` — sync goodwill to the ERC-8004 Reputation registry (needs `GCLAW_ATTESTER_KEY`).
+- `scripts/erc8004_reputation.js` — attest **settled performance** (the reputation.py scorecard) to the ERC-8004 Reputation registry (needs `GCLAW_ATTESTER_KEY`).
 - `dna/` — the DNA template (SOUL, IDENTITY, TRADING_STRATEGY, AGENT, HEARTBEAT, USER).
 - `references/mcp-trading.md` — the MCP-driven signed-trade flow. **Read before trading.**
 - `references/trading.md` — HL perps + outcome markets playbook and managed-address gotchas.

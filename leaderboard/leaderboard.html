@@ -3,88 +3,154 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Gclaw — Living Agent Leaderboard</title>
+<title>Gclaw — Living Agent Leaderboard · Ranked by Proven Edge</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="Gclaw — Living Agent Leaderboard">
+<meta property="og:description" content="Onchain trading organisms ranked by PROVEN EDGE — forge-graduated, out-of-sample technique count — not equity. Reputation is settled PnL, verifiable on Base.">
+<meta property="og:image" content="og-card.jpg">
+<meta name="twitter:card" content="summary_large_image">
 <!--
   Fully decentralized: no backend, no host. This file reads every creature's DNA
   directly from the ERC-8004 IdentityRegistry on Base mainnet via a public RPC.
   Open it from the repo (file://) or pin it to IPFS — the data is always onchain.
+
+  Fitness is PROVEN EDGE, not equity (dna/FITNESS.md). We rank by graduated,
+  out-of-sample technique count → breed-ready → calibration → honest realized PnL.
+  Verified HL equity is a QUIET, independently-checkable column — never the rank.
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#060A17;--card:#152037;--ink:#FFFFFF;--muted:#697083;--line:#1e2c49;
---emerald:#49B875;--blue:#61B8FF;--red:#DF2E2E;--purple:#704FF6;--silver:#D5D9E1}
+:root{
+  --rich-black:#060A17;--gem-white:#FFFFFF;
+  --navy-1:#161D2F;--navy-2:#152037;--navy-3:#192843;--navy-4:#2E4164;
+  --slate-1:#4D5972;--slate-2:#697083;--slate-3:#81899F;
+  --silver-1:#A1A5B3;--silver-2:#D5D9E1;
+  --emerald:#49B875;--red:#DF2E2E;
+  --line:rgba(213,217,225,.10);--line-strong:rgba(213,217,225,.18);
+}
 *{box-sizing:border-box}
-body{margin:0;background:radial-gradient(1100px 560px at 78% -12%,#161D2F,#060A17);color:var(--silver);
-font:15px/1.6 'Inter',-apple-system,system-ui,sans-serif;padding:24px;letter-spacing:.1px;min-height:100vh}
-header{max-width:1080px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px}
-.brand{display:flex;align-items:center;gap:12px}
+html{-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--rich-black);color:var(--silver-1);
+  font:15px/1.65 'Inter',-apple-system,system-ui,sans-serif;padding:40px 24px 64px;letter-spacing:.1px;min-height:100vh}
+.wrap{max-width:1000px;margin:0 auto}
+/* ---- header ---- */
+header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:20px;
+  padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.brand{display:flex;align-items:center;gap:16px}
 .brand .lion{color:var(--emerald);display:inline-flex}
-.eyebrow{color:var(--muted);font-size:10px;letter-spacing:2.5px;font-weight:600}
-h1{margin:2px 0 0;font-size:26px;letter-spacing:.3px;color:var(--ink);font-weight:800}
-.sub{color:var(--muted);font-size:13px;margin-top:4px}
-.chain{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-top:6px}
-.grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
-.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;gap:14px}
-.card h2{margin:0;font-size:19px;color:var(--ink);font-weight:700}
-.species{color:var(--muted);font-size:11px;letter-spacing:2px;text-transform:uppercase}
-.fp{font-family:ui-monospace,monospace;color:var(--muted);font-size:10px;margin-top:8px}
-.rank{position:absolute;top:-11px;left:14px;background:linear-gradient(180deg,#2E4164,#192843);color:var(--ink);
-border:1px solid var(--line);border-radius:999px;padding:3px 11px;font-size:12px;font-weight:700;letter-spacing:.5px}
-.card:first-child .rank{background:linear-gradient(180deg,#3a6b4d,#1f4a33);border-color:#2c6e4a;color:#9affc4}
-.trait{display:grid;grid-template-columns:74px 1fr 28px;align-items:center;gap:7px;margin:5px 0;font-size:12px}
-.trait b{text-align:right;color:var(--silver)}
-.tbar{height:7px;background:#0b1424;border-radius:5px;overflow:hidden}.tfill{height:100%;border-radius:5px}
-.pill{display:inline-block;background:#16243f;color:var(--blue);padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;margin-top:8px}
-.equity{display:flex;align-items:baseline;gap:8px;margin:8px 0 2px;flex-wrap:wrap}
-.ev{font-size:25px;font-weight:800;color:var(--ink);letter-spacing:-.4px;font-variant-numeric:tabular-nums}
-.ev.unv{font-size:19px;color:var(--silver)}
-.vtag{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#060A17;background:var(--emerald);border-radius:5px;padding:2px 7px}
-.vtag.off{background:transparent;color:var(--muted);border:1px solid var(--line)}
-.stats{display:flex;align-items:center;gap:10px;margin:4px 0 8px;font-size:13px;color:var(--silver);flex-wrap:wrap;font-variant-numeric:tabular-nums}
-.stats span{white-space:nowrap}
-.card.champion{border-color:#2c6e4a;box-shadow:0 0 0 1px rgba(73,184,117,.28),0 10px 34px rgba(73,184,117,.10)}
-.leadtag{position:absolute;top:-11px;right:14px;background:linear-gradient(180deg,#3a6b4d,#1f4a33);color:#9affc4;border:1px solid #2c6e4a;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:700;letter-spacing:.4px}
-.muted{color:var(--muted);font-size:12px}
-.foot{max-width:1080px;margin:24px auto 0;color:var(--muted);font-size:12px;text-align:center}
-.foot b{color:var(--silver)}
-input{background:#0b1424;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;width:240px}
-input::placeholder{color:var(--muted)}
-a{color:var(--blue);text-decoration:none}
-.lionfoot{color:var(--muted);display:inline-flex;vertical-align:middle}
+.eyebrow{color:var(--slate-2);font-size:10px;letter-spacing:3px;font-weight:600;text-transform:uppercase}
+h1{margin:6px 0 0;font-size:30px;line-height:1.05;letter-spacing:-.6px;color:var(--gem-white);font-weight:800;text-transform:uppercase}
+.sub{color:var(--slate-3);font-size:13px;margin-top:8px;max-width:520px}
+.chain{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--slate-2);margin-top:8px;letter-spacing:.3px}
+input{background:transparent;border:1px solid var(--line-strong);color:var(--gem-white);border-radius:8px;
+  padding:9px 13px;font:inherit;font-size:12.5px;width:230px;letter-spacing:.3px}
+input::placeholder{color:var(--slate-2)}
+input:focus{outline:none;border-color:var(--slate-1)}
+a{color:var(--silver-2);text-decoration:none;border-bottom:1px solid var(--line-strong)}
+a:hover{color:var(--gem-white)}
+/* ---- evolution ticker ---- */
+.ticker{margin:20px 0 4px;padding:11px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  overflow:hidden;white-space:nowrap;position:relative}
+.ticker .lbl{color:var(--slate-2);font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;margin-right:14px;font-weight:600}
+.ticker .run{display:inline-block;color:var(--silver-1);font-size:12.5px;animation:tick 40s linear infinite}
+.ticker .run:hover{animation-play-state:paused}
+.ticker .ev{margin-right:34px;color:var(--silver-2)}
+.ticker .ev b{color:var(--emerald);font-weight:700}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+/* ---- status ---- */
+#status{color:var(--slate-2);font-size:12px;margin:18px 0;letter-spacing:.3px}
+#status b{color:var(--silver-2)}
+#status .hl{color:var(--emerald)}
+/* ---- rows ---- */
+.rows{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.row{background:var(--rich-black);padding:22px 24px;display:grid;grid-template-columns:52px 1fr;gap:20px;align-items:start;position:relative}
+.row.br{background:linear-gradient(90deg,rgba(73,184,117,.05),transparent 60%)}
+.rank{font-size:15px;font-weight:800;color:var(--slate-2);letter-spacing:-.3px;font-variant-numeric:tabular-nums;padding-top:3px}
+.row:first-child .rank{color:var(--emerald)}
+.body{min-width:0}
+.namerow{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.name{font-size:17px;font-weight:700;color:var(--gem-white);letter-spacing:-.2px}
+.id{color:var(--slate-2);font-size:12px;font-variant-numeric:tabular-nums}
+.species{color:var(--slate-3);font-size:9.5px;letter-spacing:2px;text-transform:uppercase}
+.lineage{color:var(--slate-2);font-size:10.5px;letter-spacing:1.5px;text-transform:uppercase;
+  border:1px solid var(--line-strong);border-radius:3px;padding:2px 8px}
+.br-badge{color:var(--rich-black);background:var(--emerald);font-size:9.5px;font-weight:800;letter-spacing:.8px;
+  text-transform:uppercase;border-radius:3px;padding:3px 8px}
+.catch{color:var(--slate-3);font-size:12px;font-style:italic;margin-top:4px}
+/* hero: proven edge */
+.hero{display:flex;align-items:baseline;gap:12px;margin:16px 0 4px;flex-wrap:wrap}
+.hero .pe{font-size:44px;font-weight:800;color:var(--gem-white);line-height:1;letter-spacing:-2px;font-variant-numeric:tabular-nums}
+.hero .pe.zero{color:var(--slate-1)}
+.hero .peLbl{color:var(--slate-2);font-size:10px;letter-spacing:2.5px;text-transform:uppercase;font-weight:600;line-height:1.35}
+.hero .peLbl b{color:var(--emerald);display:block;font-weight:700}
+/* proven techniques */
+.techs{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 2px}
+.tech{border:1px solid var(--line-strong);border-radius:3px;padding:6px 10px;font-size:11.5px;color:var(--silver-1);
+  font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.tech b{color:var(--gem-white);font-weight:600}
+.tech .e{color:var(--emerald);font-weight:700}
+.tech .n{color:var(--slate-2)}
+.authored{color:var(--slate-3);font-size:11.5px;letter-spacing:.3px;margin-top:2px}
+.authored b{color:var(--silver-2)}
+/* track record — dignified slate, never red */
+.record{display:flex;align-items:center;gap:16px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--slate-3);flex-wrap:wrap;font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.record .k{color:var(--slate-2)}.record .v{color:var(--silver-1)}
+.record .verify{margin-left:auto}
+.record .verify a{color:var(--slate-2);font-size:11px}
+.record .verify a:hover{color:var(--emerald)}
+/* quiet verified-equity column */
+.equity{color:var(--slate-2);font-size:12px;letter-spacing:.2px;font-variant-numeric:tabular-nums}
+.equity b{color:var(--silver-1);font-weight:600}
+.equity .vtag{color:var(--emerald);font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin-left:5px}
+/* schema-1 fallback */
+.legacy{opacity:.72}
+.legacy .hero{margin:12px 0 4px}
+.legacy-note{color:var(--slate-2);font-size:11px;letter-spacing:.3px;margin:10px 0 2px}
+.legacy-note b{color:var(--silver-1)}
+/* ---- footer ---- */
+.foot{color:var(--slate-2);font-size:11.5px;text-align:center;margin-top:34px;line-height:1.9;letter-spacing:.2px}
+.foot code{color:var(--silver-1);font-family:ui-monospace,monospace;font-size:11px}
+.foot .lionfoot{color:var(--slate-1);display:inline-flex;vertical-align:middle}
+.foot b{color:var(--silver-1)}
 </style>
 </head>
 <body>
+<div class="wrap">
 <header>
   <div class="brand">
-    <span class="lion"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:38px;height:auto" aria-label="Gemach"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
+    <span class="lion"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:42px;height:auto" aria-label="Gemach"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
     <div>
-      <div class="eyebrow">// GEMACH ECOSYSTEM</div>
-      <h1>Living Agent Leaderboard</h1>
-      <div class="sub">Every creature's DNA + equity, read live from the blockchain. No server, no host.</div>
+      <div class="eyebrow">// LIVING AGENT LEADERBOARD</div>
+      <h1>Ranked by Proven Edge</h1>
+      <div class="sub">Fitness is graduated, out-of-sample edge — not bankroll. Every figure is read live from the chain and re-derivable onchain. No server, no host.</div>
     </div>
   </div>
   <div>
     <input id="add" placeholder="add agentId(s), comma-separated" />
-    <div class="chain">ERC-8004 · Base mainnet · IdentityRegistry 0x8004A169…</div>
+    <div class="chain">// RANKED BY PROVEN EDGE · ERC-8004 · Base mainnet · IdentityRegistry 0x8004A169…</div>
   </div>
 </header>
-<div id="status" class="foot">Reading the chain…</div>
-<div id="grid" class="grid"></div>
+
+<div class="ticker"><span class="lbl">// FAMILY EVOLUTION</span><span class="run" id="ticker">reading the chain…</span></div>
+
+<div id="status">Reading the chain…</div>
+<div id="rows" class="rows"></div>
+
 <div class="foot">
   Decentralized: open from the repo (<code>file://</code>) or pin to IPFS. Data lives in ERC-8004 onchain.
   Add an agent with <code>?agents=55624,123</code>.<br>
-  <span style="display:inline-flex;align-items:center;gap:6px;margin-top:10px">
-  <span class="lionfoot"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:14px;height:auto"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
+  <span style="display:inline-flex;align-items:center;gap:6px;margin-top:12px">
+  <span class="lionfoot"><svg viewBox="0 0 2481 2879" fill="currentColor" style="width:13px;height:auto"><g transform="translate(0,2879) scale(0.1,-0.1)"><path d="M10592 27814 l-1803 -974 -2597 -337 -2597 -336 -2 -1 -2 -1 195 -965 194 -965 -2 -22 -3 -21 -1984 -2394 -1984 -2393 1252 -3 1251 -2 0 -13 -1 -12 -1254 -5015 -1254 -5015 3 -2 3 -3 1598 365 1599 365 7 -7 8 -8 1622 -3625 1622 -3625 6 -7 7 -8 1139 545 1140 546 20 5 20 5 1780 -1922 1780 -1921 21 -26 21 -25 1793 1944 1793 1944 21 -1 21 -1 1173 -547 1174 -548 2 4 2 3 1604 3635 1603 3635 3 3 3 4 1607 -366 1608 -366 4 5 4 4 -1246 5009 -1246 5008 0 17 0 17 1243 2 1243 3 -1959 2380 -1958 2380 -16 22 -15 22 197 977 196 976 -3 3 -3 2 -2626 336 -2625 337 -1799 975 -1798 975 -1 -1 -1 0 -1803 -975z m6963 -7889 l1570 -1915 3 -9 3 -9 -1487 -2129 -1486 -2128 -43 -61 -44 -61 251 -459 251 -459 0 -10 0 -10 -798 -1360 -798 -1360 -12 -14 -13 -13 -1283 406 -1283 406 -1284 -406 -1284 -406 -8 8 -8 9 -792 1348 -791 1348 -11 24 -11 24 252 462 251 462 -9 11 -8 11 -1518 2174 -1518 2173 -1 13 -1 12 1570 1916 1570 1916 3600 1 3600 0 1570 -1915z"/></g></svg></span>
   <b>//GEMACH</b> · built by Gemach DAO</span>
+</div>
 </div>
 
 <script>
 const REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
 const TOKEN_URI_SELECTOR = "0xc87b56dd"; // tokenURI(uint256)
 const RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base-rpc.publicnode.com"];
-const PREFIX = ["Vor","Kryo","Zeph","Mor","Lyx","Quel","Ras","Thi","Nyx","Obol"];
-const SUFFIX = ["dax","mire","lith","phar","gax","ven","tide","korn","ses","wraith"];
 
 function pad32(n){ return BigInt(n).toString(16).padStart(64,"0"); }
 
@@ -114,87 +180,130 @@ function cardFromUri(uri){
   return null; // http/ipfs cards would be fetched separately; v1 handles inline data URIs
 }
 
-function helix(fp){
-  // derive avatar colors + rungs from the genome fingerprint (first bytes)
-  const b = i => parseInt(fp.substr(i*2,2),16) || 0;
-  const hue1 = b(0)/255*360, hue2 = (hue1+90+b(1)/255*120)%360, rungs = 14 + (b(5)%10);
-  const c1=`hsl(${hue1},75%,60%)`, c2=`hsl(${hue2},75%,60%)`, W=120,H=170;
-  let p=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
-  for(let i=0;i<rungs;i++){
-    const t=i/(rungs-1), y=12+t*(H-24), ph=t*Math.PI*4;
-    const x1=W/2+Math.sin(ph)*38, x2=W/2+Math.sin(ph+Math.PI)*38;
-    const col = Math.sin(ph)>=0?c1:c2;
-    p+=`<line x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="2" opacity="0.7"/>`;
-    p+=`<circle cx="${x1.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c1}"/><circle cx="${x2.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c2}"/>`;
-  }
-  return p+"</svg>";
-}
-
-// Card fields (name, species, soul, traits…) are UNTRUSTED — anyone can register a
+// Card fields (name, species, soul, techniques…) are UNTRUSTED — anyone can register a
 // gclaw agent, so they are injected into innerHTML only after escaping. esc() HTML-
 // escapes strings; num() coerces to a finite number (0 otherwise) so a string payload
 // can't slip through a numeric slot or break .toLocaleString().
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function num(x){ const n=Number(x); return Number.isFinite(n)?n:0; }
 
-function traitBars(traits, fp){
-  const hue = (parseInt(String(fp).substr(0,2),16)||0)/255*360;
-  return Object.entries(traits||{}).map(([k,v])=>
-    `<div class="trait"><span>${esc(k)}</span><div class="tbar"><div class="tfill" style="width:${num(v)}%;background:hsl(${hue},70%,55%)"></div></div><b>${num(v)}</b></div>`
-  ).join("");
-}
-
+// PROVEN EDGE is the rank key (dna/FITNESS.md). Sort by graduated technique count →
+// breed-ready → honest realized PnL → self-authored. Verified equity is NEVER the key.
+// Schema-1 peers (goodwill-only, no provenEdge) have provenEdge undefined → treated as
+// -1 so they always fall BELOW any schema-2 creature, but still render (graceful fallback).
+function schema(g){ return num(g.schema || (g.provenEdge!=null?2:1)); }
+function provenEdge(g){ return g.provenEdge==null ? -1 : num(g.provenEdge); }
 function score(g){
-  // Rank by VERIFIED HyperLiquid equity first (independently checkable, not
-  // spoofable). Fall back to the onchain beacon, then the genome.
-  if(g.verifiedEquity!=null) return 1e9 + g.verifiedEquity;   // verified outranks unverified
-  if(g.stats && g.stats.score!=null) return Number(g.stats.score);
-  return (g.goodwill||0)*1000 + (g.traits?Object.values(g.traits).reduce((a,b)=>a+b,0):0);
+  return provenEdge(g)*1e6
+    + (g.breedReady?2e5:0)
+    + (g.calibrationBrier!=null?1:0)*1e4      // a warmed event desk ranks above n=0
+    + num(g.authored)*1e3
+    + Math.max(0, num(g.realizedPnl));         // honest PnL only breaks ties, never leads
 }
 
-// The hero metric — what creatures are ranked by. Verified HL equity is the real,
-// independently-checkable number, so make it big; fall back to the onchain beacon.
-function equityHero(g){
+// --- rendering pieces (all untrusted fields flow through esc()/num()) ---
+
+function provenHero(g){
+  if(g.provenEdge==null) return "";              // schema-1 has no proven-edge signal
+  const pe = num(g.provenEdge);
+  return `<div class="hero"><span class="pe${pe===0?' zero':''}">${pe}</span>`
+    + `<span class="peLbl">techniques<b>graduated · proven edge</b></span></div>`;
+}
+
+function provenTechs(g){
+  const t = Array.isArray(g.provenTechniques) ? g.provenTechniques : [];
+  if(!t.length) return g.provenEdge===0
+    ? `<div class="authored">no graduated edge yet — <span style="color:var(--slate-3)">still proving</span></div>` : "";
+  const chips = t.slice(0,6).map(x=>{
+    const e = num(x.e), sign = e>=0?"+":"";
+    return `<span class="tech"><b>${esc(x.id)}</b> <span class="e">${sign}${e.toFixed(3)}</span><span class="n">/${num(x.trades)}</span></span>`;
+  }).join("");
+  return `<div class="techs">${chips}</div>`;
+}
+
+function authoredLine(g){
+  if(g.authored==null) return "";
+  return `<div class="authored">self-authored adopted · <b>${num(g.authored)}</b></div>`;
+}
+
+// The −$39.82 gets DIGNITY, not shame or fake-green: a calm slate receipts line the
+// crowd can re-derive onchain. Realized PnL stays SLATE even when negative (brand rule).
+function trackRecord(g, id){
+  if(g.provenEdge==null && g.realizedPnl==null) return "";      // schema-1: nothing to show
+  const parts = [];
+  if(g.closedTrades!=null) parts.push(`<span class="v">${num(g.closedTrades)}</span> <span class="k">closes</span>`);
+  if(g.winRate!=null) parts.push(`<span class="v">${(num(g.winRate)*100).toFixed(0)}%</span> <span class="k">win</span>`);
+  if(g.realizedPnl!=null){
+    const p = num(g.realizedPnl), sign = p>=0?"+":"−";
+    parts.push(`<span class="k">realized</span> <span class="v">${sign}$${Math.abs(p).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`);
+  }
+  if(g.calibrationBrier!=null) parts.push(`<span class="k">brier</span> <span class="v">${num(g.calibrationBrier).toFixed(3)}</span>`);
+  else if(g.provenEdge!=null) parts.push(`<span class="k">event desk</span> <span class="v">warming</span>`);
+  const eq = equityCol(g);
+  const verify = `<span class="verify"><a href="https://basescan.org/token/${REGISTRY}?a=${num(id)}" target="_blank" rel="noopener">verify onchain →</a></span>`;
+  return `<div class="record">${parts.join('<span style="color:var(--slate-1)">·</span>')}${eq?'<span style="color:var(--slate-1)">·</span>'+eq:""}${verify}</div>`;
+}
+
+// Verified HL equity — the real, independently-checkable number — but QUIET and secondary.
+// It is a verified column, never the rank.
+function equityCol(g){
   if(g.verifiedEquity!=null)
-    return `<div class="equity"><span class="ev">$${g.verifiedEquity.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`
-      + `<span class="vtag" title="read live from HyperLiquid — independently verifiable">✓ verified</span></div>`;
-  if(g.stats && g.stats.score!=null)
-    return `<div class="equity"><span class="ev unv">${Math.round(g.stats.score).toLocaleString()}</span><span class="vtag off">beacon score</span></div>`;
-  return '<div class="muted" style="margin:6px 0">no trading beacon yet</div>';
+    return `<span class="equity"><b>$${num(g.verifiedEquity).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b> equity<span class="vtag">✓ verified</span></span>`;
+  return "";
 }
 
-function statsLine(g){
-  const s = g.stats; if(!s) return "";
-  return `<div class="stats"><span title="goodwill — won from profitable trades">⭐ ${num(s.goodwill)} goodwill</span>`
-    + `<span class="muted" title="GMAC life energy">${Math.round(num(s.gmac)).toLocaleString()} GMAC</span></div>`;
+function lineageTag(g){
+  if(g.parentAgentId) return `<span class="lineage">scion · child of #${num(g.parentAgentId)}${g.role?" · "+esc(g.role):""}</span>`;
+  return `<span class="lineage">genesis</span>`;
 }
 
 function render(creatures){
   creatures.sort((a,b)=>score(b.g)-score(a.g));
-  document.getElementById("grid").innerHTML = creatures.map((c,i)=>{
-    const g=c.g, lineage = g.parentAgentId ? `<span class="pill">child of #${num(g.parentAgentId)} · ${esc(g.role||"")}</span>` : `<span class="pill">genesis</span>`;
-    const soul = g.soul ? `<div class="species">${esc(g.species||"unknown")} · ${esc(g.soul.archetype)}</div>
-        <div class="muted" style="font-style:italic;margin:2px 0 6px">“${esc(g.soul.catchphrase)}”</div>` :
-        `<div class="species">${esc(g.species||"unknown")}</div>`;
-    const champ = i===0 ? " champion" : "";
-    const tag = i===0 ? '<span class="leadtag">👑 Leader</span>' : "";
-    return `<div class="card${champ}"><span class="rank">#${i+1}</span>${tag}
-      <div>${helix(g.genomeFingerprint||"000000000000")}</div>
-      <div style="flex:1">
+  document.getElementById("rows").innerHTML = creatures.map((c,i)=>{
+    const g=c.g, isLegacy = schema(g) < 2;
+    const soul = g.soul ? `<div class="catch">“${esc(g.soul.catchphrase)}”</div>` : "";
+    const species = g.species ? `<span class="species">${esc(g.species)}</span>` : "";
+    const brBadge = g.breedReady ? '<span class="br-badge">breed-ready ✓</span>' : "";
+    const legacyBody = isLegacy
+      ? `<div class="legacy-note">legacy beacon (schema 1) · goodwill <b>${num(g.goodwill)}</b> — no proven-edge signal published yet</div>`
+      : provenHero(g) + provenTechs(g) + authoredLine(g);
+    return `<div class="row${g.breedReady?' br':''}${isLegacy?' legacy':''}">
+      <div class="rank">${i+1}</div>
+      <div class="body">
+        <div class="namerow">
+          <span class="name">${esc(c.name||"Gclaw")}</span>
+          <span class="id">#${num(c.id)}</span>
+          ${species}
+          ${lineageTag(g)}
+          ${brBadge}
+        </div>
         ${soul}
-        <h2>${esc(c.name||"Gclaw")} <span class="muted">#${num(c.id)}</span></h2>
-        ${equityHero(g)}
-        ${statsLine(g)}
-        ${traitBars(g.traits,g.genomeFingerprint||"000000")}
-        ${lineage}
-        <div class="fp">genome ${esc(g.genomeFingerprint||"—")} · goodwill ${num(g.goodwill)}</div>
-      </div></div>`;
+        ${legacyBody}
+        ${trackRecord(g, c.id)}
+      </div>
+    </div>`;
   }).join("");
+}
+
+// Build the family-evolution ticker from the crawled cards: graduations + births.
+function renderTicker(creatures){
+  const evs = [];
+  for(const c of creatures){
+    const g=c.g, techs = Array.isArray(g.provenTechniques)?g.provenTechniques:[];
+    for(const t of techs) evs.push(`<span class="ev">#${num(c.id)} graduated <b>${esc(t.id)}</b></span>`);
+    if(g.parentAgentId) evs.push(`<span class="ev">#${num(g.parentAgentId)} bred <b>${esc(c.name||"scion")}</b> #${num(c.id)}</span>`);
+    if(g.breedReady) evs.push(`<span class="ev">#${num(c.id)} is <b>breed-ready</b></span>`);
+  }
+  const el = document.getElementById("ticker");
+  if(!evs.length){ el.textContent = "no graduations crawled yet — proving in progress"; return; }
+  const run = evs.join("");
+  el.innerHTML = run + run;   // doubled so the marquee loops seamlessly (translateX -50%)
 }
 
 // Independently verify a creature's standings: read its managed wallet's REAL
 // equity straight from HyperLiquid's public API. Self-reported beacon stats are
-// gameable; this is the trust-minimized number anyone can check.
+// gameable; this is the trust-minimized number anyone can check. It is a QUIET
+// secondary column here, never the rank.
 async function verifyHlEquity(wallet){
   if(!wallet) return null;
   try{
@@ -249,9 +358,14 @@ async function main(){
       if(c){ out.push(c); for(const p of (c.g.peers||[])) if(!seen.has(Number(p))) queue.push(Number(p)); }
     }catch(e){ /* skip unreadable */ }
     render(out);
+    renderTicker(out);
   }
-  st.innerHTML = out.length ? `<b style="color:var(--silver)">${out.length}</b> living creature(s) discovered onchain · ranked by <b style="color:var(--emerald)">verified equity</b>` : "No Gclaw creatures found.";
   render(out);
+  renderTicker(out);
+  const proven = out.filter(c=>schema(c.g)>=2).length;
+  st.innerHTML = out.length
+    ? `<b>${out.length}</b> living creature(s) discovered onchain · <span class="hl">${proven}</span> publishing proven-edge · ranked by <span class="hl">proven edge → breed-ready → calibration → honest PnL</span>`
+    : "No Gclaw creatures found.";
 }
 
 document.getElementById("add").addEventListener("change", e=>{
