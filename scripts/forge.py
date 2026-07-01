@@ -95,11 +95,14 @@ HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
 #   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
 TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
 MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
-# Backtest execution mode must MATCH the live executor (hl_perp.js). Today the executor
-# opens with isMarket:true (taker) with an attached TP/SL, so the entry is taker and the
-# TP exit is maker; a stop-hit or time exit is taker. When maker-first limit entries land
-# (assune-4yt), flip GCLAW_FORGE_MAKER_ENTRY=1 in BOTH the backtest and the executor
-# together so the cost assumption never diverges from how fills actually happen.
+# Backtest execution mode must MATCH the live executor (hl_perp.js), and it does: BOTH
+# read GCLAW_FORGE_MAKER_ENTRY. Unset (default) → the executor opens isMarket:true (taker)
+# with an attached TP/SL and the backtest charges taker entry. Set to 1 → the executor
+# posts a resting maker limit with the stop STILL atomically attached (one hl_create_order
+# action, never naked) on the default dex, and the backtest charges maker entry. The single
+# env var keeps the cost assumption from ever diverging from how fills actually happen.
+# Builder (xyz) coins always stay taker: their attached SL is not armed as a resting order
+# (assune-ehh), so a resting entry there would fill naked — hl_perp.js gates maker off for them.
 def _maker_entry() -> bool:
     """True when entries are modelled as resting maker limits (assune-4yt), else taker."""
     return os.environ.get("GCLAW_FORGE_MAKER_ENTRY") == "1"
