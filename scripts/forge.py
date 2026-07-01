@@ -1642,12 +1642,15 @@ def cmd_critique(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _account() -> dict[str, float]:
-    """Read HL equity + free buying power via hl_perp.js (best effort).
+    """Read HL equity + free PERP collateral via hl_perp.js (best effort).
 
-    HL keeps one unified USDC balance; `equity` is the whole account and
-    `buyingPower` is the slice not already pledged as margin. Perp
-    `withdrawable`/`accountValue` only reflect committed margin, so neither is
-    the capital available for a new trade.
+    HL keeps spot and perp as SEPARATE wallets; spot USDC is NOT auto-pledged as
+    perp margin. A new perp draws margin only from the perp wallet's free
+    collateral (`withdrawable`), so that — not the spot `buyingPower` — is what
+    the margin-fit clamp in ``_intent`` must size against. Sizing a perp off spot
+    buying power the perp can't touch yields an intent HL rejects for insufficient
+    margin (assune-4fw.5). ``equity`` stays the whole-account figure for the
+    drawdown breaker and health sizing.
     """
     try:
         proc = subprocess.run(
@@ -1660,7 +1663,7 @@ def _account() -> dict[str, float]:
         equity = float(st.get("equity") or st.get("spotUsdc") or st.get("accountValue") or 0)
         return {
             "equity": equity,
-            "buying_power": float(st.get("buyingPower") or equity),
+            "buying_power": float(st.get("withdrawable") or 0),
             "positions": len(st.get("positions") or []),
         }
     except Exception:
@@ -2213,12 +2216,19 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
     veto = _read_json(gclaw_home() / "forge" / "veto.json", {})
+    # Legibility: perp margin (buying_power) below the min-notional requirement means a
+    # sized major zeroes at the margin-fit clamp — the trade can't open even with edge.
+    # Spot USDC is NOT auto-collateral on HL; the gdex backend has no spot->perp
+    # transfer, so surface the underfunding as its own signal rather than letting it
+    # look like "no setup" (assune-4fw.5).
+    perp_underfunded = bool(intents) and (buying_power * 0.95 * cap) < MIN_NOTIONAL
     result = {
         "ok": True,
         "mode": mode,
         "leverage_cap": cap,
         "equity": equity,
         "buying_power": round(buying_power, 2),
+        "perp_underfunded": perp_underfunded,
         "breaker": breaker,
         "veto": bool(veto.get("veto")),
         "intents": intents,
