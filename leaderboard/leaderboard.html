@@ -52,7 +52,8 @@ a:hover{color:var(--gem-white)}
 /* ---- evolution ticker ---- */
 .ticker{margin:20px 0 4px;padding:11px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
   overflow:hidden;white-space:nowrap;position:relative}
-.ticker .lbl{color:var(--slate-2);font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;margin-right:14px;font-weight:600}
+.ticker .lbl{color:var(--slate-2);font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;font-weight:600;
+  position:relative;z-index:2;background:var(--rich-black);padding-right:16px}
 .ticker .run{display:inline-block;color:var(--silver-1);font-size:12.5px;animation:tick 40s linear infinite}
 .ticker .run:hover{animation-play-state:paused}
 .ticker .ev{margin-right:34px;color:var(--silver-2)}
