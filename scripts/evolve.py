@@ -53,7 +53,8 @@ def proven_edge_techniques() -> list[dict[str, Any]]:
     """Adopted techniques with REAL live edge (>= PROVEN_MIN_TRADES closes, positive
     expectancy) — the inheritable DNA reproduction gates on (the fitness Spore.fun lacked)."""
     return [
-        e for e in _adopted()
+        e
+        for e in _adopted()
         if int(e.get("trades", 0)) >= PROVEN_MIN_TRADES and float(e.get("e", 0.0)) > 0
     ]
 
@@ -66,8 +67,9 @@ def self_authored_adopted(state: dict[str, Any]) -> list[str]:
     for e in _adopted():
         try:
             tech = json.loads(
-                (gclaw_home() / "forge" / "techniques" / e["id"] / "technique.json")
-                .read_text(encoding="utf-8")
+                (gclaw_home() / "forge" / "techniques" / e["id"] / "technique.json").read_text(
+                    encoding="utf-8"
+                )
             )
             if str(tech.get("author")) == aid:
                 out.append(e["id"])
@@ -82,13 +84,18 @@ def replication_gate(state: dict[str, Any]) -> tuple[bool, str, list[dict[str, A
     pool can't spawn child after child — only genuine evolution breeds)."""
     proven = proven_edge_techniques()
     if len(proven) < REPLICATE_MIN_EDGE:
-        return (False, f"proven-edge {len(proven)}/{REPLICATE_MIN_EDGE} — graduate more live edge first", proven)
+        return (
+            False,
+            f"proven-edge {len(proven)}/{REPLICATE_MIN_EDGE} — graduate more live edge first",
+            proven,
+        )
     if len(state.get("children", [])) >= MAX_CHILDREN:
         return (False, f"child cap reached ({MAX_CHILDREN})", proven)
     last = state.get("last_replicate_edge_count", 0)
     if len(proven) <= last:
         return (False, f"no new proven edge since last birth ({len(proven)} <= {last})", proven)
     return (True, "proven-edge gate met", proven)
+
 
 # Swarm roles a child can be born into (mirrors the original Gclaw swarm).
 ROLES = {
@@ -192,11 +199,20 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     # spawn when armed; otherwise log that the proven-edge gate is met. Mirrors the
     # event-desk / carry shadow→live pattern.
     if not _reproduce_live():
-        print(json.dumps({
-            "ok": True, "would_replicate": True, "dry_run": True, "name": name, "role": role,
-            "mutation": mutation, "inherits": [e["id"] for e in proven],
-            "note": "proven-edge gate MET — set GCLAW_REPRODUCE_LIVE=1 to spawn the child",
-        }))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "would_replicate": True,
+                    "dry_run": True,
+                    "name": name,
+                    "role": role,
+                    "mutation": mutation,
+                    "inherits": [e["id"] for e in proven],
+                    "note": "proven-edge gate MET — set GCLAW_REPRODUCE_LIVE=1 to spawn the child",
+                }
+            )
+        )
         return
     if role not in ROLES:
         sys.exit(f"--role must be one of {sorted(ROLES)}")
@@ -244,7 +260,9 @@ def cmd_replicate(args: argparse.Namespace) -> None:
     )
     soul = give_soul(child_dir, name, born)
     announce_birth(name, role, mutation)
-    print(f"Replicated child '{name}' ({role}) at {child_dir} — inherits {[e['id'] for e in proven]}")
+    print(
+        f"Replicated child '{name}' ({role}) at {child_dir} — inherits {[e['id'] for e in proven]}"
+    )
     print(f"  soul: {soul}")
     print(f"  mutation: {mutation}")
     print(f"  children: {len(state['children'])}/{MAX_CHILDREN}")
@@ -314,7 +332,9 @@ def cmd_recode(_args: argparse.Namespace) -> None:
     authored = self_authored_adopted(state)
     state["recodes"] = len(authored)
     save_state(state)
-    append_journal({"ts": now_iso(), "event": "recode", "count": len(authored), "authored": authored})
+    append_journal(
+        {"ts": now_iso(), "event": "recode", "count": len(authored), "authored": authored}
+    )
     print(json.dumps({"ok": True, "recodes": len(authored), "authored": authored}))
 
 
@@ -326,7 +346,9 @@ def cmd_capabilities(_: argparse.Namespace) -> None:
     print(f"  {'✓' if allowed else '·'} replicate     ({reason})")
     print(f"  self-recodes (authored + adopted): {len(authored)} — {authored}")
     print(f"  children: {len(state.get('children', []))}/{MAX_CHILDREN}")
-    print(f"  reproduction: {'ARMED (live)' if _reproduce_live() else 'dry-run (set GCLAW_REPRODUCE_LIVE=1 to spawn)'}")
+    print(
+        f"  reproduction: {'ARMED (live)' if _reproduce_live() else 'dry-run (set GCLAW_REPRODUCE_LIVE=1 to spawn)'}"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -334,7 +356,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_rep = sub.add_parser("replicate", help="spawn a child on proven-edge (or --auto)")
-    p_rep.add_argument("--auto", action="store_true", help="derive name/role/mutation + gate-check deterministically")
+    p_rep.add_argument(
+        "--auto",
+        action="store_true",
+        help="derive name/role/mutation + gate-check deterministically",
+    )
     p_rep.add_argument("--name", help="child name (required unless --auto)")
     p_rep.add_argument("--role", choices=sorted(ROLES), help="swarm role (required unless --auto)")
     p_rep.add_argument("--mutation", help="how the child differs (required unless --auto)")

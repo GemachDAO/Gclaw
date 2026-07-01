@@ -24,7 +24,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-SCRIPT_DIR = Path(os.environ.get("GCLAW_SKILL_DIR", str(Path(__file__).resolve().parent.parent))) / "scripts"
+SCRIPT_DIR = (
+    Path(os.environ.get("GCLAW_SKILL_DIR", str(Path(__file__).resolve().parent.parent))) / "scripts"
+)
 
 
 def home() -> Path:
@@ -42,8 +44,18 @@ def _economics() -> dict[str, Any]:
     """The settled trading record (audit_economics derives it from real closed fills)."""
     try:
         out = subprocess.run(
-            ["uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "audit_economics.py"), "report"],
-            capture_output=True, text=True, timeout=120, check=False,
+            [
+                "uv",
+                "run",
+                "--no-project",
+                "python3",
+                str(SCRIPT_DIR / "audit_economics.py"),
+                "report",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
         ).stdout
         i = out.find("{")
         return json.loads(out[i:]) if i >= 0 else {}
@@ -122,11 +134,17 @@ def cmd_publish(_a: argparse.Namespace) -> int:
     tmp.write_text(json.dumps(sc, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
     ev = sc["evolution"]
-    print(json.dumps({
-        "ok": True, "published": str(path),
-        "realized_pnl_usd": sc["trading"]["realized_pnl_usd"],
-        "proven_edge": ev["proven_edge_count"], "self_authored": ev["self_authored_techniques"],
-    }))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "published": str(path),
+                "realized_pnl_usd": sc["trading"]["realized_pnl_usd"],
+                "proven_edge": ev["proven_edge_count"],
+                "self_authored": ev["self_authored_techniques"],
+            }
+        )
+    )
     return 0
 
 

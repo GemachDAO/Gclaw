@@ -1,9 +1,9 @@
 name: ci
 
 # Unit tests + lint for the Gclaw skill. Fast (<1 min): pure-logic tests, no
-# network, no real clock, no real $GCLAW_HOME. The node scripts' runtime deps
-# (ethers, the GDEX SDK) are NOT installed — only vitest — because the tested
-# functions are pure and never reach the SDK boundary.
+# network, no real clock, no real $GCLAW_HOME. vitest + ethers are installed
+# (predict.js's tested keccak path needs ethers); the GDEX SDK is NOT — scripts
+# that need it load it tolerantly, and their tested functions are pure.
 
 on:
   push:
@@ -30,8 +30,8 @@ jobs:
           enable-cache: true
       - name: Lint (ruff)
         run: |
-          uv run --no-project ruff format --check scripts tests
-          uv run --no-project ruff check scripts tests
+          uvx ruff@0.15.13 format --check scripts tests
+          uvx ruff@0.15.13 check scripts tests
       - name: Test (pytest)
         run: uv run --group dev pytest
 

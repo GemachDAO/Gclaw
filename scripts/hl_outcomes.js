@@ -26,8 +26,14 @@ const path = require('node:path');
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
-const { ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers'));
-const SDK = require(path.join(GDEX_DIR, 'dist'));
+// ethers + the GDEX SDK resolve from the GDEX skill dir at runtime; they're absent in the
+// pure-logic test/CI context (only the classifiers below are exercised there), so load them
+// tolerantly — the sign-in/order paths that use them run only on the box where deps exist.
+let ethers, SDK;
+try {
+  ({ ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers')));
+  SDK = require(path.join(GDEX_DIR, 'dist'));
+} catch { /* deps unavailable in CI/pure-test; network paths below won't run */ }
 
 const HL_CHAIN_ID = 42161;
 

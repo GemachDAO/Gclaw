@@ -57,7 +57,11 @@ def _state(**overrides: object) -> dict[str, object]:
             {"technique": "vol-momentum", "coin": "xyz:MU", "oos_n": 129, "t": 4.74},
         ],
         "techniques": {
-            "stop-hunt-revert": {"id": "stop-hunt-revert", "status": "proven", "card": {"proven": True, "oos": {"n": 13}}},
+            "stop-hunt-revert": {
+                "id": "stop-hunt-revert",
+                "status": "proven",
+                "card": {"proven": True, "oos": {"n": 13}},
+            },
         },
         "authored_cards": [
             {
@@ -244,7 +248,13 @@ def test_positions_panel_flat_then_open():
             "equity": 50.0,
             "managed": "0xabc",
             "positions": [
-                {"coin": "ETH", "size": -0.1, "entryPx": 1700, "unrealizedPnl": -2.18, "liquidationPx": 3386}
+                {
+                    "coin": "ETH",
+                    "size": -0.1,
+                    "entryPx": 1700,
+                    "unrealizedPnl": -2.18,
+                    "liquidationPx": 3386,
+                }
             ],
         }
     )
@@ -258,7 +268,12 @@ def test_render_escapes_untrusted_technique_claims():
     # A malicious claim must be escaped, never injected as live markup.
     state = _state()
     state["authored_cards"] = [
-        {"id": "x", "claim": "<img src=x onerror=alert(1)>", "status": "draft", "card": {"oos": {"n": 0}}}
+        {
+            "id": "x",
+            "claim": "<img src=x onerror=alert(1)>",
+            "status": "draft",
+            "card": {"oos": {"n": 0}},
+        }
     ]
     html = dashboard.render(state)
     assert "<img src=x onerror" not in html
@@ -318,14 +333,18 @@ def test_sigil_is_a_clean_glyph():
 
 
 def test_hl_perp_reads_perp_state_from_public_api():
-    src = (Path(__file__).resolve().parent.parent / "scripts" / "hl_perp.js").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "hl_perp.js").read_text(
+        encoding="utf-8"
+    )
     fs = src[src.index("async function fullState") : src.index("async function fullState") + 700]
     assert "hlInfo(" in fs
     assert "skill.getHlClearinghouseState" not in fs
 
 
 def test_leaderboard_verifier_counts_the_perp_wallet():
-    src = (Path(__file__).resolve().parent.parent / "leaderboard" / "leaderboard.html").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parent.parent / "leaderboard" / "leaderboard.html").read_text(
+        encoding="utf-8"
+    )
     assert "clearinghouseState" in src
     assert "accountValue" in src
     assert "hold" in src

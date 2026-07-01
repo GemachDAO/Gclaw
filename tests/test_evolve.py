@@ -64,7 +64,9 @@ def test_goodwill_is_irrelevant_proven_edge_gates(metabolism_fixture, gclaw_home
     state = json.loads((gclaw_home / "metabolism.json").read_text(encoding="utf-8"))
     assert len(state["children"]) == 1
     assert state["last_replicate_edge_count"] == 2  # next birth needs NEW proven edge
-    strat = (gclaw_home / "children" / state["children"][0]["name"] / "TRADING_STRATEGY.md").read_text()
+    strat = (
+        gclaw_home / "children" / state["children"][0]["name"] / "TRADING_STRATEGY.md"
+    ).read_text()
     assert "win0" in strat and "win1" in strat  # inherits the proven winners by name
 
 
@@ -108,9 +110,15 @@ def test_partial_failure_rolls_back_the_child_dir(metabolism_fixture, gclaw_home
     _meta(metabolism_fixture, goodwill=8)
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=2)
-    monkeypatch.setattr(evolve, "save_state", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("disk full")))
+    monkeypatch.setattr(
+        evolve, "save_state", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("disk full"))
+    )
     with pytest.raises(RuntimeError, match="disk full"):
         evolve.cmd_replicate(Namespace(auto=True, name=None, role=None, mutation=None))
-    assert not list((gclaw_home / "children").glob("*")) if (gclaw_home / "children").exists() else True
+    assert (
+        not list((gclaw_home / "children").glob("*"))
+        if (gclaw_home / "children").exists()
+        else True
+    )
     state = json.loads((gclaw_home / "metabolism.json").read_text(encoding="utf-8"))
     assert state["children"] == []

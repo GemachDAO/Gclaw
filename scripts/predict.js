@@ -28,7 +28,16 @@ const https = require('node:https');
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 // Lazy keccak — only the root/roundId paths need ethers, so the file-io helpers
 // (readJson/readJsonl/writeAtomic) and resolve logic stay unit-testable without it.
-const ethers = () => require(path.join(GDEX_DIR, 'node_modules', 'ethers')).ethers;
+// Resolve ethers from local node_modules first (installed in CI/tests for the keccak
+// paths), falling back to the GDEX skill's copy on the box.
+const ethers = () => {
+  try {
+    const e = require('ethers');
+    return e.ethers ?? e;
+  } catch {
+    return require(path.join(GDEX_DIR, 'node_modules', 'ethers')).ethers;
+  }
+};
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p));
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
 const DIR = path.join(GCLAW_HOME, 'predictions');

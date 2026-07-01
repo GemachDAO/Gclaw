@@ -43,8 +43,12 @@ class TestAccountUsesFreeSpotCollateral:
             forge.subprocess,
             "run",
             lambda *a, **k: _status(
-                equity=176.0, spotUsdc=176.0, buyingPower=172.0,
-                accountValue=4.0, withdrawable=0.0, positions=[{"coin": "ETH"}],
+                equity=176.0,
+                spotUsdc=176.0,
+                buyingPower=172.0,
+                accountValue=4.0,
+                withdrawable=0.0,
+                positions=[{"coin": "ETH"}],
             ),
         )
         acct = forge._account()
@@ -61,8 +65,12 @@ class TestAccountUsesFreeSpotCollateral:
             forge.subprocess,
             "run",
             lambda *a, **k: _status(
-                equity=200.0, spotUsdc=200.0, buyingPower=20.0,
-                accountValue=180.0, withdrawable=0.0, positions=[{"coin": "BTC"}],
+                equity=200.0,
+                spotUsdc=200.0,
+                buyingPower=20.0,
+                accountValue=180.0,
+                withdrawable=0.0,
+                positions=[{"coin": "BTC"}],
             ),
         )
         acct = forge._account()
@@ -88,8 +96,13 @@ class TestIntentSizesAgainstBuyingPower:
 
     def test_zero_collateral_zeroes_a_valid_major_intent(self, gclaw_home: Path) -> None:
         intent = forge._intent(
-            "t", "ETH", self._decision(), "thrive",
-            equity=176.0, cap=3, buying_power=0.0,
+            "t",
+            "ETH",
+            self._decision(),
+            "thrive",
+            equity=176.0,
+            cap=3,
+            buying_power=0.0,
             intel={"atr_pct": 1.5, "price": 1600.0},
             edge={"win_rate": 0.6, "payoff": 1.5, "trades": 40},
         )
@@ -99,8 +112,13 @@ class TestIntentSizesAgainstBuyingPower:
 
     def test_funded_collateral_sizes_a_real_major_notional(self, gclaw_home: Path) -> None:
         intent = forge._intent(
-            "t", "ETH", self._decision(), "thrive",
-            equity=176.0, cap=3, buying_power=150.0,
+            "t",
+            "ETH",
+            self._decision(),
+            "thrive",
+            equity=176.0,
+            cap=3,
+            buying_power=150.0,
             intel={"atr_pct": 1.5, "price": 1600.0},
             edge={"win_rate": 0.6, "payoff": 1.5, "trades": 40},
         )

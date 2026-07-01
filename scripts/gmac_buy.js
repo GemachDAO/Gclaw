@@ -22,8 +22,14 @@ const path = require('node:path');
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const WALLET_PATH = process.env.GCLAW_WALLET || [path.join(os.homedir(), '.gclaw', 'wallet.json'), path.join(os.homedir(), 'gdex-test-wallet.json')].find((p) => fs.existsSync(p)) || path.join(os.homedir(), 'gdex-test-wallet.json');
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
-const { ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers'));
-const SDK = require(path.join(GDEX_DIR, 'dist'));
+// ethers + the GDEX SDK resolve from the GDEX skill dir at runtime; they're absent in the
+// pure-logic test/CI context (only reconcileSentinel is exercised there), so load them
+// tolerantly — the buy/sign paths that use them run only on the box where deps exist.
+let ethers, SDK;
+try {
+  ({ ethers } = require(path.join(GDEX_DIR, 'node_modules', 'ethers')));
+  SDK = require(path.join(GDEX_DIR, 'dist'));
+} catch { /* deps unavailable in CI/pure-test; network paths below won't run */ }
 
 const ETH_CHAIN = 1;
 const GMAC = '0xd96e84ddbc7cbe1d73c55b6fe8c64f3a6550deea';

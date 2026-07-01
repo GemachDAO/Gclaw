@@ -182,7 +182,11 @@ def breed(
     species, sigil = parent["species"], parent["sigil"]
     prefix_i = next((i for i, p in enumerate(SPECIES_PREFIX) if species.startswith(p)), 0)
     suffix_i = next(
-        (j for j, sfx in enumerate(SPECIES_SUFFIX) if sfx == species[len(SPECIES_PREFIX[prefix_i]) :]),
+        (
+            j
+            for j, sfx in enumerate(SPECIES_SUFFIX)
+            if sfx == species[len(SPECIES_PREFIX[prefix_i]) :]
+        ),
         0,
     )
     sigil_i = SIGILS.index(sigil) if sigil in SIGILS else 0
@@ -316,9 +320,9 @@ def banner_datauri() -> str:
         return _BANNER_CACHE
     img = SCRIPT_DIR.parent / "assets" / "brand" / "dashboard-banner.jpg"
     try:
-        _BANNER_CACHE = "data:image/jpeg;base64," + base64.b64encode(
-            img.read_bytes()
-        ).decode("ascii")
+        _BANNER_CACHE = "data:image/jpeg;base64," + base64.b64encode(img.read_bytes()).decode(
+            "ascii"
+        )
     except (OSError, ValueError):
         _BANNER_CACHE = ""
     return _BANNER_CACHE
@@ -431,9 +435,21 @@ def refresh_qr(h: Path) -> None:
             continue
         try:
             subprocess.run(
-                ["uv", "run", "--no-project", "--with", "qrcode", "python3",
-                 str(SCRIPT_DIR / "qr.py"), addr, chain, str(out)],
-                capture_output=True, text=True, timeout=60,
+                [
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--with",
+                    "qrcode",
+                    "python3",
+                    str(SCRIPT_DIR / "qr.py"),
+                    addr,
+                    chain,
+                    str(out),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
         except (OSError, subprocess.SubprocessError):
             pass
@@ -445,9 +461,23 @@ def github_qr_datauri(h: Path) -> str:
     if not (png.exists() and png.stat().st_size > 0):
         try:
             subprocess.run(
-                ["uv", "run", "--no-project", "--with", "qrcode", "--with", "pillow",
-                 "python3", str(SCRIPT_DIR / "qr.py"), GITHUB_URL, "raw", str(png)],
-                capture_output=True, text=True, timeout=120,
+                [
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--with",
+                    "qrcode",
+                    "--with",
+                    "pillow",
+                    "python3",
+                    str(SCRIPT_DIR / "qr.py"),
+                    GITHUB_URL,
+                    "raw",
+                    str(png),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
         except (OSError, subprocess.SubprocessError):
             return ""
@@ -514,7 +544,9 @@ def refresh(h: Path, live: bool = True) -> dict[str, Any]:
         "style": style,
         "proven_markets": load_json(h / "forge" / "proven_markets.json", {}).get("pairs", []),
         "techniques": _load_techniques(h, style.get("adopted", [])),
-        "authored_cards": _load_authored(h, (metabolism.get("onchain_identity") or {}).get("agentId", "")),
+        "authored_cards": _load_authored(
+            h, (metabolism.get("onchain_identity") or {}).get("agentId", "")
+        ),
         "journal": read_jsonl(h / "journal.jsonl"),
         "telepathy": read_jsonl(h / "telepathy" / "bus.jsonl"),
         "positions": load_json(h / "positions.json", {}),
@@ -712,20 +744,20 @@ def hero_html(state: dict[str, Any], proven: list[dict[str, Any]], gate: dict[st
     n = len(proven)
     born_count = int((state["reputation"].get("evolution") or {}).get("proven_edge_count", n) or n)
     delta = el("span", esc(f"+{born_count} since birth"), cls="herodelta") if born_count else ""
-    ribbon = (
-        el("span", "⚡ BREED-READY", cls="ribbon", id="breedRibbon")
-        if gate["ready"]
-        else ""
-    )
+    ribbon = el("span", "⚡ BREED-READY", cls="ribbon", id="breedRibbon") if gate["ready"] else ""
     # The self-evolving-DNA hero art sits behind the number, aligned right (its subject),
     # under a left-heavy rich-black scrim so the PROVEN EDGE count stays razor-crisp.
     bg = state.get("hero_bg") or ""
     style = (
-        "background:linear-gradient(90deg,rgba(6,10,23,.97) 0%,rgba(6,10,23,.82) 38%,"
-        f"rgba(6,10,23,.32) 72%,rgba(6,10,23,.6) 100%),url({bg}) center right/cover no-repeat;"
-        "border:1px solid var(--line);padding:34px 30px;min-height:220px;"
-        "display:flex;flex-direction:column;justify-content:center"
-    ) if bg else ""
+        (
+            "background:linear-gradient(90deg,rgba(6,10,23,.97) 0%,rgba(6,10,23,.82) 38%,"
+            f"rgba(6,10,23,.32) 72%,rgba(6,10,23,.6) 100%),url({bg}) center right/cover no-repeat;"
+            "border:1px solid var(--line);padding:34px 30px;min-height:220px;"
+            "display:flex;flex-direction:column;justify-content:center"
+        )
+        if bg
+        else ""
+    )
     attrs = {"style": style} if style else {}
     return el(
         "section",
@@ -733,7 +765,13 @@ def hero_html(state: dict[str, Any], proven: list[dict[str, Any]], gate: dict[st
         el(
             "div",
             el("span", esc(str(n)), cls="heronum", id="provenEdge"),
-            el("div", el("div", "techniques graduated", cls="herolabel"), delta, ribbon, cls="herometa"),
+            el(
+                "div",
+                el("div", "techniques graduated", cls="herolabel"),
+                delta,
+                ribbon,
+                cls="herometa",
+            ),
             cls="herorow",
         ),
         el("div", "forge-proven · out-of-sample · inheritable", cls="herosub"),
@@ -768,7 +806,11 @@ def vitals_html(state: dict[str, Any], gate: dict[str, Any]) -> str:
 
     return el(
         "div",
-        vital("Self-authored", str(authored), f"{int(state['metabolism'].get('recodes', 0) or 0)} recodes"),
+        vital(
+            "Self-authored",
+            str(authored),
+            f"{int(state['metabolism'].get('recodes', 0) or 0)} recodes",
+        ),
         vital("Event calibration", cal_val, cal_sub),
         vital("Breed-ready", breed_val, breed_sub, em=gate["ready"]),
         cls="vitals",
@@ -791,7 +833,14 @@ def track_record_html(state: dict[str, Any]) -> str:
         body = (
             el("b", esc(_fmt_money(rec["pnl"])), cls="trpnl")
             + esc(f" · {rec['closes']} closes · {rec['win_rate'] * 100:.0f}% win · ")
-            + el("a", "re-derivable onchain ↗", cls="trlink", href=verify, target="_blank", rel="noopener")
+            + el(
+                "a",
+                "re-derivable onchain ↗",
+                cls="trlink",
+                href=verify,
+                target="_blank",
+                rel="noopener",
+            )
         )
     return el(
         "div",
@@ -911,14 +960,20 @@ def calibration_html(state: dict[str, Any]) -> str:
             x = 10 + float(b.get("p", 0)) * 120
             y = 130 - float(b.get("obs", 0)) * 120
             pts.append(f"{x:.1f},{y:.1f}")
-        curve = f'<polyline points="{" ".join(pts)}" fill="none" stroke="#49B875" stroke-width="2"/>'
+        curve = (
+            f'<polyline points="{" ".join(pts)}" fill="none" stroke="#49B875" stroke-width="2"/>'
+        )
     svg = (
         '<svg viewBox="0 0 140 140" width="140" height="140" class="calsvg">'
         '<rect x="10" y="10" width="120" height="120" fill="none" stroke="#1e2c49"/>'
         f"{diag}{curve}</svg>"
     )
     if n == 0:
-        note = el("p", "n=0 — the mind hasn't yet learned to doubt itself. Brier appears after the first calibrated event forecasts.", cls="muted")
+        note = el(
+            "p",
+            "n=0 — the mind hasn't yet learned to doubt itself. Brier appears after the first calibrated event forecasts.",
+            cls="muted",
+        )
     else:
         brier = cal.get("brier")
         base = cal.get("no_skill_baseline")
@@ -934,6 +989,7 @@ def calibration_html(state: dict[str, Any]) -> str:
 def breed_gate_html(gate: dict[str, Any]) -> str:
     """The REAL reproduction gate — proven-edge count + one-new-since-birth. Replaces
     the retired goodwill leverage ladder; reproduction gates on proven edge now."""
+
     def check(ok: bool, label: str) -> str:
         return el(
             "li",
@@ -947,13 +1003,17 @@ def breed_gate_html(gate: dict[str, Any]) -> str:
         el("div", "// REPRODUCTION GATE", cls="eyebrow"),
         el(
             "ul",
-            check(gate["have_edges"], f"≥{gate['need']} proven edges  [{gate['proven']}/{gate['need']}]"),
+            check(
+                gate["have_edges"],
+                f"≥{gate['need']} proven edges  [{gate['proven']}/{gate['need']}]",
+            ),
             check(gate["have_new"], f"1 new edge since last birth  [{gate['new_since']}]"),
             cls="gatelist",
         ),
         el(
             "p",
-            "Breed-ready ✓ — children inherit only proven DNA." if gate["ready"]
+            "Breed-ready ✓ — children inherit only proven DNA."
+            if gate["ready"]
             else "Reproduction locked — graduate a new edge to breed.",
             cls="muted",
         ),
@@ -983,7 +1043,13 @@ def positions_html(state: dict[str, Any]) -> str:
                 el("span", esc(side), cls="pill"),
                 el("b", esc(coin)),
                 esc(f" {abs(size):g} @ ${float(p.get('entryPx', 0) or 0):,.2f} "),
-                el("span", esc(_fmt_money(up)), cls="pos-pnl", data_coin=coin, style=f"color:{color};font-weight:700"),
+                el(
+                    "span",
+                    esc(_fmt_money(up)),
+                    cls="pos-pnl",
+                    data_coin=coin,
+                    style=f"color:{color};font-weight:700",
+                ),
                 el("span", esc(f" liq ${float(p.get('liquidationPx') or 0):,.0f}"), cls="muted"),
                 cls="posrow",
             )
@@ -1012,7 +1078,11 @@ def techniques_html(state: dict[str, Any]) -> str:
         w = float(e.get("weight", 1.0) or 1.0)
         trades = int(e.get("trades", 0) or 0)
         edge = float(e.get("e", 0.0) or 0.0)
-        flag = el("span", "PROVEN", cls="pflag") if tid in proven_ids else el("span", "on trial", cls="pill dim")
+        flag = (
+            el("span", "PROVEN", cls="pflag")
+            if tid in proven_ids
+            else el("span", "on trial", cls="pill dim")
+        )
         fit_cls = "up" if edge > 0 else "down" if edge < 0 else "muted"
         fit = (
             el("span", esc(f"{_fmt_edge(edge)} edge · {trades} tr"), cls=fit_cls)
@@ -1022,7 +1092,13 @@ def techniques_html(state: dict[str, Any]) -> str:
         rows.append(
             el(
                 "li",
-                el("div", el("b", esc(tid)), flag, el("span", esc(f"w {w:.2f}"), cls="wpct"), cls="loadtop"),
+                el(
+                    "div",
+                    el("b", esc(tid)),
+                    flag,
+                    el("span", esc(f"w {w:.2f}"), cls="wpct"),
+                    cls="loadtop",
+                ),
                 el("div", el("i", style=f"width:{min(100, w * 100):.0f}%"), cls="wbar"),
                 el("div", fit, cls="loadsub"),
                 cls="load",
@@ -1053,7 +1129,11 @@ def books_html(state: dict[str, Any]) -> str:
         el(
             "div",
             el("div", "C · CARRY FLOOR", cls="bookhead"),
-            el("p", esc(f"Δ-neutral funding harvest · {npos} perp open · {cal_n} event settles"), cls="muted"),
+            el(
+                "p",
+                esc(f"Δ-neutral funding harvest · {npos} perp open · {cal_n} event settles"),
+                cls="muted",
+            ),
             cls="book",
         ),
         cls="books",
@@ -1077,11 +1157,20 @@ def onchain_html(state: dict[str, Any]) -> str:
     if gas.get("status"):
         gas_line = el(
             "div",
-            esc(f"beacon gas: {gas.get('baseEth', 0):.5f} Base ETH · ~{gas.get('beaconRunway', 0)} beacons"),
+            esc(
+                f"beacon gas: {gas.get('baseEth', 0):.5f} Base ETH · ~{gas.get('beaconRunway', 0)} beacons"
+            ),
             cls="muted",
         )
     idrow = (
-        el("div", el("span", "ERC-8004", cls="pill"), esc(" agent "), el("b", esc(f"#{aid}")), esc(f" on {ident.get('chain', 'base:8453')}"), cls="idrow")
+        el(
+            "div",
+            el("span", "ERC-8004", cls="pill"),
+            esc(" agent "),
+            el("b", esc(f"#{aid}")),
+            esc(f" on {ident.get('chain', 'base:8453')}"),
+            cls="idrow",
+        )
         if aid
         else el("p", "No onchain identity yet.", cls="muted")
     )
@@ -1209,7 +1298,9 @@ def dna_script(state: dict[str, Any], proven: list[dict[str, Any]]) -> str:
         "archetype": persona.get("archetype", ""),
         "catchphrase": persona.get("catchphrase", ""),
         "proven": len(proven),
-        "authored": int((state["reputation"].get("evolution") or {}).get("self_authored_techniques", 0) or 0),
+        "authored": int(
+            (state["reputation"].get("evolution") or {}).get("self_authored_techniques", 0) or 0
+        ),
         "record": f"{rec['closes']} closes · {_fmt_money(rec['pnl'])}",
         "fingerprint": g["fingerprint"],
     }
@@ -1487,7 +1578,14 @@ def _header_html(state: dict[str, Any], proven: list[dict[str, Any]]) -> str:
         el(
             "div",
             el("span", esc(f"{mode} · heartbeat {hb}"), cls="livedot"),
-            el("a", "𝕏 Share", cls="sharebtn", href=share_url(metabolism, name, len(proven)), target="_blank", rel="noopener"),
+            el(
+                "a",
+                "𝕏 Share",
+                cls="sharebtn",
+                href=share_url(metabolism, name, len(proven)),
+                target="_blank",
+                rel="noopener",
+            ),
             el("a", "Leaderboard ↗", cls="sharebtn", href="leaderboard.html"),
             cls="headright",
         ),
@@ -1495,7 +1593,9 @@ def _header_html(state: dict[str, Any], proven: list[dict[str, Any]]) -> str:
     )
 
 
-def _substance_html(state: dict[str, Any], proven: list[dict[str, Any]], gate: dict[str, Any]) -> str:
+def _substance_html(
+    state: dict[str, Any], proven: list[dict[str, Any]], gate: dict[str, Any]
+) -> str:
     """SUBSTANCE — the beating heart: bench, proven techniques, proven-DNA helix +
     lineage graph, calibration + the reproduction gate."""
     helix_col = el(
@@ -1523,7 +1623,11 @@ def _proof_html(state: dict[str, Any]) -> str:
     the onchain identity + reputation scorecard."""
     return (
         el("details", el("summary", "// THE THREE BOOKS"), books_html(state))
-        + el("details", el("summary", "// FULL LOADOUT · every adopted technique"), techniques_html(state))
+        + el(
+            "details",
+            el("summary", "// FULL LOADOUT · every adopted technique"),
+            techniques_html(state),
+        )
         + el("details", el("summary", "// LINEAGE · children & inheritance"), family_html(state))
         + el("details", el("summary", "// ONCHAIN IDENTITY & SCORECARD"), onchain_html(state))
     )
@@ -1545,7 +1649,9 @@ def render(state: dict[str, Any]) -> str:
     foot = el(
         "div",
         el("span", lion("14px"), cls="lionmark"),
-        esc(f" //GEMACH · a mind that must prove edge to survive · rendered {datetime.now(UTC).isoformat(timespec='seconds')}"),
+        esc(
+            f" //GEMACH · a mind that must prove edge to survive · rendered {datetime.now(UTC).isoformat(timespec='seconds')}"
+        ),
         cls="foot",
     )
     scripts = live_sync_script(state) + dna_script(state, proven)
@@ -1576,7 +1682,12 @@ def render(state: dict[str, Any]) -> str:
     )
 
 
-def render_html(state: dict[str, Any], identity: str = "", journal: list | None = None, messages: list | None = None) -> str:
+def render_html(
+    state: dict[str, Any],
+    identity: str = "",
+    journal: list | None = None,
+    messages: list | None = None,
+) -> str:
     """Back-compat shim: accept a bare metabolism dict (as the old tests do) and wrap
     it into the full state the pure :func:`render` needs, reading the rest from home."""
     if "metabolism" in state and "genome" in state:
@@ -1591,9 +1702,13 @@ def render_html(state: dict[str, Any], identity: str = "", journal: list | None 
         "style": style,
         "proven_markets": load_json(h / "forge" / "proven_markets.json", {}).get("pairs", []),
         "techniques": _load_techniques(h, style.get("adopted", [])),
-        "authored_cards": _load_authored(h, (metabolism.get("onchain_identity") or {}).get("agentId", "")),
+        "authored_cards": _load_authored(
+            h, (metabolism.get("onchain_identity") or {}).get("agentId", "")
+        ),
         "journal": journal if journal is not None else read_jsonl(h / "journal.jsonl"),
-        "telepathy": messages if messages is not None else read_jsonl(h / "telepathy" / "bus.jsonl"),
+        "telepathy": messages
+        if messages is not None
+        else read_jsonl(h / "telepathy" / "bus.jsonl"),
         "positions": load_json(h / "positions.json", {}),
         "gas": load_json(h / "gas.json", {}),
         "leaderboard": load_json(h / "leaderboard.json", {}),
@@ -1631,7 +1746,9 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p_render = sub.add_parser("render")
     p_render.add_argument("--out")
-    p_render.add_argument("--no-live", action="store_true", help="skip the live HL positions refresh")
+    p_render.add_argument(
+        "--no-live", action="store_true", help="skip the live HL positions refresh"
+    )
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--out")
     p_serve.add_argument("--port", type=int, default=8787)

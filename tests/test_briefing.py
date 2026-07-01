@@ -24,8 +24,20 @@ def _full() -> dict:
             "leverage_cap": 3,
             "breaker": {"allow_entry": True, "drawdown_pct": 0.1, "hwm": 202.36},
             "intents": [
-                {"coin": "xyz:SNDK", "side": "long", "confidence": 0.542, "proven": False, "technique": "stop-hunt-revert"},
-                {"coin": "SOL", "side": "short", "confidence": 0.371, "proven": True, "technique": "contrarian-flow"},
+                {
+                    "coin": "xyz:SNDK",
+                    "side": "long",
+                    "confidence": 0.542,
+                    "proven": False,
+                    "technique": "stop-hunt-revert",
+                },
+                {
+                    "coin": "SOL",
+                    "side": "short",
+                    "confidence": 0.371,
+                    "proven": True,
+                    "technique": "contrarian-flow",
+                },
             ],
         },
         "economics": {"n": 11, "win_rate": 0.091, "expectancy": -1.282, "verdict": "🔴 still -EV"},
@@ -51,7 +63,9 @@ def test_briefing_has_every_section_and_the_live_numbers():
 
 def test_open_positions_are_summarised_not_hidden():
     d = _full()
-    d["account"]["positions"] = [{"coin": "xyz:MU", "size": "2", "entryPx": 150, "unrealizedPnl": 1.25}]
+    d["account"]["positions"] = [
+        {"coin": "xyz:MU", "size": "2", "entryPx": 150, "unrealizedPnl": 1.25}
+    ]
     b = briefing.render_briefing(d)
     assert "1 OPEN" in b and "xyz:MU long 2.0@$150.00" in b
     # the ACCOUNT line must not claim a flat book when positioned (the closer's generic
@@ -77,8 +91,12 @@ def test_no_intents_and_all_chop_render_cleanly():
 
 def test_render_never_raises_on_empty_or_partial_data():
     # a blinded cycle is worse than a thin briefing — it must degrade, not crash
-    for d in ({}, {"meta": None, "intel": None, "forge": None, "account": None, "economics": None},
-              {"forge": {"intents": [{"coin": "X"}]}}, {"account": {"equity": "?"}}):
+    for d in (
+        {},
+        {"meta": None, "intel": None, "forge": None, "account": None, "economics": None},
+        {"forge": {"intents": [{"coin": "X"}]}},
+        {"account": {"equity": "?"}},
+    ):
         b = briefing.render_briefing(d)
         assert isinstance(b, str) and "Cycle briefing" in b
 
@@ -86,16 +104,47 @@ def test_render_never_raises_on_empty_or_partial_data():
 def _crypto_binary_market() -> dict:
     return {
         "sides": [
-            {"outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731", "price": 0.81,
-             "volumeUsd": 287125.0, "category": "sports"},
-            {"outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130", "price": 0.75,
-             "volumeUsd": 188506.0, "category": "crypto-price",
-             "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"}},
+            {
+                "outcomeId": 173,
+                "name": "Argentina",
+                "side": "No",
+                "coin": "#1731",
+                "price": 0.81,
+                "volumeUsd": 287125.0,
+                "category": "sports",
+            },
+            {
+                "outcomeId": 713,
+                "name": "Recurring",
+                "side": "Yes",
+                "coin": "#7130",
+                "price": 0.75,
+                "volumeUsd": 188506.0,
+                "category": "crypto-price",
+                "resolution": {
+                    "underlying": "BTC",
+                    "targetPrice": 59122,
+                    "expiry": "20260702-0600",
+                    "period": "1d",
+                },
+            },
         ],
         "edgeable": [
-            {"outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130", "price": 0.75,
-             "volumeUsd": 188506.0, "category": "crypto-price",
-             "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"}},
+            {
+                "outcomeId": 713,
+                "name": "Recurring",
+                "side": "Yes",
+                "coin": "#7130",
+                "price": 0.75,
+                "volumeUsd": 188506.0,
+                "category": "crypto-price",
+                "resolution": {
+                    "underlying": "BTC",
+                    "targetPrice": 59122,
+                    "expiry": "20260702-0600",
+                    "period": "1d",
+                },
+            },
         ],
         "edgeable_count": 1,
     }
@@ -115,8 +164,17 @@ def test_event_desk_shows_edgeable_market_with_resolution_criteria():
 def test_event_desk_shows_explicit_no_edgeable_market_when_only_sports():
     d = _full()
     d["outcomes"] = {
-        "sides": [{"outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731",
-                   "price": 0.81, "volumeUsd": 287125.0, "category": "sports"}],
+        "sides": [
+            {
+                "outcomeId": 173,
+                "name": "Argentina",
+                "side": "No",
+                "coin": "#1731",
+                "price": 0.81,
+                "volumeUsd": 287125.0,
+                "category": "sports",
+            }
+        ],
         "edgeable": [],
         "edgeable_count": 0,
         "no_edgeable_market": "1 sides clear the $10,000 floor but all are efficient (sports/World-Cup)",
@@ -157,5 +215,8 @@ def test_spot_reference_below_strike_and_low_priced_precision() -> None:
 
 def test_spot_reference_missing_mark_is_empty_never_raises() -> None:
     """No mark for the underlying (or a non-price-binary side) → empty suffix, no crash."""
-    assert briefing._spot_reference({"resolution": {"underlying": "BTC", "targetPrice": 59122}}, {}) == ""
+    assert (
+        briefing._spot_reference({"resolution": {"underlying": "BTC", "targetPrice": 59122}}, {})
+        == ""
+    )
     assert briefing._spot_reference({"description": "some sport"}, {"BTC": {"price": 1}}) == ""
