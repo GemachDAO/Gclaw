@@ -95,6 +95,8 @@ HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
 #   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
 TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
 MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
+
+
 # Backtest execution mode must MATCH the live executor (hl_perp.js), and it does: BOTH
 # read GCLAW_FORGE_MAKER_ENTRY. Unset (default) → the executor opens isMarket:true (taker)
 # with an attached TP/SL and the backtest charges taker entry. Set to 1 → the executor
@@ -938,24 +940,35 @@ def cmd_author(args: argparse.Namespace) -> dict[str, Any]:
     violations = validate_signal_src(body)
     if violations:
         return {
-            "ok": False, "authored": tid, "rejected": "sandbox",
-            "violations": violations, "proven": False, "adopted": False,
+            "ok": False,
+            "authored": tid,
+            "rejected": "sandbox",
+            "violations": violations,
+            "proven": False,
+            "adopted": False,
         }
     d = tech_dir(tid)
     if d.exists() and not args.force:
         die(f"technique '{tid}' exists — use --force to revise it, or fork it under a new name")
     d.mkdir(parents=True, exist_ok=True)
     tech = {
-        "id": tid, "name": args.name, "kind": args.kind, "author": agent_id(),
-        "parent": args.parent, "claim": args.claim or "", "status": "draft",
+        "id": tid,
+        "name": args.name,
+        "kind": args.kind,
+        "author": agent_id(),
+        "parent": args.parent,
+        "claim": args.claim or "",
+        "status": "draft",
         "created_at": now_iso(),
     }
     save_technique(tech)
     (d / "signal.py").write_text(body, encoding="utf-8")
     (d / "SKILL.md").write_text(
         SKILL_TEMPLATE.format(
-            name=args.name, kind=args.kind,
-            claim=args.claim or "(state the edge)", author=tech["author"],
+            name=args.name,
+            kind=args.kind,
+            claim=args.claim or "(state the edge)",
+            author=tech["author"],
         ),
         encoding="utf-8",
     )
@@ -964,13 +977,20 @@ def cmd_author(args: argparse.Namespace) -> dict[str, Any]:
     try:
         card = backtest(tid, args.coin, args.interval, args.limit)
     except ValueError as exc:
-        return {"ok": True, "authored": tid, "proven": False, "adopted": False,
-                "verdict": f"could not backtest ({exc}); kept as draft"}
+        return {
+            "ok": True,
+            "authored": tid,
+            "proven": False,
+            "adopted": False,
+            "verdict": f"could not backtest ({exc}); kept as draft",
+        }
     (d / "card.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
     tech["status"] = "proven" if card["proven"] else "draft"
     tech["card"] = {
-        "coin": card["coin"], "interval": card["interval"],
-        "oos": card["out_of_sample"], "proven": card["proven"],
+        "coin": card["coin"],
+        "interval": card["interval"],
+        "oos": card["out_of_sample"],
+        "proven": card["proven"],
     }
     save_technique(tech)
     adopted = False
@@ -981,10 +1001,15 @@ def cmd_author(args: argparse.Namespace) -> dict[str, Any]:
         save_style(style)
         adopted = True
     return {
-        "ok": True, "authored": tid, "proven": card["proven"], "adopted": adopted, "card": card,
+        "ok": True,
+        "authored": tid,
+        "proven": card["proven"],
+        "adopted": adopted,
+        "card": card,
         "verdict": (
             "adopted — graduated on out-of-sample edge"
-            if adopted else "kept as draft — did not clear the OOS gate; fork and improve it"
+            if adopted
+            else "kept as draft — did not clear the OOS gate; fork and improve it"
         ),
     }
 
@@ -1773,15 +1798,28 @@ def _size_via_brain(
     """
     sz = subprocess.run(
         [
-            "uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "sizing.py"), "size",
-            "--equity", str(equity),
-            "--price", str(price),
-            "--atr-pct", str(atr_pct),
-            "--win-rate", str(edge.get("win_rate", 0.5)),
-            "--payoff", str(edge.get("payoff", 1.5)),
-            "--trades", str(edge.get("trades", 0)),
-            "--goodwill", str(float(load_metabolism().get("goodwill", 0) or 0)),
-            "--confidence", str(confidence),
+            "uv",
+            "run",
+            "--no-project",
+            "python3",
+            str(SCRIPT_DIR / "sizing.py"),
+            "size",
+            "--equity",
+            str(equity),
+            "--price",
+            str(price),
+            "--atr-pct",
+            str(atr_pct),
+            "--win-rate",
+            str(edge.get("win_rate", 0.5)),
+            "--payoff",
+            str(edge.get("payoff", 1.5)),
+            "--trades",
+            str(edge.get("trades", 0)),
+            "--goodwill",
+            str(float(load_metabolism().get("goodwill", 0) or 0)),
+            "--confidence",
+            str(confidence),
         ],
         capture_output=True,
         text=True,
@@ -1837,9 +1875,15 @@ def _intent(
     # skip. The live stop below is ATR-derived, but the DECISION must carry one first.
     if float(decision.get("stop_pct") or 0) <= 0:
         return {
-            "technique": tid, "coin": coin, "side": decision["action"], "leverage": leverage,
-            "sl_pct": 0.0, "confidence": float(decision.get("confidence") or 0),
-            "notional": 0, "risk_usd": 0.0, "reason": str(decision.get("reason") or "")[:120],
+            "technique": tid,
+            "coin": coin,
+            "side": decision["action"],
+            "leverage": leverage,
+            "sl_pct": 0.0,
+            "confidence": float(decision.get("confidence") or 0),
+            "notional": 0,
+            "risk_usd": 0.0,
+            "reason": str(decision.get("reason") or "")[:120],
         }
     atr_pct = float(intel.get("atr_pct") or decision.get("stop_pct") or 1.0)
     price = float(intel.get("price") or decision.get("price") or 0)
@@ -2104,8 +2148,16 @@ def _memory_edge_ok(technique: str, regime: str) -> tuple[bool, dict[str, Any]]:
     """
     out = subprocess.run(
         [
-            "uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "memory.py"),
-            "expectancy", "--technique", technique, "--regime", regime,
+            "uv",
+            "run",
+            "--no-project",
+            "python3",
+            str(SCRIPT_DIR / "memory.py"),
+            "expectancy",
+            "--technique",
+            technique,
+            "--regime",
+            regime,
         ],
         capture_output=True,
         text=True,
@@ -2182,9 +2234,11 @@ def _gate_intents(
             continue
         # Reuse the per-coin memory read stashed by cmd_run (cmd_run sets edge_real_mem
         # so the gate never re-queries memory.py per intent).
-        ok = bool(i.get("edge_real_mem")) if "edge_real_mem" in i else _memory_edge_ok(
-            i["technique"], i.get("regime", "range")
-        )[0]
+        ok = (
+            bool(i.get("edge_real_mem"))
+            if "edge_real_mem" in i
+            else _memory_edge_ok(i["technique"], i.get("regime", "range"))[0]
+        )
         # Cold-start means STILL-BOOTSTRAPPING, not LOSING: a technique earns bounded
         # half-size probes until it has a fair live sample (MIN_LIVE_SAMPLE closes). The
         # old window (< 3) benched a technique the moment it hit 3 trades — but the
@@ -2310,9 +2364,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
             save_pending(pending)
             result["attribution"] = {"coin": top["coin"], "credit_to": ref}
     elif args.execute:
-        result["executed"] = {
-            "skipped": "no intent cleared the edge_real + conviction gate"
-        }
+        result["executed"] = {"skipped": "no intent cleared the edge_real + conviction gate"}
     return result
 
 
@@ -2409,7 +2461,9 @@ def build_parser() -> argparse.ArgumentParser:
         "author", help="propose a signal body; validate+backtest+adopt-if-proven (never executes)"
     )
     au.add_argument("--name", required=True)
-    au.add_argument("--signal-file", dest="signal_file", required=True, help="path to the signal.py body")
+    au.add_argument(
+        "--signal-file", dest="signal_file", required=True, help="path to the signal.py body"
+    )
     au.add_argument("--claim", default="")
     au.add_argument("--kind", choices=["lens", "edge"], default="edge")
     au.add_argument("--coin", default="BTC")

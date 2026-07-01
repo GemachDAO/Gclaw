@@ -15,7 +15,9 @@ import forge
 
 
 def _wire(monkeypatch, universe, bt):
-    monkeypatch.setattr(forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]})
+    monkeypatch.setattr(
+        forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]}
+    )
     monkeypatch.setattr(forge, "_intel_features", lambda: universe)
     monkeypatch.setattr(forge, "load_signal", lambda _tid: None)  # ignored — backtest is mocked
     monkeypatch.setattr(forge, "_backtest_with", bt)
@@ -26,7 +28,11 @@ def _card(proven, n=50, exp=0.01):
 
 
 def test_autoprove_registers_only_pairs_with_out_of_sample_edge(gclaw_home, monkeypatch):
-    universe = {"ETH": {"regime": "range"}, "xyz:MU": {"regime": "range"}, "xyz:DUST": {"regime": "range"}}
+    universe = {
+        "ETH": {"regime": "range"},
+        "xyz:MU": {"regime": "range"},
+        "xyz:DUST": {"regime": "range"},
+    }
 
     def bt(_fn, coin, _interval, _limit, _tid=None):
         return _card(coin == "xyz:MU")  # only MU has edge
@@ -56,7 +62,9 @@ def test_autoprove_cooldown_skips_a_recently_attempted_pair(gclaw_home, monkeypa
 
 
 def test_autoprove_no_intel_is_a_safe_noop(gclaw_home, monkeypatch):
-    monkeypatch.setattr(forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]})
+    monkeypatch.setattr(
+        forge, "load_style", lambda: {"adopted": [{"id": "mom", "coin": "ETH", "interval": "4h"}]}
+    )
     monkeypatch.setattr(forge, "_intel_features", lambda: {})  # no scan yet
     out = forge.cmd_autoprove(Namespace(budget=10))
     assert out["ok"] and "skipped" in out
@@ -65,5 +73,7 @@ def test_autoprove_no_intel_is_a_safe_noop(gclaw_home, monkeypatch):
 def test_proven_pairs_round_trips_the_registry(gclaw_home):
     path = gclaw_home / "forge" / "proven_markets.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('{"pairs":[{"technique":"mom","coin":"xyz:MU"}],"attempts":{}}', encoding="utf-8")
+    path.write_text(
+        '{"pairs":[{"technique":"mom","coin":"xyz:MU"}],"attempts":{}}', encoding="utf-8"
+    )
     assert forge.proven_pairs() == {("mom", "xyz:MU")}

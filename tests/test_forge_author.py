@@ -24,14 +24,23 @@ def _args(tmp: Path, body: str, name: str) -> Namespace:
     f = tmp / "signal_body.py"
     f.write_text(body, encoding="utf-8")
     return Namespace(
-        name=name, signal_file=str(f), claim="test", kind="edge",
-        coin="BTC", interval="1h", limit=200, parent=None, force=False,
+        name=name,
+        signal_file=str(f),
+        claim="test",
+        kind="edge",
+        coin="BTC",
+        interval="1h",
+        limit=200,
+        parent=None,
+        force=False,
     )
 
 
 def _card(proven: bool) -> dict:
     return {
-        "proven": proven, "coin": "BTC", "interval": "1h",
+        "proven": proven,
+        "coin": "BTC",
+        "interval": "1h",
         "out_of_sample": {"n": 50, "expectancy": 0.01 if proven else -0.01},
     }
 
@@ -39,6 +48,7 @@ def _card(proven: bool) -> dict:
 def _no_execute(monkeypatch) -> None:
     def boom(_intent):
         raise AssertionError("author must NEVER execute a trade")
+
     monkeypatch.setattr(forge, "_execute", boom)
 
 

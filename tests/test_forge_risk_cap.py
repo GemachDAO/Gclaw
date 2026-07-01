@@ -30,9 +30,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import forge  # noqa: E402
 
-_FIXTURE_OK = settings(
-    suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None
-)
+_FIXTURE_OK = settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
 
 
 @pytest.fixture

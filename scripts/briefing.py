@@ -55,9 +55,12 @@ def gather() -> dict:
         # status cache can still report a position that closed within the window (a phantom).
         # This also refreshes the cache for cheaper downstream consumers.
         "account": _run_json(["node", str(scripts / "hl_perp.js"), "status"], {}),
-        "forge": _run_json(["uv", "run", "--no-project", "python3", str(scripts / "forge.py"), "run"], {}),
+        "forge": _run_json(
+            ["uv", "run", "--no-project", "python3", str(scripts / "forge.py"), "run"], {}
+        ),
         "economics": _run_json(
-            ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"], {}
+            ["uv", "run", "--no-project", "python3", str(scripts / "audit_economics.py"), "report"],
+            {},
         ),
         # Scientist board: the adopted loadout (each entry carries weight/e/trades) and
         # the learned per-(technique, regime) edge — the raw material for authoring.
@@ -69,7 +72,8 @@ def gather() -> dict:
             ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "markets"], {}
         ),
         "calibration": _run_json(
-            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "calibration"], {}
+            ["uv", "run", "--no-project", "python3", str(scripts / "outcomes.py"), "calibration"],
+            {},
         ),
     }
 
@@ -158,7 +162,10 @@ def render_briefing(d: dict) -> str:
     orders = acct.get("openOrders") or []
     allow = breaker.get("allow_entry", not breaker.get("tripped", False))
 
-    out = ["## Cycle briefing — PRE-GATHERED (do not re-fetch positions, market data, or run the forge)", ""]
+    out = [
+        "## Cycle briefing — PRE-GATHERED (do not re-fetch positions, market data, or run the forge)",
+        "",
+    ]
     out.append(
         f"**Survival:** mode {mode} · GMAC {_f(meta.get('gmac_balance')):.0f}/"
         f"{_f(meta.get('seed'), 1000):.0f} · goodwill {meta.get('goodwill', 0)} · "
@@ -170,11 +177,15 @@ def render_briefing(d: dict) -> str:
             f"{abs(_f(p.get('size')))}@{_money(p.get('entryPx'))} (uPnL {_money(p.get('unrealizedPnl'))})"
             for p in positions
         )
-        out.append(f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
-                   f"{len(positions)} OPEN — {pos} · {len(orders)} resting orders")
+        out.append(
+            f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
+            f"{len(positions)} OPEN — {pos} · {len(orders)} resting orders"
+        )
     else:
-        out.append(f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
-                   f"**flat (0 open positions)** · {len(orders)} resting orders")
+        out.append(
+            f"**Account:** equity {_money(equity)} · buying power {_money(bp)} · "
+            f"**flat (0 open positions)** · {len(orders)} resting orders"
+        )
     dd = breaker.get("drawdown_pct", breaker.get("drawdown", "?"))
     out.append(
         f"**Risk gate:** circuit breaker {'CLEAR — entries allowed' if allow else 'TRIPPED — no new entries'} "
@@ -183,7 +194,9 @@ def render_briefing(d: dict) -> str:
     live = sorted((c, f) for c, f in intel.items() if f and f.get("regime") != "chop")
     chop = sorted(c for c, f in intel.items() if f and f.get("regime") == "chop")
     if live:
-        names = " · ".join(f"{c} {f.get('regime')}{'✓' if f.get('tradeable') else ''}" for c, f in live)
+        names = " · ".join(
+            f"{c} {f.get('regime')}{'✓' if f.get('tradeable') else ''}" for c, f in live
+        )
         out.append(f"**Tradeable now ({len(live)}):** {names}")
     else:
         out.append("**Tradeable now:** none — whole board is chop")
@@ -194,7 +207,9 @@ def render_briefing(d: dict) -> str:
         out.append("**Forge intents (ranked by confidence):**")
         for it in intents[:6]:
             tag = "✅ PROVEN (executable)" if it.get("proven") else "— unproven (explore only)"
-            out.append(f"  {it.get('coin')} {it.get('side')} conf {it.get('confidence')} {tag} [{it.get('technique')}]")
+            out.append(
+                f"  {it.get('coin')} {it.get('side')} conf {it.get('confidence')} {tag} [{it.get('technique')}]"
+            )
     else:
         out.append("**Forge intents:** none — no technique cleared on any market this scan")
     if econ.get("n"):
@@ -234,7 +249,9 @@ def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     else:
         lines.append("  (none adopted)")
     # Which live (non-chop) regimes have NO technique with positive learned edge → gaps to invent for.
-    live_regimes = {f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")}
+    live_regimes = {
+        f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")
+    }
     covered = {
         rg for stats in regime_stats.values() for rg, s in stats.items() if _f(s.get("e")) > 0
     }
@@ -267,8 +284,13 @@ def _event_desk_board(outcomes: dict, calibration: dict, intel: dict) -> list[st
     for s in sides:
         m = by_market.setdefault(
             s.get("outcomeId"),
-            {"name": s.get("name"), "sides": [], "vol": 0.0,
-             "resolution": _resolution_label(s), "ref_side": s},
+            {
+                "name": s.get("name"),
+                "sides": [],
+                "vol": 0.0,
+                "resolution": _resolution_label(s),
+                "ref_side": s,
+            },
         )
         m["sides"].append(s)
         m["vol"] += _f(s.get("volumeUsd"))
@@ -286,7 +308,9 @@ def _event_desk_board(outcomes: dict, calibration: dict, intel: dict) -> list[st
     else:
         lines.append("  (no markets clear the volume floor)")
     if not edgeable and outcomes.get("no_edgeable_market"):
-        lines.append(f"  ↳ NO EDGEABLE MARKET: {outcomes['no_edgeable_market']} — desk idle by design")
+        lines.append(
+            f"  ↳ NO EDGEABLE MARKET: {outcomes['no_edgeable_market']} — desk idle by design"
+        )
     open_t = calibration.get("open") or []
     if open_t:
         held = "; ".join(
@@ -300,7 +324,11 @@ def _event_desk_board(outcomes: dict, calibration: dict, intel: dict) -> list[st
     agg = calibration.get("aggregates") or {}
     brier, baseline = agg.get("brier_mean"), agg.get("baseline_mean")
     if agg.get("n_resolved"):
-        verdict = "BEATING no-skill" if brier is not None and baseline is not None and brier < baseline else "below no-skill baseline"
+        verdict = (
+            "BEATING no-skill"
+            if brier is not None and baseline is not None and brier < baseline
+            else "below no-skill baseline"
+        )
         lines.append(
             f"**Calibration:** {agg.get('n')} tickets ({agg.get('n_shadow')} shadow / "
             f"{agg.get('n_live')} live) · {agg.get('n_resolved')} resolved · "

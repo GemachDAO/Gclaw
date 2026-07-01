@@ -18,10 +18,38 @@ import pytest
 import outcomes
 
 SIDES = [
-    {"outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731", "price": 0.80, "volumeUsd": 263901.0},
-    {"outcomeId": 173, "name": "Argentina", "side": "Yes", "coin": "#1730", "price": 0.20, "volumeUsd": 64944.0},
-    {"outcomeId": 999, "name": "Thin", "side": "Yes", "coin": "#9990", "price": 0.50, "volumeUsd": 500.0},
-    {"outcomeId": 888, "name": "Longshot", "side": "Yes", "coin": "#8880", "price": 0.05, "volumeUsd": 50000.0},
+    {
+        "outcomeId": 173,
+        "name": "Argentina",
+        "side": "No",
+        "coin": "#1731",
+        "price": 0.80,
+        "volumeUsd": 263901.0,
+    },
+    {
+        "outcomeId": 173,
+        "name": "Argentina",
+        "side": "Yes",
+        "coin": "#1730",
+        "price": 0.20,
+        "volumeUsd": 64944.0,
+    },
+    {
+        "outcomeId": 999,
+        "name": "Thin",
+        "side": "Yes",
+        "coin": "#9990",
+        "price": 0.50,
+        "volumeUsd": 500.0,
+    },
+    {
+        "outcomeId": 888,
+        "name": "Longshot",
+        "side": "Yes",
+        "coin": "#8880",
+        "price": 0.05,
+        "volumeUsd": 50000.0,
+    },
 ]
 
 
@@ -45,7 +73,9 @@ def test_rule_a_reject_unknown_coin() -> None:
 
 
 def test_rule_a_reject_low_volume_side_present_in_board() -> None:
-    sides = SIDES + [{"outcomeId": 7, "name": "x", "side": "y", "coin": "#70", "price": 0.5, "volumeUsd": 9000.0}]
+    sides = SIDES + [
+        {"outcomeId": 7, "name": "x", "side": "y", "coin": "#70", "price": 0.5, "volumeUsd": 9000.0}
+    ]
     v = outcomes.evaluate_bet("#70", 0.99, 5, sides, set(), 0)
     assert "volume" in v["skipped"] and "floor" in v["skipped"]
 
@@ -91,10 +121,26 @@ def test_prob_out_of_range_is_a_clean_skip() -> None:
 def test_brier_contribution_perfect_and_worst() -> None:
     # outcome=1, prob=1.0 → 0; prob=0.0 → 1. (prob - outcome)^2.
     assert (1.0 - 1) ** 2 == 0.0
-    led = {"tickets": [
-        {"price": 0.8, "prob": 0.9, "shadow": True, "resolved": True, "outcome": 1, "brier": (0.9 - 1) ** 2},
-        {"price": 0.3, "prob": 0.4, "shadow": True, "resolved": True, "outcome": 0, "brier": (0.4 - 0) ** 2},
-    ]}
+    led = {
+        "tickets": [
+            {
+                "price": 0.8,
+                "prob": 0.9,
+                "shadow": True,
+                "resolved": True,
+                "outcome": 1,
+                "brier": (0.9 - 1) ** 2,
+            },
+            {
+                "price": 0.3,
+                "prob": 0.4,
+                "shadow": True,
+                "resolved": True,
+                "outcome": 0,
+                "brier": (0.4 - 0) ** 2,
+            },
+        ]
+    }
     agg = outcomes._aggregate(led["tickets"])
     assert agg["n_resolved"] == 2
     assert agg["brier_mean"] == pytest.approx(((0.1**2) + (0.4**2)) / 2)
@@ -171,13 +217,39 @@ def test_gate_rejection_records_nothing(gclaw_home: Path, monkeypatch) -> None:
 _OLD_TS = "2026-01-01T00:00:00+00:00"
 
 
-def test_resolve_scores_brier_from_settlement_fills_calibration_only(gclaw_home: Path, monkeypatch) -> None:
-    led = {"tickets": [
-        {"coin": "#1731", "outcomeId": 173, "name": "Argentina", "side": "No", "prob": 0.9,
-         "price": 0.8, "stake": 8.0, "edge": 0.1, "shadow": True, "resolved": False, "ts": _OLD_TS},
-        {"coin": "#8880", "outcomeId": 888, "name": "L", "side": "Yes", "prob": 0.7,
-         "price": 0.5, "stake": 8.0, "edge": 0.2, "shadow": False, "resolved": False, "ts": _OLD_TS},
-    ]}
+def test_resolve_scores_brier_from_settlement_fills_calibration_only(
+    gclaw_home: Path, monkeypatch
+) -> None:
+    led = {
+        "tickets": [
+            {
+                "coin": "#1731",
+                "outcomeId": 173,
+                "name": "Argentina",
+                "side": "No",
+                "prob": 0.9,
+                "price": 0.8,
+                "stake": 8.0,
+                "edge": 0.1,
+                "shadow": True,
+                "resolved": False,
+                "ts": _OLD_TS,
+            },
+            {
+                "coin": "#8880",
+                "outcomeId": 888,
+                "name": "L",
+                "side": "Yes",
+                "prob": 0.7,
+                "price": 0.5,
+                "stake": 8.0,
+                "edge": 0.2,
+                "shadow": False,
+                "resolved": False,
+                "ts": _OLD_TS,
+            },
+        ]
+    }
     outcomes.save_ledger(led)
     # Real HL settlement fills: #1731 settled TRUE (px 1), #8880 settled FALSE (px 0).
     settlements = [
@@ -187,8 +259,11 @@ def test_resolve_scores_brier_from_settlement_fills_calibration_only(gclaw_home:
     monkeypatch.setattr(outcomes, "fetch_settlements", lambda: settlements)
     # The desk must NEVER settle PnL itself — autosettle owns it. Catch any subprocess
     # (a metabolism settle) as a double-count regression.
-    monkeypatch.setattr(outcomes.subprocess, "run",
-                        lambda *a, **k: pytest.fail("cmd_resolve must not settle PnL (autosettle owns it)"))
+    monkeypatch.setattr(
+        outcomes.subprocess,
+        "run",
+        lambda *a, **k: pytest.fail("cmd_resolve must not settle PnL (autosettle owns it)"),
+    )
     res = outcomes.cmd_resolve(argparse.Namespace())
     assert res["resolved"] == 2
     final = json.loads((gclaw_home / "calibration.json").read_text())
@@ -200,10 +275,23 @@ def test_resolve_scores_brier_from_settlement_fills_calibration_only(gclaw_home:
 
 
 def test_resolve_is_idempotent(gclaw_home: Path, monkeypatch) -> None:
-    led = {"tickets": [
-        {"coin": "#1731", "outcomeId": 173, "name": "A", "side": "No", "prob": 0.9, "price": 0.8,
-         "stake": 8.0, "edge": 0.1, "shadow": False, "resolved": False, "ts": _OLD_TS},
-    ]}
+    led = {
+        "tickets": [
+            {
+                "coin": "#1731",
+                "outcomeId": 173,
+                "name": "A",
+                "side": "No",
+                "prob": 0.9,
+                "price": 0.8,
+                "stake": 8.0,
+                "edge": 0.1,
+                "shadow": False,
+                "resolved": False,
+                "ts": _OLD_TS,
+            },
+        ]
+    }
     outcomes.save_ledger(led)
     settlements = [{"coin": "#1731", "settlePx": 1.0, "closedPnl": 2.0, "time": 9.0e12}]
     monkeypatch.setattr(outcomes, "fetch_settlements", lambda: settlements)
@@ -214,12 +302,27 @@ def test_resolve_is_idempotent(gclaw_home: Path, monkeypatch) -> None:
 
 def test_resolve_ignores_settlement_predating_the_ticket(gclaw_home: Path, monkeypatch) -> None:
     # A settlement that happened BEFORE the bet must not resolve it (stale-coin guard).
-    led = {"tickets": [
-        {"coin": "#1731", "outcomeId": 173, "name": "A", "side": "No", "prob": 0.9, "price": 0.8,
-         "stake": 8.0, "edge": 0.1, "shadow": True, "resolved": False, "ts": "2026-06-01T00:00:00+00:00"},
-    ]}
+    led = {
+        "tickets": [
+            {
+                "coin": "#1731",
+                "outcomeId": 173,
+                "name": "A",
+                "side": "No",
+                "prob": 0.9,
+                "price": 0.8,
+                "stake": 8.0,
+                "edge": 0.1,
+                "shadow": True,
+                "resolved": False,
+                "ts": "2026-06-01T00:00:00+00:00",
+            },
+        ]
+    }
     outcomes.save_ledger(led)
-    settlements = [{"coin": "#1731", "settlePx": 1.0, "closedPnl": 2.0, "time": 1.0e12}]  # ~2001, pre-bet
+    settlements = [
+        {"coin": "#1731", "settlePx": 1.0, "closedPnl": 2.0, "time": 1.0e12}
+    ]  # ~2001, pre-bet
     monkeypatch.setattr(outcomes, "fetch_settlements", lambda: settlements)
     res = outcomes.cmd_resolve(argparse.Namespace())
     assert res["resolved"] == 0
@@ -233,18 +336,38 @@ def test_calibration_read_never_raises_on_empty(gclaw_home: Path) -> None:
 # ── Edgeable partition + honest no-edgeable-market skip ───────────────────────
 
 _CRYPTO_SIDE = {
-    "outcomeId": 713, "name": "Recurring", "side": "Yes", "coin": "#7130",
-    "price": 0.75, "volumeUsd": 188506.0, "category": "crypto-price",
-    "resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600", "period": "1d"},
+    "outcomeId": 713,
+    "name": "Recurring",
+    "side": "Yes",
+    "coin": "#7130",
+    "price": 0.75,
+    "volumeUsd": 188506.0,
+    "category": "crypto-price",
+    "resolution": {
+        "underlying": "BTC",
+        "targetPrice": 59122,
+        "expiry": "20260702-0600",
+        "period": "1d",
+    },
 }
 _MACRO_SIDE = {
-    "outcomeId": 510, "name": "No change", "side": "Yes", "coin": "#5100",
-    "price": 0.6, "volumeUsd": 40000.0, "category": "macro",
+    "outcomeId": 510,
+    "name": "No change",
+    "side": "Yes",
+    "coin": "#5100",
+    "price": 0.6,
+    "volumeUsd": 40000.0,
+    "category": "macro",
     "description": "resolves to Yes if the July 2026 FOMC decision leaves the rate unchanged",
 }
 _SPORTS_SIDE = {
-    "outcomeId": 173, "name": "Argentina", "side": "No", "coin": "#1731",
-    "price": 0.81, "volumeUsd": 287125.0, "category": "sports",
+    "outcomeId": 173,
+    "name": "Argentina",
+    "side": "No",
+    "coin": "#1731",
+    "price": 0.81,
+    "volumeUsd": 287125.0,
+    "category": "sports",
     "description": "resolves to Yes if Argentina is the 2026 FIFA World Cup champion",
 }
 
@@ -257,12 +380,16 @@ def test_partition_splits_crypto_and_macro_from_sports() -> None:
 
 def test_partition_treats_uncategorized_side_as_efficient() -> None:
     # Fail closed: a side with no category (older bridge output) is never called edgeable.
-    edgeable, efficient = outcomes.partition_edgeable([{"coin": "#x", "price": 0.5, "volumeUsd": 99999.0}])
+    edgeable, efficient = outcomes.partition_edgeable(
+        [{"coin": "#x", "price": 0.5, "volumeUsd": 99999.0}]
+    )
     assert edgeable == [] and len(efficient) == 1
 
 
 def test_markets_surfaces_edgeable_crypto_market(monkeypatch) -> None:
-    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: [_SPORTS_SIDE, _CRYPTO_SIDE])
+    monkeypatch.setattr(
+        outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: [_SPORTS_SIDE, _CRYPTO_SIDE]
+    )
     out = outcomes.cmd_markets(argparse.Namespace(min_vol=None))
     assert out["ok"] and out["edgeable_count"] == 1
     assert out["edgeable"][0]["coin"] == "#7130"
@@ -283,5 +410,7 @@ def test_gate_still_refuses_no_edge_sports_side() -> None:
     # Surfacing the broader set must NOT weaken the gate: an efficient sports side where the
     # LLM's probability does not diverge past the margin is still cleanly skipped.
     sides = [_SPORTS_SIDE]
-    v = outcomes.evaluate_bet("#1731", prob=0.83, stake=8.0, sides=sides, open_coins=set(), n_open=0)
+    v = outcomes.evaluate_bet(
+        "#1731", prob=0.83, stake=8.0, sides=sides, open_coins=set(), n_open=0
+    )
     assert v["placed"] is False and "margin" in v["skipped"]

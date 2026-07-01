@@ -140,11 +140,15 @@ def _place_live_order(side: dict[str, Any], stake: float) -> dict[str, Any]:
     return _run_outcomes_js(
         [
             "order",
-            "--outcome", str(side["outcomeId"]),
-            "--coin", str(side["coin"]),
+            "--outcome",
+            str(side["outcomeId"]),
+            "--coin",
+            str(side["coin"]),
             "--buy",
-            "--price", str(price),
-            "--size", str(size),
+            "--price",
+            str(price),
+            "--size",
+            str(size),
             "--market",
         ]
     )
@@ -290,7 +294,9 @@ def evaluate_bet(
     return {"ok": True, "side": side, "edge": edge}
 
 
-def _new_ticket(side: dict[str, Any], prob: float, stake: float, edge: float, reason: str) -> dict[str, Any]:
+def _new_ticket(
+    side: dict[str, Any], prob: float, stake: float, edge: float, reason: str
+) -> dict[str, Any]:
     return {
         "coin": side["coin"],
         "outcomeId": side["outcomeId"],
@@ -395,14 +401,18 @@ def cmd_resolve(_args: argparse.Namespace) -> dict[str, Any]:
         t["resolved"] = True
         t["outcome"] = outcome
         t["brier"] = round((float(t["prob"]) - outcome) ** 2, 6)
-        t["settle_pnl"] = round(float(s.get("closedPnl", 0)), 6)  # informational; autosettle books it
+        t["settle_pnl"] = round(
+            float(s.get("closedPnl", 0)), 6
+        )  # informational; autosettle books it
         t["resolved_at"] = now_iso()
         resolved_now.append(t)
     save_ledger(led)
     return {
         "ok": True,
         "resolved": len(resolved_now),
-        "tickets": [{"coin": t["coin"], "outcome": t["outcome"], "brier": t["brier"]} for t in resolved_now],
+        "tickets": [
+            {"coin": t["coin"], "outcome": t["outcome"], "brier": t["brier"]} for t in resolved_now
+        ],
         "aggregates": led["aggregates"],
     }
 
@@ -410,7 +420,9 @@ def cmd_resolve(_args: argparse.Namespace) -> dict[str, Any]:
 # ── CLI verbs ────────────────────────────────────────────────────────────────
 
 
-def partition_edgeable(sides: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def partition_edgeable(
+    sides: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split the board into (edgeable, efficient) by market category.
 
     A side is edgeable when its category is in ``EDGEABLE_CATEGORIES`` (a dated crypto

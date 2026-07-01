@@ -137,9 +137,17 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _intent(trades: int, *, edge_real: bool = False, conf: float = 0.6) -> dict:
     """A gate-ready intent for a proven major, with a pre-stashed memory read."""
     return {
-        "technique": "t", "coin": "SOL", "side": "long", "leverage": 2, "sl_pct": 1.0,
-        "confidence": conf, "notional": 30.0, "proven": True, "regime": "range",
-        "edge_real_mem": edge_real, "edge_trades_mem": trades,
+        "technique": "t",
+        "coin": "SOL",
+        "side": "long",
+        "leverage": 2,
+        "sl_pct": 1.0,
+        "confidence": conf,
+        "notional": 30.0,
+        "proven": True,
+        "regime": "range",
+        "edge_real_mem": edge_real,
+        "edge_trades_mem": trades,
     }
 
 
@@ -167,9 +175,7 @@ def test_matured_technique_without_edge_real_is_benched(isolated_home: Path):
     """Past the bootstrap window (>=MIN_LIVE_SAMPLE trades) with no edge_real, the
     technique HAS been fairly measured and is benched — the gate stays REAL, it does not
     probe a measured non-edge forever."""
-    gated = forge._gate_intents(
-        [_intent(trades=forge.MIN_LIVE_SAMPLE, edge_real=False)], CAPS, {}
-    )
+    gated = forge._gate_intents([_intent(trades=forge.MIN_LIVE_SAMPLE, edge_real=False)], CAPS, {})
     assert gated == []
 
 

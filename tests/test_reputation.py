@@ -14,29 +14,52 @@ AID = "55624"
 
 
 def _seed(home: Path, adopted: list[dict], authored: list[str]) -> None:
-    (home / "metabolism.json").write_text(json.dumps({
-        "born_at": "2026-06-17T00:00:00+00:00", "heartbeats": 346, "recodes": 4,
-        "children": [{"name": "scion-1"}],
-        "onchain_identity": {"agentId": AID, "chain": "base:8453", "registry": "0xReg", "agentUrl": "u"},
-    }), encoding="utf-8")
+    (home / "metabolism.json").write_text(
+        json.dumps(
+            {
+                "born_at": "2026-06-17T00:00:00+00:00",
+                "heartbeats": 346,
+                "recodes": 4,
+                "children": [{"name": "scion-1"}],
+                "onchain_identity": {
+                    "agentId": AID,
+                    "chain": "base:8453",
+                    "registry": "0xReg",
+                    "agentUrl": "u",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     techs = home / "forge" / "techniques"
     techs.mkdir(parents=True, exist_ok=True)
     (home / "forge" / "style.json").write_text(json.dumps({"adopted": adopted}), encoding="utf-8")
     for tid in authored:
         (techs / tid).mkdir(parents=True, exist_ok=True)
-        (techs / tid / "technique.json").write_text(json.dumps({"id": tid, "author": AID}), encoding="utf-8")
+        (techs / tid / "technique.json").write_text(
+            json.dumps({"id": tid, "author": AID}), encoding="utf-8"
+        )
 
 
 def test_card_is_backed_by_settled_performance(gclaw_home, monkeypatch):
-    monkeypatch.setattr(reputation, "_economics", lambda: {
-        "n": 52, "win_rate": 0.19, "avg_win": 1.2, "avg_loss": -1.23, "net": -39.82, "expectancy": -0.77,
-    })
+    monkeypatch.setattr(
+        reputation,
+        "_economics",
+        lambda: {
+            "n": 52,
+            "win_rate": 0.19,
+            "avg_win": 1.2,
+            "avg_loss": -1.23,
+            "net": -39.82,
+            "expectancy": -0.77,
+        },
+    )
     _seed(
         gclaw_home,
         adopted=[
-            {"id": "stop-hunt-revert", "e": 0.16, "trades": 9},   # proven (seed author)
-            {"id": "vol-momentum", "e": 0.05, "trades": 5},        # proven + self-authored
-            {"id": "weak", "e": -0.01, "trades": 8},               # adopted but not proven
+            {"id": "stop-hunt-revert", "e": 0.16, "trades": 9},  # proven (seed author)
+            {"id": "vol-momentum", "e": 0.05, "trades": 5},  # proven + self-authored
+            {"id": "weak", "e": -0.01, "trades": 8},  # adopted but not proven
         ],
         authored=["vol-momentum"],  # only this one is author==AID
     )
