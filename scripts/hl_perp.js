@@ -19,6 +19,10 @@
  *   node hl_perp.js status
  *   node hl_perp.js open  --coin ETH --side long --notional 12 --sl-pct 2 --tp-pct 3
  *   node hl_perp.js close --coin ETH
+ *
+ * Entry fill type follows GCLAW_FORGE_MAKER_ENTRY (assune-4yt): unset → taker market
+ * (default); =1 → resting maker limit with the stop atomically attached, on the default
+ * dex only (builder xyz: coins stay taker — their attached SL is not armed resting).
  */
 'use strict';
 
@@ -184,6 +188,39 @@ function roundSig(value, sig = 5) {
   return Math.round(value * factor) / factor;
 }
 
+// Maker-entry mode (assune-4yt): when GCLAW_FORGE_MAKER_ENTRY=1 the forge models the
+// entry as a resting maker limit, so the live executor must POST one too or the cost
+// model diverges from reality. Only the default dex is eligible: on the xyz builder dex
+// the attached SL trigger is not armed as a resting order (assune-ehh), so a resting
+// entry there would fill naked — builder coins always stay taker.
+function makerEntryEnabled(coin) {
+  return process.env.GCLAW_FORGE_MAKER_ENTRY === '1' && !coin.includes(':');
+}
+
+// A maker limit must rest on the PASSIVE side of the mark so it adds liquidity instead
+// of crossing (which would pay taker): below the mark for a long, above for a short.
+// The offset is small (default 5bp) — wide enough to clear the mark, tight enough to
+// still fill in a normal drift. Returned already rounded to the venue's sig-fig grid.
+function makerLimitPrice(mark, isLong, offsetBps = Number(process.env.GCLAW_MAKER_OFFSET_BPS || 5)) {
+  const off = Math.max(0, offsetBps) / 10000;
+  return roundSig(isLong ? mark * (1 - off) : mark * (1 + off));
+}
+
+// Pure order-param construction — the one place entry price, size, stop, target, and
+// fill type are decided, kept network-free so the maker/taker + atomic-stop contract is
+// unit-testable. In maker mode the entry rests as a passive limit; either way tpPrice
+// AND slPrice are always set (>0), so the emitted order can never be a naked entry.
+function buildOpenOrder({ coin, isLong, mark, notionalTarget, slPct, tpPct, szDecimals }) {
+  const maker = makerEntryEnabled(coin);
+  const entryPx = maker ? makerLimitPrice(mark, isLong) : mark;
+  const size = Math.max(0, Number((notionalTarget / entryPx).toFixed(szDecimals)));
+  const notional = entryPx * size;
+  // Stop/target measured from the ENTRY price so slPct/tpPct hold at whatever price fills.
+  const sl = roundSig(isLong ? entryPx * (1 - slPct / 100) : entryPx * (1 + slPct / 100));
+  const tp = roundSig(isLong ? entryPx * (1 + tpPct / 100) : entryPx * (1 - tpPct / 100));
+  return { maker, entryPx, size, notional, sl, tp, isMarket: !maker };
+}
+
 async function signedSkill(wallet) {
   const { ethers, SDK } = loadSdk();
   const apiKey = process.env.GDEX_API_KEY || SDK.GDEX_API_KEY_PRIMARY;
@@ -309,32 +346,35 @@ async function cmdOpen(wallet, args) {
 
   const px = await markPriceFor(skill, coin);
   const dp = await szDecimalsFor(skill, coin);
-  const size = Math.max(0, Number((notionalTarget / px).toFixed(dp)));
-  const notional = px * size;
+  const { maker, entryPx, size, notional, sl, tp, isMarket } = buildOpenOrder({
+    coin, isLong, mark: px, notionalTarget, slPct, tpPct, szDecimals: dp,
+  });
   if (notional < MIN_NOTIONAL) die(`notional $${notional.toFixed(2)} below $${MIN_NOTIONAL} min — raise --notional`);
 
-  const sl = roundSig(isLong ? px * (1 - slPct / 100) : px * (1 + slPct / 100));
-  const tp = roundSig(isLong ? px * (1 + tpPct / 100) : px * (1 - tpPct / 100));
-  // COST-MODEL CONTRACT: this entry is a TAKER fill (isMarket:true). The forge backtest
-  // charges the matching taker cost by default (forge.py round_trip_cost, with
-  // GCLAW_FORGE_MAKER_ENTRY unset). When maker-first resting-limit entries land
-  // (assune-4yt), flip isMarket:false HERE and set GCLAW_FORGE_MAKER_ENTRY=1 for the forge
-  // TOGETHER — never one without the other, or the graduation cost model diverges from how
-  // fills actually happen and sub-fee noise could graduate.
+  // ATOMICITY / NO NAKED ENTRY: isMarket + price + tpPrice + slPrice are ONE signed
+  // hl_create_order action to ONE endpoint (ABI [coin,isLong,price,size,reduceOnly,
+  // nonce,tpPrice,slPrice,isMarket]). The stop is attached to the entry in the same
+  // request and activates on fill, so a maker resting entry is NEVER naked — there is no
+  // window where the limit rests without its stop. isMarket:false makes it a resting
+  // maker limit (adds liquidity); isMarket:true crosses as taker.
+  //
+  // COST-MODEL CONTRACT: maker mode here MUST move with GCLAW_FORGE_MAKER_ENTRY in the
+  // forge backtest (forge.py round_trip_cost) — both read the same env var, so the
+  // graduation cost model can never diverge from how fills actually happen.
   const res = await skill.hlCreateOrder({
     coin,
     isLong,
-    price: String(px),
+    price: String(entryPx),
     size: String(size),
     reduceOnly: false,
-    isMarket: true,
+    isMarket,
     tpPrice: String(tp),
     slPrice: String(sl),
     leverage,
     ...creds,
   });
   if (res && res.isSuccess === false) die(`open rejected: ${JSON.stringify(res)}`);
-  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', leverage, leverageCap: cap, mark: px, size, notional: Number(notional.toFixed(2)), sl, tp };
+  return { ok: true, action: 'open', coin, side: isLong ? 'long' : 'short', entryType: maker ? 'maker-limit' : 'taker-market', leverage, leverageCap: cap, mark: px, entryPx, size, notional: Number(notional.toFixed(2)), sl, tp };
 }
 
 // Resolve a position's signed size from the coin's own dex (builder coins live
@@ -450,6 +490,7 @@ async function main() {
 module.exports = {
   computeEquity, mapPositions, normalizeCoin, earnedLeverageCap, roundSig,
   readStatusCache, writeStatusCache, invalidateStatusCache, parseArgs,
+  makerEntryEnabled, makerLimitPrice, buildOpenOrder,
 };
 
 // The HL trader keeps a connection open; exit explicitly so we don't hang.

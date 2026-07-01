@@ -189,6 +189,13 @@ function enforce(dry) {
 
 function main() {
   const cmd = process.argv[2] || 'check';
+  // `cap` exposes the hard caps as JSON so other tools (forge.py sizing) size to the
+  // SAME limits this guard enforces — one source of truth, no duplicated constant.
+  if (cmd === 'cap') {
+    process.stdout.write(JSON.stringify({ ok: true, risk_cap_pct: RISK_CAP_PCT,
+      portfolio_cap_pct: PORTFOLIO_CAP_PCT, tolerance: TOLERANCE, min_notional: MIN_NOTIONAL }) + '\n');
+    return;
+  }
   const out = enforce(cmd !== 'run');
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');
 }
