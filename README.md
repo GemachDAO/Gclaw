@@ -5,15 +5,17 @@
   <img alt="GEMACH" src="assets/brand/gemach-lockup-black-on-light.png" width="260">
 </picture>
 
-<sub>`// GEMACH ECOSYSTEM · LIVING TRADING AGENT`</sub>
+<sub>`// GEMACH ECOSYSTEM · SELF-EVOLVING TRADING AGENT · v4.0.0`</sub>
 
 # GCLAW
 
-**A creature that must trade to survive.** It earns GMAC to stay alive, grows a
-personality, reproduces a swarm, earns a verifiable onchain identity, and — at the
-height of its powers — deploys infrastructure that buys and burns GMAC forever.
+**A self-evolving trading organism.** It doesn't gamble on the market — it *authors its
+own trading strategies* (real code), and a deterministic backtest decides which survive.
+Its **fitness is proven edge, not profit.** It reproduces only when it has proven,
+inheritable DNA, trades zero-fee event markets where reasoning is the edge, and carries an
+accountable onchain identity whose reputation **is** its settled PnL — verifiable by anyone.
 
-*Self-custodial. Stop-protected. Verifiable on Base.*
+*Self-custodial. Stop-protected. Accountable. Verifiable on Base.*
 
 [![Built on Base](https://img.shields.io/badge/Built%20on-Base-060A17?logo=coinbase&logoColor=white)](https://base.org)
 [![ERC-8004 Agent Identity](https://img.shields.io/badge/Identity-ERC--8004%20on%20Base-61B8FF?labelColor=060A17)](ONCHAIN.md)
@@ -80,6 +82,13 @@ Every heartbeat, on its own, your creature reads the HyperLiquid market into a
   has positive expectancy *in the current regime* from its own **trade-memory** — a
   self-learning record (with a bootstrap confidence gate) of what works in which
   conditions, pooled across the whole family.
+- **Invents its own edge.** Between trades it works as a *scientist* — it authors brand-new
+  trading techniques (real code), a deterministic out-of-sample backtest judges each one,
+  and only graduates ever go live. Losers are discarded before a dollar is risked; the LLM
+  never gets to declare its own win.
+- **Bets events, not just price.** On **zero-fee** outcome markets it reads an event into a
+  calibrated probability and takes a defined-risk bet — the one game where an LLM's
+  reasoning is a genuine edge, and its calibration is scored (Brier) over time.
 - **Sizes with math, not gut.** Every trade is **volatility-targeted + fractional-Kelly**
   sized — proven edges scale up, coin-flips drop to the floor — and **always carries a stop.**
 - **Can't blow up.** A deterministic **risk guardrail** runs every heartbeat: it
@@ -98,8 +107,9 @@ inherits real edge, it unlocks:
 | **Swarm** — the family coordinates so it never crowds one trade | goodwill ≥ 200 |
 | **Venture Architect** — deploy DeFi infra with a perpetual GMAC buy-and-burn | goodwill ≥ 5000 |
 
-Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. Its whole
-arc bends toward one thing — turning earned success into unstoppable GMAC accumulation.
+Profit feeds back: 10% of every win is earmarked to **buy real GMAC**. But the
+organism's arc bends toward **proven edge** — it survives by getting *better*
+(authoring and graduating real strategies), not by chasing a number.
 
 ## // Call it — the free prediction game
 
