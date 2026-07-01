@@ -134,3 +134,28 @@ def test_gather_is_resilient_when_subprocesses_fail(monkeypatch, gclaw_home):
     g = briefing.gather()
     assert g["account"] == {} and g["forge"] == {}  # defaults, no exception
     assert isinstance(briefing.render_briefing(g), str)
+
+
+def test_spot_reference_surfaces_underlying_mark_vs_strike() -> None:
+    """A price-binary is only judgeable against the underlying's live mark — the analyst
+    skips without it. _spot_reference surfaces spot + the signed distance to the strike."""
+    side = {"resolution": {"underlying": "BTC", "targetPrice": 59122, "expiry": "20260702-0600"}}
+    intel = {"BTC": {"price": 59519.0, "regime": "trend_up"}}
+    ref = briefing._spot_reference(side, intel)
+    assert "spot 59,519" in ref
+    assert "+0.67% above strike" in ref
+
+
+def test_spot_reference_below_strike_and_low_priced_precision() -> None:
+    """Direction flips below the strike; sub-$1000 marks keep two decimals for a precise
+    strike comparison (SOL 74.10 vs 75.223 must not round to a bare '74')."""
+    side = {"resolution": {"underlying": "SOL", "targetPrice": 75.223, "expiry": "x"}}
+    ref = briefing._spot_reference(side, {"SOL": {"price": 74.10}})
+    assert "spot 74.10" in ref
+    assert "below strike" in ref
+
+
+def test_spot_reference_missing_mark_is_empty_never_raises() -> None:
+    """No mark for the underlying (or a non-price-binary side) → empty suffix, no crash."""
+    assert briefing._spot_reference({"resolution": {"underlying": "BTC", "targetPrice": 59122}}, {}) == ""
+    assert briefing._spot_reference({"description": "some sport"}, {"BTC": {"price": 1}}) == ""

@@ -102,6 +102,38 @@ def _resolution_label(side: dict) -> str:
     return (desc[:80] + "…") if len(desc) > 80 else desc
 
 
+def _spot_reference(side: dict, intel: dict) -> str:
+    """The underlying's current mark vs the strike — the reference the analyst needs.
+
+    A price-binary is only judgeable against the underlying's live price: "BTC ≥ 59122"
+    is cheap or dear only once you know BTC is at 59,519. The briefing already carries the
+    per-coin mark (``intel[coin]['price']``); surface it next to the strike with the signed
+    distance so the LLM can form a calibrated probability instead of skipping for lack of a
+    spot reference. Never raises; returns "" when the mark or strike is unavailable.
+
+    Args:
+        side: A tradeable-side row carrying a parsed ``resolution`` ({underlying, targetPrice}).
+        intel: The per-coin regime blob ({coin: {price, regime, ...}}).
+
+    Returns:
+        A short " · spot … (±x% above/below strike)" suffix, or "" when not computable.
+    """
+    res = side.get("resolution")
+    if not (isinstance(res, dict) and res.get("underlying") and res.get("targetPrice") is not None):
+        return ""
+    mark = (intel.get(res["underlying"]) or {}).get("price")
+    try:
+        mark, target = float(mark), float(res["targetPrice"])
+    except (TypeError, ValueError):
+        return ""
+    if not target:
+        return ""
+    pct = (mark - target) / target * 100
+    where = "above" if mark >= target else "below"
+    spot = f"{mark:,.2f}" if abs(mark) < 1000 else f"{mark:,.0f}"
+    return f" · spot {spot} ({pct:+.2f}% {where} strike)"
+
+
 def _money(x: object) -> str:
     try:
         return f"${float(x):,.2f}"  # type: ignore[arg-type]
@@ -171,7 +203,7 @@ def render_briefing(d: dict) -> str:
             f"expectancy {_money(econ.get('expectancy'))}/trade · {econ.get('verdict', '')}"
         )
     out += _scientist_board(d.get("style") or {}, d.get("regime_stats") or {}, intel)
-    out += _event_desk_board(d.get("outcomes") or {}, d.get("calibration") or {})
+    out += _event_desk_board(d.get("outcomes") or {}, d.get("calibration") or {}, intel)
     out += [
         "",
         "**Origination is forge-only and already done; you do NOT open trades. With a flat book your "
@@ -212,7 +244,7 @@ def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     return lines
 
 
-def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
+def _event_desk_board(outcomes: dict, calibration: dict, intel: dict) -> list[str]:
     """Render the Event Desk (Book A): top tradeable markets, open tickets, calibration.
 
     Gives the LLM-as-event-analyst the deterministic board it reads: the top-by-volume
@@ -235,7 +267,8 @@ def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
     for s in sides:
         m = by_market.setdefault(
             s.get("outcomeId"),
-            {"name": s.get("name"), "sides": [], "vol": 0.0, "resolution": _resolution_label(s)},
+            {"name": s.get("name"), "sides": [], "vol": 0.0,
+             "resolution": _resolution_label(s), "ref_side": s},
         )
         m["sides"].append(s)
         m["vol"] += _f(s.get("volumeUsd"))
@@ -248,6 +281,7 @@ def _event_desk_board(outcomes: dict, calibration: dict) -> list[str]:
                 f"{s.get('side')} {s.get('coin')}@{_f(s.get('price')):.3f}" for s in m["sides"]
             )
             label = f"{m['name']} — {m['resolution']}" if m["resolution"] else m["name"]
+            label += _spot_reference(m["ref_side"], intel)
             lines.append(f"  {label} (${m['vol']:,.0f}): {quoted}")
     else:
         lines.append("  (no markets clear the volume floor)")
