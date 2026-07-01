@@ -71,6 +71,14 @@ SCAN_UNIVERSE = (
 
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
+# Live-bootstrap window: a technique keeps earning bounded half-size probes until it has
+# this many real closes, so a genuine edge can accumulate a statistically-meaningful
+# sample before the edge_real (full bootstrap CI > 0) gate benches it. The old window was
+# a hardcoded 3 — but the bootstrap CI can only clear zero at n=3 if ALL THREE trades win,
+# so a technique that took even one early loss was benched forever, never allowed the
+# trades to recover: a sibling of the cold-start-forever death spiral (commit a7650dd).
+# 12 matches the fitness loop's own "fair sample before pruning" bar (FITNESS_PRUNE_N).
+MIN_LIVE_SAMPLE = 12
 IS_FRACTION = 0.6
 HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
 # Per-technique hold horizon (bars, 1h candles). doc 02 §1: momentum-stack's thin
@@ -78,10 +86,26 @@ HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
 # 4h hold it churns a sub-fee edge into a loss. Mean-reversion (stop-hunt-revert)
 # wants the snap-back fast and decays to negative by 8-12h, so it stays short.
 HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
-# doc 02 §"Cross-cutting" 3: HL taker is 0.045%/side = 9bp RT, plus realistic slippage
-# into a stop-hunt/cascade (~6bp RT) = 15bp all-in. The old 0.0006 (6bp) under-charged
-# and let sub-fee signals graduate as "proven".
-TAKER_COST = 0.0015  # 15bp round-trip all-in (taker fee + slippage), realistic
+# Per-side execution cost model (doc 02 §"Cross-cutting" 3). HL charges a MAKER rebate
+# tier vs a TAKER fee; a resting limit that adds liquidity fills maker, a market/trigger
+# order that crosses the book fills taker and eats slippage. Modelling both — instead of
+# charging one flat taker cost on every fill — is what lets a real edge clear the bar:
+# a limit ENTRY with an attached TP posts as maker/maker, so the round trip the gross
+# edge must beat drops from ~15bp (taker/taker) to ~3bp, without lowering the gate.
+#   maker: 0.015%/side fee, ~0 slippage (you set the price)   -> 1.5bp
+#   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
+TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
+MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
+# Backtest execution mode must MATCH the live executor (hl_perp.js). Today the executor
+# opens with isMarket:true (taker) with an attached TP/SL, so the entry is taker and the
+# TP exit is maker; a stop-hit or time exit is taker. When maker-first limit entries land
+# (assune-4yt), flip GCLAW_FORGE_MAKER_ENTRY=1 in BOTH the backtest and the executor
+# together so the cost assumption never diverges from how fills actually happen.
+def _maker_entry() -> bool:
+    """True when entries are modelled as resting maker limits (assune-4yt), else taker."""
+    return os.environ.get("GCLAW_FORGE_MAKER_ENTRY") == "1"
+
+
 WARMUP = 50  # bars before EMA-50 / intel features are valid
 
 # signal.py sandbox.
@@ -658,6 +682,28 @@ def horizon_for(tid: str | None) -> int:
     return HORIZON_BY_TECHNIQUE.get(tid or "", HORIZON)
 
 
+def round_trip_cost(stop_hit: bool) -> float:
+    """Realistic round-trip cost for one backtest trade, by how each leg fills.
+
+    The entry fills maker when modelled as a resting limit (``GCLAW_FORGE_MAKER_ENTRY``,
+    assune-4yt) and taker otherwise. The exit fills taker when a stop is hit (a trigger
+    that crosses the book, plus cascade slippage) and maker when the trade reaches its
+    take-profit or time exit as a resting limit — but only if the entry was itself maker
+    (i.e. we are in maker-limit mode); a market-executor run pays taker on the exit too.
+
+    Args:
+        stop_hit: Whether this trade exited by hitting its stop (a taker fill).
+
+    Returns:
+        The round-trip cost fraction to subtract from the trade's raw return.
+    """
+    fill_cost = MAKER_FEE if _maker_entry() else TAKER_FEE
+    entry_cost = fill_cost
+    # A stop is always a taker/trigger fill; a clean TP/time exit fills like the entry.
+    exit_cost = TAKER_FEE if stop_hit else fill_cost
+    return entry_cost + exit_cost
+
+
 def trade_return(
     candles: list[dict[str, float]], i: int, is_long: bool, stop_pct: float, horizon: int = HORIZON
 ) -> float:
@@ -667,12 +713,12 @@ def trade_return(
     for h in range(1, horizon + 1):
         bar = candles[i + h]
         if is_long and bar["l"] <= entry * (1 - stop):
-            return -stop - TAKER_COST
+            return -stop - round_trip_cost(stop_hit=True)
         if not is_long and bar["h"] >= entry * (1 + stop):
-            return -stop - TAKER_COST
+            return -stop - round_trip_cost(stop_hit=True)
     exit_px = candles[i + horizon]["c"]
     raw = (exit_px / entry - 1) if is_long else (entry / exit_px - 1)
-    return raw - TAKER_COST
+    return raw - round_trip_cost(stop_hit=False)
 
 
 def score_window(
@@ -2019,11 +2065,15 @@ def _memory_edge_ok(technique: str, regime: str) -> tuple[bool, dict[str, Any]]:
 def _cold_start_ok(intent: dict[str, Any], conv_floor: float) -> bool:
     """Bounded cold-start carve-out (doc 04 §3 carve-out 3).
 
-    With no regime-matched ``edge_real`` yet, allow ONE half-size probe only if the
-    signal is proven-market AND well above the conviction floor (>=1.1x), so memory
-    can bootstrap without opening the discretionary door.
+    With no regime-matched ``edge_real`` yet, allow a bounded half-size probe only if the
+    signal is proven-market AND clears the conviction floor, so memory can bootstrap
+    without opening the discretionary door. The caller already enforced ``confidence >=
+    conv_floor`` before reaching here; the extra ``* 1.1`` the forge-only overhaul stacked
+    on top demanded ~0.83*cap — a near-ceiling bar the ensemble almost never reaches, so no
+    probe ever fired and memory could never bootstrap (the inert-organism lock). The
+    genome-tuned base floor is the real conviction guard; ``proven`` is the real edge guard.
     """
-    return bool(intent.get("proven")) and intent["confidence"] >= conv_floor * 1.1
+    return bool(intent.get("proven")) and intent["confidence"] >= conv_floor
 
 
 def _cooling(coin: str) -> bool:
@@ -2051,7 +2101,8 @@ def _gate_intents(
 
     An intent auto-executes only if proven, notional>=MIN_NOTIONAL, confidence>=
     0.75*conviction_cap, the coin is not cooling, and memory shows regime-matched
-    edge_real (>=3 trades) — OR it passes the bounded cold-start rule (then half-size).
+    edge_real (>=3 trades) — OR it is still inside the live-bootstrap window
+    (<MIN_LIVE_SAMPLE closes) and passes the bounded cold-start rule (then half-size).
     A truthy veto (contract 3) empties the gate. Returns intents sorted by confidence.
     """
     if veto.get("veto"):
@@ -2077,11 +2128,14 @@ def _gate_intents(
         ok = bool(i.get("edge_real_mem")) if "edge_real_mem" in i else _memory_edge_ok(
             i["technique"], i.get("regime", "range")
         )[0]
-        # Cold-start means NO live history, not LOSING history: once a technique has a
-        # real sample (>=3 closes) that failed edge_real, it has been measured and must
-        # be benched — not probed forever at half size. Only a genuinely cold technique
-        # (sample below the edge_real threshold) earns the bounded probe.
-        is_cold = i.get("edge_trades_mem", 0) < 3
+        # Cold-start means STILL-BOOTSTRAPPING, not LOSING: a technique earns bounded
+        # half-size probes until it has a fair live sample (MIN_LIVE_SAMPLE closes). The
+        # old window (< 3) benched a technique the moment it hit 3 trades — but the
+        # bootstrap CI can only clear zero at n=3 if all three win, so one early loss
+        # locked a genuinely-edged technique out forever (cold-start-forever sibling).
+        # Widening the window lets a real edge accumulate the trades that flip edge_real,
+        # while the CI gate still governs full-size sizing so noise never graduates.
+        is_cold = i.get("edge_trades_mem", 0) < MIN_LIVE_SAMPLE
         cold_ok = is_cold and _cold_start_ok(i, conv_floor)
         if not (ok or cold_ok):
             continue
