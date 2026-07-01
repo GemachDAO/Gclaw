@@ -48,6 +48,13 @@ cannot open — opens are forge-only.
      `{"action","confidence","leverage","stop_pct","reason"}`) to a temp file, then
      `forge.py author --name <slug> --signal-file <path> --claim "<edge>" --coin <C>`.
    - **Fork** a decaying one to improve it: `forge.py fork <id> --name <slug>`, then author the new body.
+   - **Beat the fee wall — author FEWER, BIGGER, higher-conviction setups, not scalps.** The backtest
+     charges a realistic per-side cost (maker vs taker); a high-frequency signal whose gross edge is a
+     few bp per trade dies to fees and will NOT graduate no matter how often it fires. Prefer techniques
+     that (i) trade selectively — a `confidence` that is near zero most bars and only spikes on a genuine
+     dislocation, so the signal fires rarely; (ii) hold long enough that the target move dwarfs the round
+     trip (momentum wants ~24h, not 4h); (iii) have a gross per-trade expectancy comfortably ABOVE the
+     round-trip cost, not hovering under it. One selective +0.5%/trade edge beats fifty +0.02% scalps.
    The deterministic walk-forward backtest is the JUDGE — it adopts only on out-of-sample edge net of
    fees. You never declare a technique works and never adopt by hand; **authoring never opens a trade**,
    and you never run `forge.py run --execute` yourself. Author at most ONE technique per cycle, and only
