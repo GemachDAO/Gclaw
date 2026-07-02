@@ -5,7 +5,7 @@
   <img alt="GEMACH" src="assets/brand/gemach-lockup-black-on-light.png" width="260">
 </picture>
 
-<sub>`// GEMACH ECOSYSTEM · SELF-EVOLVING TRADING AGENT · v4.0.0`</sub>
+<sub>`// GEMACH ECOSYSTEM · SELF-EVOLVING TRADING AGENT · v4.1.0`</sub>
 
 # GCLAW
 
