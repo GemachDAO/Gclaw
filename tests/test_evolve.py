@@ -21,9 +21,22 @@ def _seed_dna(home):
     (dna / "TRADING_STRATEGY.md").write_text("# Strategy\n\nBase rules.\n", encoding="utf-8")
 
 
+def _live_from_style(home):
+    """Fake for evolve._live_proven_ids: treat every adopted ``win*`` technique as
+    LIVE-proven, re-reading style.json each call so mid-test re-seeds take effect. Stands
+    in for the memory.py bootstrap-CI boundary (exercised directly in test_memory.py)."""
+
+    def _inner():
+        style = json.loads((home / "forge" / "style.json").read_text(encoding="utf-8"))
+        return {e["id"] for e in style.get("adopted", []) if str(e["id"]).startswith("win")}
+
+    return _inner
+
+
 def _seed_forge(home, proven: int, authored: int = 0):
-    """Write a forge/style.json with `proven` live-proven techniques (e>0, trades>=3) and
-    `authored` self-authored technique.json files (author == AID)."""
+    """Write a forge/style.json with `proven` LIVE-proven techniques (named ``win*``, made
+    live-proven by _live_from_style) and `authored` self-authored technique.json files
+    (author == AID)."""
     techs = home / "forge" / "techniques"
     techs.mkdir(parents=True, exist_ok=True)
     adopted = []
@@ -49,6 +62,7 @@ def test_locked_without_enough_proven_edge(metabolism_fixture, gclaw_home, monke
     _meta(metabolism_fixture, goodwill=5)  # goodwill is now irrelevant
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=1)  # below REPLICATE_MIN_EDGE (2)
+    monkeypatch.setattr(evolve, "_live_proven_ids", _live_from_style(gclaw_home))
     with pytest.raises(SystemExit, match="proven-edge"):
         evolve.cmd_replicate(Namespace(auto=False, name="early", role="scout", mutation="x"))
     assert not (gclaw_home / "children" / "early").exists()
@@ -60,6 +74,7 @@ def test_goodwill_is_irrelevant_proven_edge_gates(metabolism_fixture, gclaw_home
     _meta(metabolism_fixture, goodwill=8)
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=2)
+    monkeypatch.setattr(evolve, "_live_proven_ids", _live_from_style(gclaw_home))
     evolve.cmd_replicate(Namespace(auto=True, name=None, role=None, mutation=None))
     state = json.loads((gclaw_home / "metabolism.json").read_text(encoding="utf-8"))
     assert len(state["children"]) == 1
@@ -75,6 +90,7 @@ def test_dry_run_is_the_default_and_spawns_nothing(metabolism_fixture, gclaw_hom
     _meta(metabolism_fixture, goodwill=8)
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=2)
+    monkeypatch.setattr(evolve, "_live_proven_ids", _live_from_style(gclaw_home))
     evolve.cmd_replicate(Namespace(auto=True, name=None, role=None, mutation=None))
     assert not (gclaw_home / "children").exists()  # gate met, but nothing spawned
     state = json.loads((gclaw_home / "metabolism.json").read_text(encoding="utf-8"))
@@ -86,6 +102,7 @@ def test_anti_storm_requires_new_proven_edge(metabolism_fixture, gclaw_home, mon
     _meta(metabolism_fixture, goodwill=8)
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=2)
+    monkeypatch.setattr(evolve, "_live_proven_ids", _live_from_style(gclaw_home))
     evolve.cmd_replicate(Namespace(auto=True, name=None, role=None, mutation=None))
     # a second spawn with NO new proven edge (still 2) is refused
     with pytest.raises(SystemExit, match="no new proven edge"):
@@ -110,6 +127,7 @@ def test_partial_failure_rolls_back_the_child_dir(metabolism_fixture, gclaw_home
     _meta(metabolism_fixture, goodwill=8)
     _seed_dna(gclaw_home)
     _seed_forge(gclaw_home, proven=2)
+    monkeypatch.setattr(evolve, "_live_proven_ids", _live_from_style(gclaw_home))
     monkeypatch.setattr(
         evolve, "save_state", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("disk full"))
     )

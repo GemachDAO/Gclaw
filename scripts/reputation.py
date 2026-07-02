@@ -4,9 +4,13 @@
 gclaw's onchain ERC-8004 reputation is backed by SETTLED, VERIFIABLE performance — not
 social activity. Almost every other agent's "reputation" is posts and followers; this one
 is derived only from non-fakeable data: realized PnL from settled HyperLiquid fills (booked
-by autosettle), forge-graduated live-edge techniques, honest self-modification counts, and
-lineage. Anyone can re-derive every number from the managed address's onchain fills + the
-public forge state, which is exactly the point.
+by autosettle), honest self-modification counts, and lineage. Anyone can re-derive every
+number from the managed address's onchain fills + the public forge state.
+
+Edge is reported at two honesty tiers so the headline can't overstate: ``proven_edge`` counts
+only LIVE-proven techniques (bootstrap CI above zero over real settled fills, via memory.py),
+while ``backtest_proven`` counts techniques that merely graduated the walk-forward backtest and
+have not yet earned a live edge. The onchain attestation reads the strict LIVE number.
 
     reputation.py card      # print the scorecard JSON
     reputation.py publish    # write it atomically to $GCLAW_HOME/reputation.json
@@ -63,8 +67,47 @@ def _economics() -> dict[str, Any]:
         return {}
 
 
-def _proven_edge(adopted: list[dict[str, Any]]) -> list[str]:
-    return [e["id"] for e in adopted if int(e.get("trades", 0)) >= 3 and float(e.get("e", 0.0)) > 0]
+def _live_techniques() -> dict[str, dict[str, Any]]:
+    """Per-technique LIVE edge from settled fills — the honest, non-fakeable record.
+
+    Delegates to memory.py so the bootstrap-CI ``edge_real`` gate is defined in exactly
+    one place. Returns a {technique_id: stats} map; empty on any failure (fail closed —
+    an unreadable record proves no edge).
+    """
+    try:
+        out = subprocess.run(
+            ["uv", "run", "--no-project", "python3", str(SCRIPT_DIR / "memory.py"), "techniques"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        ).stdout
+        i = out.find("{")
+        rows = (json.loads(out[i:]) if i >= 0 else {}).get("techniques", [])
+        return {r["technique"]: r for r in rows}
+    except (subprocess.SubprocessError, ValueError, OSError, KeyError):
+        return {}
+
+
+def _live_proven(adopted: list[dict[str, Any]], live: dict[str, dict[str, Any]]) -> list[str]:
+    """Adopted techniques with a REAL live edge from settled fills (bootstrap CI > 0).
+
+    This is what the onchain scorecard attests — not the loose EWMA fitness counter in
+    style.json, which can read positive from recency alone while the settled record is
+    negative (e.g. a technique with 9 fitness ticks but no statistically-real edge).
+    """
+    return [e["id"] for e in adopted if live.get(e["id"], {}).get("live_proven")]
+
+
+def _backtest_proven(adopted: list[dict[str, Any]]) -> list[str]:
+    """Adopted techniques that graduated the walk-forward backtest (technique.json
+    status == 'proven') — earned on historical candles, NOT yet confirmed by real fills."""
+    out: list[str] = []
+    for e in adopted:
+        tech = _read_json(home() / "forge" / "techniques" / e["id"] / "technique.json", {})
+        if str(tech.get("status")) == "proven":
+            out.append(e["id"])
+    return out
 
 
 def _self_authored(adopted: list[dict[str, Any]], agent_id: str) -> list[str]:
@@ -84,7 +127,9 @@ def card() -> dict[str, Any]:
     econ = _economics()
     adopted = (_read_json(home() / "forge" / "style.json", {}) or {}).get("adopted", [])
     calib = (_read_json(home() / "calibration.json", {}) or {}).get("aggregates", {})
-    proven = _proven_edge(adopted)
+    live = _live_techniques()
+    proven = _live_proven(adopted, live)
+    backtest_proven = _backtest_proven(adopted)
     return {
         "agentId": agent_id,
         "born_at": meta.get("born_at"),
@@ -101,6 +146,8 @@ def card() -> dict[str, Any]:
             "self_authored_techniques": len(_self_authored(adopted, agent_id)),
             "proven_edge_techniques": proven,
             "proven_edge_count": len(proven),
+            "backtest_proven_techniques": backtest_proven,
+            "backtest_proven_count": len(backtest_proven),
             "recodes": meta.get("recodes", 0),
             "children": len(meta.get("children", [])),
         },
@@ -110,8 +157,10 @@ def card() -> dict[str, Any]:
             "no_skill_baseline": calib.get("baseline_mean"),
         },
         "accountability": (
-            "reputation derived from SETTLED HyperLiquid fills + forge graduation — not social "
-            "activity; every figure is re-derivable from the managed address's onchain fills."
+            "reputation derived from SETTLED HyperLiquid fills — not social activity. "
+            "proven_edge = LIVE-proven (bootstrap CI > 0 on real fills); backtest_proven = "
+            "graduated on historical candles but NOT yet confirmed live. Every figure is "
+            "re-derivable from the managed address's onchain fills + the public forge state."
         ),
         "verifiable_via": {
             "chain": ident.get("chain"),
