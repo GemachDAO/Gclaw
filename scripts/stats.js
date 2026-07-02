@@ -40,15 +40,15 @@ function nodeRun(script, args) {
   } catch { return null; }
 }
 
-// A technique is LIVE-PROVEN at >= 3 real closes with positive expectancy — the same
-// gate reputation.py/_proven_edge and evolve.py.proven_edge_techniques enforce. Kept in
-// sync deliberately: the manifest is the published mirror of the reputation scorecard.
-const PROVEN_MIN_TRADES = 3;
 const REPLICATE_MIN_EDGE = Number(process.env.GCLAW_REPLICATE_MIN_EDGE) || 2;
 
-function provenEdgeTechniques(adopted) {
+// The published manifest is a MIRROR of the reputation scorecard — never a second,
+// looser computation. LIVE-proven membership comes from reputation.json's
+// proven_edge_techniques (memory.py bootstrap-CI gate); the e/trades shown are the
+// style.json fitness signal for display only. Read the honest set, don't recompute it.
+function provenEdgeTechniques(adopted, provenIds) {
   return adopted
-    .filter((a) => Number(a.trades || 0) >= PROVEN_MIN_TRADES && Number(a.e || 0) > 0)
+    .filter((a) => provenIds.has(String(a.id)))
     .map((a) => ({ id: a.id, e: round(a.e), trades: Number(a.trades || 0) }));
 }
 
@@ -78,8 +78,10 @@ function buildManifest() {
   const rep = readJson(path.join(GCLAW_HOME, 'reputation.json'), {});
   const trade = rep.trading || {};
   const calib = rep.event_calibration || {};
-  const provenTechniques = provenEdgeTechniques(adopted);
-  const provenEdge = provenTechniques.length;
+  const evo = rep.evolution || {};
+  const provenIds = new Set(evo.proven_edge_techniques || []);
+  const provenTechniques = provenEdgeTechniques(adopted, provenIds);
+  const provenEdge = Number(evo.proven_edge_count ?? provenTechniques.length);
   const authored = authoredCount(adopted, id);
   const realizedPnl = round(trade.realized_pnl_usd);
   // Breed-ready mirrors evolve.py.replication_gate: >= REPLICATE_MIN_EDGE proven-edge

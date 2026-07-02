@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +31,9 @@ from typing import Any
 # luck. "Recode" likewise becomes honest: self-modification = authoring a technique that
 # graduated, not a hand-edit counter.
 REPLICATE_MIN_EDGE = int(os.environ.get("GCLAW_REPLICATE_MIN_EDGE") or 2)
-PROVEN_MIN_TRADES = 3  # a technique is live-proven at >= this many closes with positive edge
+# The "live-proven" bar (bootstrap CI > 0 over >= 3 settled closes) is defined once in
+# memory.py (LIVE_PROVEN_MIN_TRADES) and read here via `memory.py techniques`, so the
+# reproduction gate and the reputation scorecard can never drift apart.
 SWARM_THRESHOLD = 200  # swarm coordination stays goodwill-gated (out of P4 scope)
 MAX_CHILDREN = 8
 
@@ -49,14 +52,33 @@ def _adopted() -> list[dict[str, Any]]:
         return []
 
 
+def _live_proven_ids() -> set[str]:
+    """LIVE-proven technique ids from settled fills — delegates to memory.py so the
+    bootstrap-CI ``edge_real`` gate lives in exactly one place. Empty on any failure
+    (fail closed: no verifiable edge → no reproduction)."""
+    script_dir = Path(__file__).resolve().parent
+    try:
+        out = subprocess.run(
+            ["uv", "run", "--no-project", "python3", str(script_dir / "memory.py"), "techniques"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        ).stdout
+        i = out.find("{")
+        rows = (json.loads(out[i:]) if i >= 0 else {}).get("techniques", [])
+        return {r["technique"] for r in rows if r.get("live_proven")}
+    except (subprocess.SubprocessError, ValueError, OSError, KeyError):
+        return set()
+
+
 def proven_edge_techniques() -> list[dict[str, Any]]:
-    """Adopted techniques with REAL live edge (>= PROVEN_MIN_TRADES closes, positive
-    expectancy) — the inheritable DNA reproduction gates on (the fitness Spore.fun lacked)."""
-    return [
-        e
-        for e in _adopted()
-        if int(e.get("trades", 0)) >= PROVEN_MIN_TRADES and float(e.get("e", 0.0)) > 0
-    ]
+    """Adopted techniques with REAL live edge (bootstrap CI > 0 over the settled fills) —
+    the inheritable DNA reproduction gates on (the fitness Spore.fun lacked). Uses the same
+    non-fakeable memory.py signal as reputation.py, NOT the loose EWMA fitness counter in
+    style.json, which can read positive from recency alone while the record is a net loss."""
+    proven = _live_proven_ids()
+    return [e for e in _adopted() if e.get("id") in proven]
 
 
 def self_authored_adopted(state: dict[str, Any]) -> list[str]:
