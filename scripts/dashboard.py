@@ -1734,6 +1734,18 @@ def cmd_render(args: argparse.Namespace) -> None:
     print(f"dashboard → {out}")
 
 
+def cmd_refresh(_: argparse.Namespace) -> None:
+    """Reconcile positions.json to live venue truth without rendering the page.
+
+    The metabolism status card reads positions.json; the full render only rewrites it
+    at end-of-cycle, so a position that closed mid-cycle lingers as a phantom until the
+    next render. Running this early (right after autosettle) keeps the card honest.
+    """
+    h = home()
+    refresh_positions(h)
+    print(f"positions → {h / 'positions.json'}")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import functools
     import http.server
@@ -1754,11 +1766,12 @@ def main() -> int:
     p_render.add_argument(
         "--no-live", action="store_true", help="skip the live HL positions refresh"
     )
+    sub.add_parser("refresh", help="reconcile positions.json to live venue truth (no render)")
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--out")
     p_serve.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
-    {"render": cmd_render, "serve": cmd_serve}[args.command](args)
+    {"render": cmd_render, "refresh": cmd_refresh, "serve": cmd_serve}[args.command](args)
     return 0
 
 

@@ -66,6 +66,11 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Reconcile the position cache to live venue truth right after settlement, BEFORE the
+# metabolism status card renders it — otherwise a position that closed mid-cycle lingers
+# in positions.json (only rewritten at end-of-cycle render) and the card shows a phantom.
+[[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
+  echo "$(ts) reconcile: $(uv run --no-project python3 "$SKILL_DIR/scripts/dashboard.py" refresh 2>&1 | tr '\n' ' ' | tail -c 120)" >>"$LOG" || true
 # Event-desk settlement (Book A): detect any outcome ticket whose side resolved (mid
 # settled to 0/1), score its Brier into the calibration ledger, and settle realized PnL
 # for LIVE tickets. Idempotent (resolved tickets are skipped), so it runs every cycle
@@ -134,11 +139,12 @@ rm -f "$GCLAW_HOME/forge/veto.json"
 # only every GCLAW_FLAT_INTERVAL_H hours (default 4) on Sonnet — the deterministic
 # steps still run hourly, but we don't burn the LLM (and your plan allowance) on
 # "nothing to do" cycles. An explicit GCLAW_MODEL overrides the model, not the cadence.
-ACTIVE="active"; FLAT_INTERVAL_H="${GCLAW_FLAT_INTERVAL_H:-4}"
+ACTIVE="active"; FLAT_INTERVAL_H="${GCLAW_FLAT_INTERVAL_H:-4}"; CYCLE_RC=0
 [[ -f "$SKILL_DIR/scripts/model_select.js" ]] && ACTIVE="$(node "$SKILL_DIR/scripts/model_select.js" active 2>>"$LOG" || echo active)"
 LAST_CYCLE="$(cat "$GCLAW_HOME/last_cycle" 2>/dev/null || echo 0)"; NOW="$(date +%s)"
 if [[ "$ACTIVE" == "idle" && $((NOW - LAST_CYCLE)) -lt $((FLAT_INTERVAL_H * 3600)) ]]; then
   echo "$(ts) cycle skipped: idle (flat, no setup) — last LLM cycle $(((NOW - LAST_CYCLE) / 60))m ago < ${FLAT_INTERVAL_H}h" >>"$LOG"
+  CYCLE_RC=skip
 else
   [[ -f "$SKILL_DIR/scripts/model_select.js" ]] &&
     MODEL="$(node "$SKILL_DIR/scripts/model_select.js" model 2>>"$LOG" || echo "$MODEL")"
@@ -170,7 +176,7 @@ else
       --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
   else
-    rc=$?  # capture BEFORE any other command (a command substitution would reset $?)
+    rc=$?; CYCLE_RC=$rc  # capture BEFORE any other command (a command substitution would reset $?)
     if [[ "$rc" -eq 124 ]]; then
       echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
     else
@@ -212,6 +218,12 @@ fi
 # IPFS, anchors the predictions root onchain, and recomputes the leaderboards.
 [[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
   "$SKILL_DIR/scripts/dashboard.py" render >>"$LOG" 2>&1 || true
+
+# Observability: append one structured trace record (mode, equity, open risk, model, rc)
+# to cycles.jsonl so a bad cycle is root-causeable, not just grep-able in the prose log.
+# Runs LAST, after the render refreshed positions.json, so the snapshot is current.
+[[ -f "$SKILL_DIR/scripts/cycle_trace.py" ]] &&
+  echo "$(ts) trace: $(uv run --no-project python3 "$SKILL_DIR/scripts/cycle_trace.py" record --model "$MODEL" --active "$ACTIVE" --rc "$CYCLE_RC" 2>&1 | tail -c 120)" >>"$LOG" || true
 
 # Health alerts (best-effort): notify on red conditions (hibernate, low gas,
 # tripped breaker, low funds) when GCLAW_ALERT_WEBHOOK is set. No-ops otherwise.
