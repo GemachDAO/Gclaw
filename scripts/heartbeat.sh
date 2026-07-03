@@ -44,7 +44,7 @@ PROMPT='/gclaw
 Run exactly one heartbeat now, then stop. You do NOT pick or open trades — origination is forge-only and the disciplined trade for this cycle was ALREADY placed deterministically before you ran (proven, regime-matched, edge_real-gated, sized by sizing.py, atomic TP/SL). Your intelligence has THREE jobs instead, in priority order:
 
   1. MANAGE open risk (only if positioned): move stops toward break-even on winners, honor stops on losers, close any position whose thesis invalidated. Use close / cancel / update_order only.
-  2. SCIENTIST — invent and improve the strategies the engine runs. This is your MAIN job when the book is flat. The briefing lists your adopted techniques, their fitness weights, and which regimes are under-served or losing. When — and ONLY when — you have a genuine, specific hypothesis for an edge (not busywork), express it as code and let the backtest judge it:
+  2. SCIENTIST — invent and improve the strategies the engine runs. This is your MAIN job when the book is flat. The briefing lists your adopted techniques, their fitness weights, and which regimes are under-served or losing. PREFER reverse-engineering over invention: the "Reverse-engineering desk" in the briefing shows what skill-proven on-chain wallets actually DO (their direction bias, coin/hour concentration, entry timing, and hold-time / sizing asymmetry). When it carries a real pattern, form your hypothesis by encoding a repeatable COMPONENT of it (a mechanical entry filter, an exit/hold rule, a coin/hour selector) — not by copying positions. When — and ONLY when — you have a genuine, specific hypothesis for an edge (from the desk or from a losing regime), express it as code and let the backtest judge it:
        - New technique: write a signal.py body (pure stdlib; def signal(features) -> {"action":"long|short|flat","confidence":0..1,"leverage":1..3,"stop_pct":>0,"reason":str}; features include regime/rsi/atr_pct/bb_z/ema_stack/efficiency/flow_pressure/ret1/ret4/ret24/funding_z) to a temp file, then run:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/forge.py author --name <slug> --signal-file <path> --claim "<the edge in one line>" --coin <BTC|ETH|SOL>
        - Improve an existing one: forge.py fork <id> --name <slug>, then edit + forge.py author the improved body.
      The deterministic walk-forward backtest is the JUDGE — it adopts your technique ONLY if it clears out-of-sample edge net of fees. You never declare a technique works; you never adopt by hand. Authoring NEVER opens a trade. Author at most ONE technique this cycle.
@@ -105,6 +105,18 @@ cd "$HOME"
 # BEFORE the cycle (so the fresh proofs are available to the forge's execute gate).
 [[ -f "$SKILL_DIR/scripts/forge.py" ]] &&
   echo "$(ts) autoprove: $(uv run --no-project python3 "$SKILL_DIR/scripts/forge.py" autoprove 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
+
+# Reverse-engineering desk: pull skill-proven on-chain wallets (curated watchlist +
+# board survivors) and decompose them into size-invariant forensic patterns the
+# Scientist reverse-engineers from. Read-only (SDK reads, no trade surface). Budgeted
+# on a cooldown — the winner set changes slowly and the pulls are heavy.
+WINNERS_INTERVAL_H="${GCLAW_WINNERS_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
+LAST_WINNERS="$(cat "$GCLAW_HOME/last_winners" 2>/dev/null || echo 0)"
+if [[ -f "$SKILL_DIR/scripts/winners.js" && $((NOW - LAST_WINNERS)) -ge $((WINNERS_INTERVAL_H * 3600)) ]]; then
+  echo "$(ts) winners: $(timeout 240 node "$SKILL_DIR/scripts/winners.js" pull >/dev/null 2>>"$LOG" && \
+    uv run --no-project python3 "$SKILL_DIR/scripts/decompose.py" 2>&1 | tr '\n' ' ' | tail -c 180)" >>"$LOG"
+  date +%s >"$GCLAW_HOME/last_winners"
+fi
 
 # Deterministic disciplined OPEN — the ONLY origination path. The forge's own gate
 # (proven + regime-matched edge_real or bounded cold-start + conviction floor +
