@@ -88,7 +88,7 @@ gclaw runs under **GDEX managed custody**. The wallet (`~/gdex-test-wallet.json`
 that is NOT an HL-approved agent (`extraAgents` on the managed account is `[]`). So **gclaw
 cannot sign HL exchange actions directly** — it authenticates a session to the **gdex backend**
 (`trade-api.gemach.io`, hosted/remote, NOT on the box), which signs every HL action with the
-managed account's master key. The SDK (`~/gdex-skill`, v4.7.0) has **no direct HL `/exchange`
+managed account's master key. The SDK (`~/gdex-skill`, v4.8.0) has **no direct HL `/exchange`
 POST**; all writes go through the backend as encrypted `computedData`.
 
 Backend HL routes (authenticated-probed): `deposit` (Arbitrum→perp bridge), `withdraw`,
