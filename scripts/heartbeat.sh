@@ -113,8 +113,7 @@ cd "$HOME"
 WINNERS_INTERVAL_H="${GCLAW_WINNERS_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
 LAST_WINNERS="$(cat "$GCLAW_HOME/last_winners" 2>/dev/null || echo 0)"
 if [[ -f "$SKILL_DIR/scripts/winners.js" && $((NOW - LAST_WINNERS)) -ge $((WINNERS_INTERVAL_H * 3600)) ]]; then
-  echo "$(ts) winners: $(timeout 240 node "$SKILL_DIR/scripts/winners.js" pull >/dev/null 2>>"$LOG" && \
-    uv run --no-project python3 "$SKILL_DIR/scripts/decompose.py" 2>&1 | tr '\n' ' ' | tail -c 180)" >>"$LOG"
+  echo "$(ts) winners: $(timeout 240 node "$SKILL_DIR/scripts/winners.js" pull 2>&1 >/dev/null | tail -c 180)" >>"$LOG"
   date +%s >"$GCLAW_HOME/last_winners"
 fi
 
