@@ -67,6 +67,14 @@ Hard rules: you may NOT open a discretionary trade (no hl_perp.js open, no MCP p
 echo "===== $(ts) heartbeat start (model=$MODEL) =====" >>"$LOG"
 cd "$HOME"
 
+# Metabolism: charge one heartbeat — the living-agent burn (GMAC decrements each cycle,
+# the survival clock the whole organism runs on). tick was only ever called from the
+# interactive /gclaw skill (SKILL.md), never the cron, so the unattended agent's GMAC
+# accounting silently froze. Run it here, deterministically, every cycle. The burn does
+# NOT force unprofitable trading (audit assune-d39 ruled that out) — it just keeps the
+# survival economics honest. Hibernate mode self-skips the charge.
+[[ -f "$SKILL_DIR/scripts/metabolism.py" ]] &&
+  echo "$(ts) metabolism: $(uv run --no-project python3 "$SKILL_DIR/scripts/metabolism.py" tick 2>&1 | tr '\n' ' ' | tail -c 160)" >>"$LOG" || true
 # Auto-fund: convert any ETH sent to Arbitrum into USDC + deposit to HL.
 [[ -f "$SKILL_DIR/scripts/autofund.js" ]] &&
   echo "$(ts) autofund: $(node "$SKILL_DIR/scripts/autofund.js" run 2>&1)" >>"$LOG" || true

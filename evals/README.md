@@ -13,6 +13,28 @@ uv run --no-project python3 evals/judge_power.py    # or run one directly
 
 Each eval exits `0` on PASS, non-zero on FAIL.
 
+## The harness grader
+
+`harness_grade.py` sits **on top** of the evals and produces one honest, letter-graded
+report card of the whole harness — synthesizing the evals plus live state, weighing
+severity instead of averaging it.
+
+```bash
+uv run --no-project python3 evals/harness_grade.py           # full grade
+uv run --no-project python3 evals/harness_grade.py --quick   # skip judge_power (caps at F/STALE)
+uv run --no-project python3 evals/harness_grade.py --json     # machine-readable, appended to history
+uv run --no-project python3 evals/harness_grade.py --fail-under B   # nonzero exit below B (CI gate)
+```
+
+Its one load-bearing rule: **severity is a hard floor, not a weight.** A broken JUDGE, a
+live-money-leaking cost model, or a corrupted feature *caps* the letter grade outright, so
+unrelated green checks can never launder a systemically broken harness into a pass. Missing
+data (a skipped eval, event calibration with `n=0`) scores UNGRADED/STALE and caps the
+ceiling — never a default pass. Every run appends to `~/.gclaw/harness_grades.jsonl` for the
+trend/regression layer (a floor dimension flipping PASS→FAIL fires a REGRESSION banner).
+
+v1 is fully deterministic. The LLM decision-quality dimension is v2 (tracked: `assune-tx0.3`).
+
 | eval | question it answers | guards |
 |------|---------------------|--------|
 | `judge_power` | Does the backtest JUDGE certify signals with **no real edge**? Feeds structured signals through the real `_backtest_with` gate on block-bootstrapped **surrogate** data and measures the noise-certification rate. | JUDGE significance gate |

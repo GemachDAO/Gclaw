@@ -1065,6 +1065,32 @@ PROVEN_MARKETS_FILE = "proven_markets.json"
 AUTOPROVE_BUDGET = 6  # backtests per heartbeat — bounded cost
 AUTOPROVE_COOLDOWN_H = 12.0  # don't re-attempt a failing (technique, coin) for this long
 AUTOPROVE_LIMIT = 1000  # candles per backtest (matches `prove`)
+# Multiple-comparisons control: even with the per-test significance gate, sweeping ONE
+# technique across the whole universe still "proves" on some coins by look-elsewhere luck
+# (family-wise 1-(1-alpha)^C over C coins — the residual in judge_power's 28% line). Cap the
+# proven pairs a technique may hold to its strongest few by edge_score, so it can't sprawl
+# across a dozen markets on noise (trend-pullback was registered on 13 coins).
+AUTOPROVE_MAX_PER_TECH = int(os.environ.get("GCLAW_AUTOPROVE_MAX_PER_TECH") or 3)
+
+
+def _cap_proven_pairs(pairs: list[dict[str, Any]], cap: int) -> list[dict[str, Any]]:
+    """Keep at most ``cap`` proven pairs per technique — the strongest by edge_score.
+
+    edge_score (expectancy x sqrt(oos_n)) is the same confidence-weighted rank the fitness
+    loop uses, so the cap keeps a technique's best-evidenced markets and drops the
+    look-elsewhere tail.
+    """
+    by_tech: dict[str, list[dict[str, Any]]] = {}
+    for p in pairs:
+        by_tech.setdefault(p["technique"], []).append(p)
+    kept: list[dict[str, Any]] = []
+    for tech_pairs in by_tech.values():
+        tech_pairs.sort(
+            key=lambda p: float(p.get("expectancy", 0)) * math.sqrt(max(1, int(p.get("oos_n", 0)))),
+            reverse=True,
+        )
+        kept.extend(tech_pairs[:cap])
+    return kept
 
 
 def _proven_markets_path() -> Path:
@@ -1144,9 +1170,58 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
             )
             proved.append(f"{tid}@{coin}")
     reg["attempts"] = attempts
+    reg["pairs"] = _cap_proven_pairs(reg["pairs"], AUTOPROVE_MAX_PER_TECH)
     _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
     _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
     return {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+
+
+def cmd_revalidate(_args: argparse.Namespace) -> dict[str, Any]:
+    """Re-run every registered proven pair through the CURRENT gate and drop the ones that
+    no longer clear it, then apply the per-technique cap.
+
+    A one-time cleanup after tightening the JUDGE: the existing pairs were certified under
+    the old significance-free gate (positive OOS mean only), so many are look-elsewhere
+    noise that the bootstrap-CI gate now rejects.
+    """
+    reg = load_proven_markets()
+    original = reg.get("pairs", [])
+    survivors: list[dict[str, Any]] = []
+    dropped_by_gate: list[dict[str, str]] = []
+    for p in original:
+        tid, coin, interval = p["technique"], p["coin"], p.get("interval", "1h")
+        try:
+            card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT, tid)
+        except (ValueError, OSError, KeyError):
+            dropped_by_gate.append({"technique": tid, "coin": coin, "reason": "thin/bad data"})
+            continue
+        if card.get("proven"):
+            survivors.append(
+                {
+                    "technique": tid,
+                    "coin": coin,
+                    "interval": interval,
+                    "oos_n": card["out_of_sample"]["n"],
+                    "expectancy": round(card["out_of_sample"]["expectancy"], 6),
+                    "at": now_iso(),
+                }
+            )
+        else:
+            dropped_by_gate.append(
+                {"technique": tid, "coin": coin, "reason": "fails significance gate"}
+            )
+    capped = _cap_proven_pairs(survivors, AUTOPROVE_MAX_PER_TECH)
+    reg["pairs"] = capped
+    _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
+    _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "before": len(original),
+        "survived_gate": len(survivors),
+        "after_cap": len(capped),
+        "dropped_by_gate": len(dropped_by_gate),
+        "dropped_by_cap": len(survivors) - len(capped),
+    }
 
 
 def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
@@ -2502,6 +2577,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
     ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
     ap.set_defaults(fn=cmd_autoprove)
+    sub.add_parser(
+        "revalidate", help="re-run registered proven pairs through the current gate; drop failures"
+    ).set_defaults(fn=cmd_revalidate)
 
     au = sub.add_parser(
         "author", help="propose a signal body; validate+backtest+adopt-if-proven (never executes)"

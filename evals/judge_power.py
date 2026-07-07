@@ -172,6 +172,8 @@ def main() -> int:
     print(f"P(a null signal is 'proven' on >=1 coin) = 1-(1-{fpr:.3f})^30 = {mc:.0%}.")
     verdict = "PASS" if fpr <= FPR_TARGET else "FAIL"
     print(f"\nVERDICT: {verdict}  (surrogate-FPR {fpr:.1%} vs target <={FPR_TARGET:.1%})")
+    if "--json" in sys.argv:  # additive: a final machine-readable line for the harness grader
+        print(json.dumps({"eval": "judge_power", "fpr": fpr, "target": FPR_TARGET, "verdict": verdict}))
     return 0 if fpr <= FPR_TARGET else 1
 
 

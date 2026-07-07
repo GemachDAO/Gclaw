@@ -101,6 +101,11 @@ def main() -> int:
         ok = ok and mismatches[k] == 0
     print(f"\nVERDICT: {'PASS' if ok else 'FAIL'}  (backtest features "
           f"{'match' if ok else 'DIVERGE from'} the live definition)")
+    if "--json" in sys.argv:
+        print(json.dumps({
+            "eval": "feature_parity", "worst": worst,
+            "total_mismatches": sum(mismatches.values()), "verdict": "PASS" if ok else "FAIL",
+        }))
     return 0 if ok else 1
 
 
