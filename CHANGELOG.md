@@ -4,6 +4,21 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.2] - 2026-07-07
+
+### Fixed
+
+- **Circuit-breaker safety: riskguard now guards against a bad equity read.** The two
+  breaker implementations were meant to be identical, but riskguard.js lacked forge.py's
+  bad-read guard — a transient status read yielding equity 0 (with a prior high-water mark)
+  computed a 100% drawdown and flattened the *entire* book. A non-positive equity read is
+  now inert, matching forge. (assune-xde, safety part)
+
+### Changed
+
+- **Log rotation.** `heartbeat.log` and `predict_bot.log` are rotated at a size cap
+  (10 MiB, one prior generation) instead of growing unbounded. (assune-old)
+
 ## [4.3.1] - 2026-07-07
 
 ### Fixed
