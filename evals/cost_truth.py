@@ -104,6 +104,12 @@ def main() -> int:
 
     verdict = "PASS" if modeled_rt >= true_rt - TOL else "FAIL"
     print(f"\nVERDICT: {verdict}  (forge models {modeled_rt*1e4:.1f}bp vs true {true_rt*1e4:.1f}bp)")
+    if "--json" in sys.argv:
+        print(json.dumps({
+            "eval": "cost_truth", "modeled_bp": modeled_rt * 1e4, "true_bp": true_rt * 1e4,
+            "gap_bp": gap * 1e4, "builder_share": r["builder_rate"] / r["true_side"],
+            "flipped": len(c["flipped"]), "fragile": len(c["fragile"]), "verdict": verdict,
+        }))
     return 0 if modeled_rt >= true_rt - TOL else 1
 
 

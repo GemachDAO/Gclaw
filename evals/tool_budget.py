@@ -106,6 +106,11 @@ def main() -> int:
         print(f"\nremaining (non-critical): {', '.join(f'{r['tool']} — {r['check']}' for r in warns)}")
     verdict = "PASS" if not critical_fail else "FAIL"
     print(f"\nVERDICT: {verdict}  ({len(critical_fail)} critical hygiene failures)")
+    if "--json" in sys.argv:
+        print(json.dumps({
+            "eval": "tool_budget", "critical_fails": len(critical_fail), "warns": len(warns),
+            "saved_tokens": emp.get("saved_tokens", 0), "verdict": verdict,
+        }))
     return 0 if not critical_fail else 1
 
 
