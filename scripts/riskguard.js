@@ -110,6 +110,10 @@ function breakerCheck(eq, positions, dry) {
   // both write this same file, so if the logic differs one re-poisons what the other
   // corrected (the un-capped Math.max here silently undid forge's fix every heartbeat).
   const prevHwm = Number(prev.hwm) || 0;
+  // A bad/zero equity read must NEVER trip the breaker: eq=0 computes a 100% drawdown and
+  // would flatten the entire book on a transient read failure. forge.py guards this via its
+  // "no equity read" skip; mirror it here (this file is the enforcer that actually flattens).
+  if (!(eq > 0)) return { hwm: prevHwm, drawdown: 0, tripped: false, skipped: 'no equity read' };
   const hwm = prevHwm > 0 ? Math.max(prevHwm, Math.min(eq, prevHwm * 1.20)) : eq;
   const drawdown = hwm > 0 ? (hwm - eq) / hwm : 0;
   const tripped = drawdown >= dd;

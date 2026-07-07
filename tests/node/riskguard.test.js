@@ -199,6 +199,17 @@ describe('drawdown breaker', () => {
     expect(drawdown).toBe(0);
   });
 
+  // The dangerous case (assune-xde): a bad (0) equity read WITH a prior high-water mark.
+  // The old code computed (hwm-0)/hwm = 100% drawdown and flattened the entire book on a
+  // transient read failure. The bad-read guard keeps it inert, matching forge.py.
+  test('breakerCheck does not trip on a bad (0) equity read even with a prior hwm', () => {
+    const rg = loadWith(statusResponder(makeStatus(0, [])));
+    fs.writeFileSync(path.join(tmpHome, 'breaker.json'), JSON.stringify({ hwm: 1000 }));
+    const { tripped, drawdown } = rg.breakerCheck(0, [], true);
+    expect(tripped).toBe(false);
+    expect(drawdown).toBe(0);
+  });
+
   // REGRESSION: a single transient high equity read (e.g. a double-counted balance)
   // must NOT poison the high-water mark and trip a false drawdown halt next read —
   // the un-capped Math.max here used to re-poison what forge.py's 20%-cap corrected,

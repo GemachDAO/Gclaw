@@ -16,6 +16,17 @@ MODEL="${GCLAW_MODEL:-sonnet}"
 SKILL_DIR="${GCLAW_SKILL_DIR:-$HOME/.claude/skills/gclaw}"
 mkdir -p "$GCLAW_HOME"
 
+# Size-based log rotation (assune-old): heartbeat.log and predict_bot.log are append-only
+# and were never rotated. Roll to a single prior generation when past the cap, checked once
+# per run. Done here (hourly, deterministic) rather than in the 2-min predict cron, so no
+# writer holds an fd on the file being rotated.
+MAX_LOG_BYTES="${GCLAW_MAX_LOG_BYTES:-10485760}" # 10 MiB
+for _lf in "$LOG" "$GCLAW_HOME/predict_bot.log"; do
+  if [[ -f "$_lf" && "$(stat -c%s "$_lf" 2>/dev/null || echo 0)" -gt "$MAX_LOG_BYTES" ]]; then
+    mv -f "$_lf" "$_lf.1" 2>/dev/null || true
+  fi
+done
+
 # cron has a minimal PATH; ensure node + user bins resolve. Adjust if needed.
 NODE_DIR="$(command -v node 2>/dev/null || true)"; NODE_DIR="${NODE_DIR%/node}"
 # cron's bare env has no nvm on PATH, so fall back to the newest nvm node bin.

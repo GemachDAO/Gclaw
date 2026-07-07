@@ -1774,7 +1774,14 @@ MAX_OPEN_POSITIONS = 3  # cap concurrent positions to bound concentration
 
 
 def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
-    """Update the equity high-water mark and decide whether new entries are allowed."""
+    """Update the equity high-water mark and decide whether new entries are allowed.
+
+    Shares the SAME drawdown invariant as riskguard.js (which is the enforcer that
+    flattens the book on a trip): a bad equity read is inert, the HWM rise is 20%-capped
+    per read, and a trip fires at MAX_DRAWDOWN_PCT. The two must stay byte-identical on
+    these rules or one re-poisons what the other corrects (assune-xde) — riskguard.js was
+    missing the bad-read guard until it was added there.
+    """
     path = gclaw_home() / "breaker.json"
     state = {}
     try:
