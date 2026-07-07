@@ -38,6 +38,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import memory
+
 # Risk caps (mirror dna/TRADING_STRATEGY.md — enforced, never bypassable).
 # Leverage is EARNED: the cap rises with goodwill, the metric won from profitable
 # trades. A young agent trades small and careful; it unlocks more rope as it
@@ -70,6 +72,10 @@ SCAN_UNIVERSE = (
 
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
+# The in-sample leg must also rest on real support, not 1-2 lucky bars: without an
+# IS floor, `is_stats["expectancy"] > 0` gives the "both windows agree" framing false
+# weight (a single IS winner satisfies it). Pairs with the OOS bootstrap-CI gate below.
+MIN_IS_SAMPLE = 10
 # Live-bootstrap window: a technique keeps earning bounded half-size probes until it has
 # this many real closes, so a genuine edge can accumulate a statistically-meaningful
 # sample before the edge_real (full bootstrap CI > 0) gate benches it. The old window was
@@ -78,6 +84,11 @@ MIN_OOS_SAMPLE = 20
 # trades to recover: a sibling of the cold-start-forever death spiral (commit a7650dd).
 # 12 matches the fitness loop's own "fair sample before pruning" bar (FITNESS_PRUNE_N).
 MIN_LIVE_SAMPLE = 12
+# Cold-start is for STILL-BOOTSTRAPPING, not LOSING. Once a probe has this many real
+# closes and its interim mean R is negative, bench it instead of trading blind up to
+# MIN_LIVE_SAMPLE — the old window kept opening real half-size trades even after memory
+# already showed a losing point estimate at n=3 (assune-d39.2).
+COLD_BENCH_N = 5
 IS_FRACTION = 0.6
 HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
 # Per-technique hold horizon (bars, 1h candles). doc 02 §1: momentum-stack's thin
@@ -95,6 +106,12 @@ HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
 #   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
 TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
 MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
+# GDEX builder fee, applied by the managed backend on EVERY fill (both legs) and never
+# surfaced to local code — so it was silently missing from the JUDGE's cost floor and the
+# settlement ledger. Empirically 4.96bp/side across 204 real fills (evals/cost_truth.py);
+# modelled at 5bp. Omitting it understated true round-trip cost by ~40% (15bp vs 25bp),
+# graduating techniques that are live-negative once the real cost is charged.
+BUILDER_FEE = 0.0005  # builder fee per side (both entry and exit)
 
 
 # Backtest execution mode must MATCH the live executor (hl_perp.js), and it does: BOTH
@@ -111,6 +128,7 @@ def _maker_entry() -> bool:
 
 
 WARMUP = 50  # bars before EMA-50 / intel features are valid
+INTEL_WINDOW = 120  # feature lookback = intel.js's candles(…,121).slice(0,-1); mirror it exactly
 
 # signal.py sandbox.
 ALLOWED_IMPORTS = {"math", "statistics"}
@@ -555,7 +573,13 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
     Returns:
         A feature dict to merge into the bar's price-derived features.
     """
-    closes = [c["c"] for c in candles[: i + 1]]
+    # intel.js coinIntel builds every feature from a FIXED window — candles(coin,'1h',121)
+    # minus the forming bar = 120 closed bars — never the whole history. Mirror that here so
+    # the backtest scores on the same distribution the live path serves (assune-d39.7): an
+    # expanding window skews e50/rsi/atr vs live, and pstdev under-reads realized_vol vs its
+    # sample stdev. Both are train/serve skew — a backtest-proven, live-dead vector.
+    closes = [c["c"] for c in candles[: i + 1]][-INTEL_WINDOW:]
+    window_candles = candles[: i + 1][-INTEL_WINDOW:]
     last = candles[i]
     e9, e21, e50 = _ema(closes[-40:], 9), _ema(closes[-60:], 21), _ema(closes, 50)
     ema_stack = (1 if e9 > e21 else -1) + (1 if e21 > e50 else -1)
@@ -570,8 +594,8 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "ema_stack": ema_stack,
         "ema_slope_pct": ((e9 - e50) / e50) * 100 if e50 else 0.0,
         "rsi": round(_wilder_rsi(closes) * 10) / 10,
-        "atr_pct": round(_wilder_atr_pct(candles[: i + 1]) * 100) / 100,
-        "realized_vol_pct": round(statistics.pstdev(rets24) * 100 * 100) / 100 if rets24 else 0.0,
+        "atr_pct": round(_wilder_atr_pct(window_candles) * 100) / 100,
+        "realized_vol_pct": round(statistics.stdev(rets24) * 100 * 100) / 100 if len(rets24) > 1 else 0.0,
         "bb_z": round(bb_z * 100) / 100,
         "flow_pressure": round(flow * 100) / 100,
         "efficiency": round(efficiency * 100) / 100,
@@ -702,9 +726,10 @@ def round_trip_cost(stop_hit: bool) -> float:
         The round-trip cost fraction to subtract from the trade's raw return.
     """
     fill_cost = MAKER_FEE if _maker_entry() else TAKER_FEE
-    entry_cost = fill_cost
+    # Every leg also pays the builder fee (applied by the managed backend on all fills).
+    entry_cost = fill_cost + BUILDER_FEE
     # A stop is always a taker/trigger fill; a clean TP/time exit fills like the entry.
-    exit_cost = TAKER_FEE if stop_hit else fill_cost
+    exit_cost = (TAKER_FEE if stop_hit else fill_cost) + BUILDER_FEE
     return entry_cost + exit_cost
 
 
@@ -752,8 +777,15 @@ def score_window(
 
 
 def summarise(rets: list[float]) -> dict[str, Any]:
+    """Summarise a window of trade returns, incl. a bootstrap CI lower bound.
+
+    ``ci_lo`` is the 95% bootstrap CI lower bound on mean R (``memory._bootstrap_ci``,
+    the SAME significance test the live edge_real gate uses). The JUDGE requires
+    ``ci_lo > 0`` so a technique graduates only on a statistically real OOS edge,
+    not a positive point estimate that is indistinguishable from luck.
+    """
     if not rets:
-        return {"n": 0, "winrate": 0.0, "expectancy": 0.0, "total": 0.0, "max_dd": 0.0}
+        return {"n": 0, "winrate": 0.0, "expectancy": 0.0, "ci_lo": 0.0, "total": 0.0, "max_dd": 0.0}
     equity, peak, max_dd = 0.0, 0.0, 0.0
     for r in rets:
         equity += r
@@ -764,6 +796,7 @@ def summarise(rets: list[float]) -> dict[str, Any]:
         "n": len(rets),
         "winrate": round(wins / len(rets), 4),
         "expectancy": round(statistics.fmean(rets), 6),
+        "ci_lo": memory._bootstrap_ci(rets)[0],
         "total": round(equity, 6),
         "max_dd": round(max_dd, 6),
     }
@@ -791,7 +824,8 @@ def _backtest_with(
     oos_stats = score_window(candles, fn, coin, split, last, horizon)
     proven = (
         oos_stats["n"] >= MIN_OOS_SAMPLE
-        and oos_stats["expectancy"] > 0
+        and oos_stats["ci_lo"] > 0  # OOS edge is bootstrap-significant, not a lucky point estimate
+        and is_stats["n"] >= MIN_IS_SAMPLE
         and is_stats["expectancy"] > 0
     )
     return {
@@ -2247,7 +2281,11 @@ def _gate_intents(
         # Widening the window lets a real edge accumulate the trades that flip edge_real,
         # while the CI gate still governs full-size sizing so noise never graduates.
         is_cold = i.get("edge_trades_mem", 0) < MIN_LIVE_SAMPLE
-        cold_ok = is_cold and _cold_start_ok(i, conv_floor)
+        # Once a fair interim sample has accrued and the live point estimate is negative,
+        # the probe is LOSING, not bootstrapping — bench it rather than keep risking capital
+        # blind to the mounting loss until MIN_LIVE_SAMPLE (assune-d39.2).
+        interim_losing = i.get("edge_trades_mem", 0) >= COLD_BENCH_N and i.get("edge_exp_mem", 0.0) < 0
+        cold_ok = is_cold and not interim_losing and _cold_start_ok(i, conv_floor)
         if not (ok or cold_ok):
             continue
         i["edge_real"] = ok
@@ -2320,6 +2358,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         intent["regime"] = regime
         intent["edge_real_mem"] = ok
         intent["edge_trades_mem"] = int((st or {}).get("trades", 0) or 0)
+        intent["edge_exp_mem"] = float((st or {}).get("expectancy_r", 0) or 0)
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))

@@ -9,10 +9,12 @@ bounds, ticket cap, no double-down) and otherwise returns a clean skip — never
 crash. Safety is code, never prompt (the audit's core lesson, mirrored from the
 forge's ``run`` gate).
 
-Shadow mode is the default: a passing bet is recorded to the calibration ledger
-with ``shadow:true`` and NO order is placed. Real orders are placed ONLY when
-``GCLAW_OUTCOMES_LIVE=1`` — this lets the LLM's calibration prove out before a
-dollar is risked ("prove before trade").
+Two-tier by design: a bet whose edge clears SHADOW_MARGIN is recorded to the
+calibration ledger with ``shadow:true`` and NO order — so calibration accrues. A
+real order is placed ONLY for a bet clearing the wider DIVERGENCE_MARGIN on a desk
+that is both armed (``GCLAW_OUTCOMES_LIVE=1``) AND calibration-proven (``live_mode``
+requires resolved Brier < the no-skill baseline). This makes "prove before trade"
+code the model can't skip, not a prompt promise the code failed to keep.
 
     outcomes.py markets [--min-vol 10000]          # tradeable sides + edgeable subset (crypto/macro vs efficient sports)
     outcomes.py bet --coin "#1731" --prob 0.92 --stake 8 [--reason "..."]
@@ -40,6 +42,12 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # (not the prompt) so an injected instruction can never widen them.
 MIN_VOLUME = float(os.environ.get("GCLAW_OUTCOMES_MIN_VOL") or 10000)
 DIVERGENCE_MARGIN = float(os.environ.get("GCLAW_OUTCOMES_MARGIN") or 0.08)
+# The RECORD bar: a bet whose edge clears this (but maybe not DIVERGENCE_MARGIN) is logged to
+# the calibration ledger as shadow — never placed — so the LLM's probabilities can prove out.
+# Without a looser record bar, one 0.08 margin gated BOTH record and place, so nothing ever
+# accrued and calibration was structurally unreachable (assune-d39.8).
+SHADOW_MARGIN = float(os.environ.get("GCLAW_OUTCOMES_SHADOW_MARGIN") or 0.03)
+LIVE_MIN_RESOLVED = int(os.environ.get("GCLAW_OUTCOMES_LIVE_MIN_N") or 20)
 LONGSHOT_FLOOR = float(os.environ.get("GCLAW_OUTCOMES_LONGSHOT_FLOOR") or 0.10)
 MAX_STAKE = float(os.environ.get("GCLAW_OUTCOMES_MAX_STAKE") or 15)
 MIN_STAKE = 1.0
@@ -70,8 +78,24 @@ def now_iso() -> str:
 
 
 def live_mode() -> bool:
-    """True only when GCLAW_OUTCOMES_LIVE=1 — otherwise shadow (record, no order)."""
-    return os.environ.get("GCLAW_OUTCOMES_LIVE") == "1"
+    """True only when armed AND calibration has proven out — never a bare env check.
+
+    Requires ``GCLAW_OUTCOMES_LIVE=1`` AND a resolved-ticket sample (>= LIVE_MIN_RESOLVED)
+    whose mean Brier beats the no-skill baseline, so real capital is risked only after the
+    LLM's probabilities demonstrate skill — not merely because the flag is set. The prompt
+    used to promise this "prove before trade" behaviour that the code did not enforce
+    (assune-d39.8).
+    """
+    if os.environ.get("GCLAW_OUTCOMES_LIVE") != "1":
+        return False
+    agg = load_ledger().get("aggregates") or {}
+    brier, baseline = agg.get("brier_mean"), agg.get("baseline_mean")
+    return (
+        (agg.get("n_resolved") or 0) >= LIVE_MIN_RESOLVED
+        and brier is not None
+        and baseline is not None
+        and brier < baseline
+    )
 
 
 def _write_atomic(path: Path, data: str) -> None:
@@ -279,8 +303,8 @@ def evaluate_bet(
         return _gate_skip(f"prob {prob} out of [0,1]")
     price = float(side["price"])
     edge = round(prob - price, 6)
-    if edge < DIVERGENCE_MARGIN:
-        return _gate_skip(f"edge {edge} < margin {DIVERGENCE_MARGIN} (not underpriced enough)")
+    if edge < SHADOW_MARGIN:
+        return _gate_skip(f"edge {edge} < shadow margin {SHADOW_MARGIN} (not underpriced enough)")
     if price < LONGSHOT_FLOOR:
         return _gate_skip(
             f"longshot guard: price {price} < floor {LONGSHOT_FLOOR} (longshots are overpriced)"
@@ -295,7 +319,7 @@ def evaluate_bet(
 
 
 def _new_ticket(
-    side: dict[str, Any], prob: float, stake: float, edge: float, reason: str
+    side: dict[str, Any], prob: float, stake: float, edge: float, reason: str, shadow: bool
 ) -> dict[str, Any]:
     return {
         "coin": side["coin"],
@@ -308,7 +332,7 @@ def _new_ticket(
         "edge": round(edge, 6),
         "reason": reason or "",
         "ts": now_iso(),
-        "shadow": not live_mode(),
+        "shadow": shadow,
         "resolved": False,
     }
 
@@ -338,8 +362,12 @@ def cmd_bet(args: argparse.Namespace) -> dict[str, Any]:
     if not verdict.get("side"):
         return verdict  # clean skip
     side, edge = verdict["side"], verdict["edge"]
-    ticket = _new_ticket(side, float(args.prob), float(args.stake), edge, args.reason or "")
-    if live_mode():
+    # Place a real order ONLY for a strong-edge bet on a proven-calibrated desk; every other
+    # passing bet (modest edge, or armed-but-not-yet-proven) records shadow so calibration
+    # accrues without risking capital (assune-d39.8).
+    go_live = live_mode() and edge >= DIVERGENCE_MARGIN
+    ticket = _new_ticket(side, float(args.prob), float(args.stake), edge, args.reason or "", not go_live)
+    if go_live:
         try:
             ticket["order"] = _place_live_order(side, float(args.stake))
         except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as exc:

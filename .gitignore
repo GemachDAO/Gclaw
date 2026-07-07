@@ -28,3 +28,6 @@ mutants/
 assets/generated/*-shot.png
 assets/generated/*-ticker*.png
 assets/generated/dashboard-preview.html
+
+# eval data fixtures — real fills (personal) + regenerable candle blobs; not source
+evals/fixtures/

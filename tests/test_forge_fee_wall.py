@@ -38,10 +38,11 @@ def _taker_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_taker_default_matches_live_executor_round_trip():
-    """Default (no maker flag) charges taker on both legs — matches hl_perp.js isMarket:true."""
+    """Default (no maker flag) charges taker + builder on both legs — matches hl_perp.js."""
     assert forge._maker_entry() is False
-    assert forge.round_trip_cost(stop_hit=False) == pytest.approx(2 * forge.TAKER_FEE)
-    assert forge.round_trip_cost(stop_hit=True) == pytest.approx(2 * forge.TAKER_FEE)
+    side = forge.TAKER_FEE + forge.BUILDER_FEE
+    assert forge.round_trip_cost(stop_hit=False) == pytest.approx(2 * side)
+    assert forge.round_trip_cost(stop_hit=True) == pytest.approx(2 * side)
 
 
 def test_maker_entry_round_trip_is_cheaper_than_taker(monkeypatch: pytest.MonkeyPatch):
@@ -50,7 +51,7 @@ def test_maker_entry_round_trip_is_cheaper_than_taker(monkeypatch: pytest.Monkey
     monkeypatch.setenv("GCLAW_FORGE_MAKER_ENTRY", "1")
     maker_rt = forge.round_trip_cost(stop_hit=False)
     assert maker_rt < taker_rt
-    assert maker_rt == pytest.approx(2 * forge.MAKER_FEE)
+    assert maker_rt == pytest.approx(2 * (forge.MAKER_FEE + forge.BUILDER_FEE))
 
 
 def test_stop_hit_exit_is_always_taker(monkeypatch: pytest.MonkeyPatch):
@@ -58,7 +59,7 @@ def test_stop_hit_exit_is_always_taker(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GCLAW_FORGE_MAKER_ENTRY", "1")
     stopped = forge.round_trip_cost(stop_hit=True)
     clean = forge.round_trip_cost(stop_hit=False)
-    assert stopped == pytest.approx(forge.MAKER_FEE + forge.TAKER_FEE)
+    assert stopped == pytest.approx(forge.MAKER_FEE + forge.TAKER_FEE + 2 * forge.BUILDER_FEE)
     assert stopped > clean  # the stop leg costs the taker fee, not the maker rebate
 
 
@@ -72,14 +73,14 @@ def test_maker_fee_below_taker_fee():
 
 def _thin_edge_candles(n: int = 400) -> list[dict[str, float]]:
     """A price series a mean-reversion signal harvests a THIN but genuine two-sided edge
-    from: every bar dips then closes up ~10bp. The raw per-trade edge (~10bp) sits BELOW
-    a taker round trip (~15bp) but ABOVE a maker round trip (~3bp) — exactly the fee-wall
-    case. Deterministic, no randomness, so the graduation verdict is reproducible."""
+    from: every bar dips then closes up ~20bp. The raw per-trade edge (~20bp) sits BELOW
+    a taker round trip (~25bp incl. builder fee) but ABOVE a maker round trip (~13bp) —
+    exactly the fee-wall case. Deterministic, no randomness, so the verdict is reproducible."""
     candles = []
     price = 100.0
     for _ in range(n):
         low = price * 0.998
-        close = price * 1.001  # +10bp per bar, never hits a 1% stop
+        close = price * 1.002  # +20bp per bar, never hits a 1% stop
         high = close * 1.0005
         candles.append({"o": price, "h": high, "l": low, "c": close})
         price = close
@@ -101,9 +102,10 @@ def _score(candles, maker: bool, monkeypatch) -> dict:
 def test_thin_edge_is_negative_under_taker_but_positive_under_maker(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """The fee wall, pinned: a ~10bp/bar edge nets NEGATIVE after a taker round trip and
-    POSITIVE after a maker round trip. The maker model lets a real edge clear the fee —
-    the graduation rule (expectancy>0) is untouched; only the cost the edge beats changed.
+    """The fee wall, pinned: a ~20bp/bar edge nets NEGATIVE after a taker round trip and
+    POSITIVE after a maker round trip (both incl. the builder fee). The maker model lets a
+    real edge clear the fee — the graduation rule (expectancy>0) is untouched; only the cost
+    the edge beats changed.
     """
     candles = _thin_edge_candles()
     taker = _score(candles, maker=False, monkeypatch=monkeypatch)
@@ -134,7 +136,7 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return h
 
 
-def _intent(trades: int, *, edge_real: bool = False, conf: float = 0.6) -> dict:
+def _intent(trades: int, *, edge_real: bool = False, conf: float = 0.6, exp: float = 0.0) -> dict:
     """A gate-ready intent for a proven major, with a pre-stashed memory read."""
     return {
         "technique": "t",
@@ -148,6 +150,7 @@ def _intent(trades: int, *, edge_real: bool = False, conf: float = 0.6) -> dict:
         "regime": "range",
         "edge_real_mem": edge_real,
         "edge_trades_mem": trades,
+        "edge_exp_mem": exp,
     }
 
 
@@ -169,6 +172,22 @@ def test_edge_real_technique_executes_full_size(isolated_home: Path):
     assert len(gated) == 1
     assert gated[0].get("cold_start") is not True
     assert gated[0]["notional"] == pytest.approx(30.0)
+
+
+def test_cold_start_benches_a_losing_probe(isolated_home: Path):
+    """assune-d39.2: once a probe has >=COLD_BENCH_N real closes and a NEGATIVE interim mean
+    R, it is LOSING, not bootstrapping — benched, not left probing blind until MIN_LIVE_SAMPLE."""
+    assert forge.COLD_BENCH_N <= 6 < forge.MIN_LIVE_SAMPLE  # premise: still inside cold window
+    gated = forge._gate_intents([_intent(trades=6, edge_real=False, exp=-0.3)], CAPS, {})
+    assert gated == []
+
+
+def test_cold_start_still_probes_a_winning_early_technique(isolated_home: Path):
+    """A cold technique with a POSITIVE interim point estimate keeps earning its probe — the
+    bench triggers on losing evidence, not merely on having accrued a few trades."""
+    gated = forge._gate_intents([_intent(trades=6, edge_real=False, exp=0.2)], CAPS, {})
+    assert len(gated) == 1
+    assert gated[0].get("cold_start") is True
 
 
 def test_matured_technique_without_edge_real_is_benched(isolated_home: Path):

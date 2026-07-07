@@ -267,6 +267,9 @@ def render_briefing(d: dict) -> str:
     return "\n".join(out)
 
 
+COVER_MIN_N = 5  # min trades before a positive regime edge counts as real coverage (not n=1 noise)
+
+
 def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     """Render the strategy-R&D board: adopted techniques with fitness, and the regime gaps.
 
@@ -288,8 +291,14 @@ def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     live_regimes = {
         f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")
     }
+    # A regime counts as COVERED only if a technique shows a positive edge on a real sample:
+    # n=1 "edges" (the sole trade a rare regime like trend_up ever saw) are noise, and
+    # treating them as coverage hid genuine gaps from the scientist (assune-d39.5).
     covered = {
-        rg for stats in regime_stats.values() for rg, s in stats.items() if _f(s.get("e")) > 0
+        rg
+        for stats in regime_stats.values()
+        for rg, s in stats.items()
+        if _f(s.get("e")) > 0 and _f(s.get("n")) >= COVER_MIN_N
     }
     gaps = sorted(live_regimes - covered)
     if gaps:

@@ -212,6 +212,10 @@ const MAJORS = ['BTC', 'ETH', 'SOL']; // always scanned — the strategy's "majo
 const DISCOVERY_DEX = 'xyz'; // stocks/commodities/indices — no memecoins list here
 const LIQ_FLOOR = Number(process.env.GCLAW_LIQ_FLOOR) || 1_000_000; // min daily $ notional
 const UNIVERSE_CAP = Number(process.env.GCLAW_UNIVERSE_CAP) || 18; // cap the scan breadth
+// Max impact spread (fraction of mid) a market may have and still be admitted. dayNtlVlm
+// alone let thin single-stock perps with wide spreads in (they looked identical to a deep
+// market), where entries bled on the spread; require a genuinely tight book too (assune-d39.6).
+const SPREAD_CAP = Number(process.env.GCLAW_SPREAD_CAP) || 0.001; // 10bp
 // Fallback if the venue read fails — majors + the deepest commodity/stock perps.
 const STATIC_UNIVERSE = ['BTC', 'ETH', 'SOL', 'xyz:NVDA', 'xyz:TSLA', 'xyz:SPCX',
   'xyz:AAPL', 'xyz:AMZN', 'xyz:GOLD', 'xyz:SILVER', 'xyz:BRENTOIL'];
@@ -223,20 +227,43 @@ const STATIC_UNIVERSE = ['BTC', 'ETH', 'SOL', 'xyz:NVDA', 'xyz:TSLA', 'xyz:SPCX'
 // and without churning through everything. Returns null on a venue read failure.
 // Pure: rank a dex universe by liquidity and return majors + the top liquid names.
 // Separated from the fetch so the floor/cap logic is unit-testable without the network.
+function _spread(ctx) {
+  const mid = Number(ctx && ctx.midPx) || 0;
+  const px = ctx && Array.isArray(ctx.impactPxs) ? ctx.impactPxs.map(Number) : null;
+  return px && px.length === 2 && mid ? (px[1] - px[0]) / mid : Infinity;
+}
+
 function pickLiquid(univ, ctxs) {
   if (!Array.isArray(univ) || !Array.isArray(ctxs)) return null;
+  const majors = new Set(MAJORS);
   const liquid = univ
-    .map((u, i) => ({ name: u.name, vol: Number(ctxs[i] && ctxs[i].dayNtlVlm) || 0 }))
-    .filter((m) => m.vol >= LIQ_FLOOR)
+    .map((u, i) => ({ name: u.name, vol: Number(ctxs[i] && ctxs[i].dayNtlVlm) || 0, spread: _spread(ctxs[i]) }))
+    .filter((m) => !majors.has(m.name) && m.vol >= LIQ_FLOOR && m.spread <= SPREAD_CAP)
     .sort((a, b) => b.vol - a.vol)
     .slice(0, Math.max(0, UNIVERSE_CAP - MAJORS.length))
     .map((m) => m.name);
   return [...MAJORS, ...liquid];
 }
 
+// Discover FROM the venue across BOTH dexes: the default dex (native crypto alts — the
+// asset class the RSI/EMA/BB feature set was built for) and the xyz dex (stock/commodity
+// perps). Merge the candidates and let pickLiquid rank them by liquidity under one spread
+// gate, so the deepest, tightest markets win regardless of class (assune-d39.6). The venue
+// already prefixes xyz names ("xyz:TSLA"), so no prefixing is needed here.
 async function discoverUniverse() {
-  const resp = await info({ type: 'metaAndAssetCtxs', dex: DISCOVERY_DEX }).catch(() => null);
-  return resp ? pickLiquid(resp[0] && resp[0].universe, resp[1]) : null;
+  const [crypto, stocks] = await Promise.all([
+    info({ type: 'metaAndAssetCtxs' }).catch(() => null),
+    info({ type: 'metaAndAssetCtxs', dex: DISCOVERY_DEX }).catch(() => null),
+  ]);
+  const univ = [];
+  const ctxs = [];
+  for (const resp of [crypto, stocks]) {
+    if (resp && Array.isArray(resp[0] && resp[0].universe) && Array.isArray(resp[1])) {
+      univ.push(...resp[0].universe);
+      ctxs.push(...resp[1]);
+    }
+  }
+  return univ.length ? pickLiquid(univ, ctxs) : null;
 }
 
 async function main() {

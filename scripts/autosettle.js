@@ -125,7 +125,7 @@ async function main() {
   const freshFunding = funding.filter((x) => x.time > (cursor.lastFundingTime || 0));
 
   const closedPnl = fresh.reduce((s, f) => s + Number(f.closedPnl || 0), 0);
-  const fees = fresh.reduce((s, f) => s + Number(f.fee || 0), 0);
+  const fees = fresh.reduce((s, f) => s + Number(f.fee || 0) + Number(f.builderFee || 0), 0);
   const fundingPnl = freshFunding.reduce((s, x) => s + x.usdc, 0);
   const net = Math.round((closedPnl - fees + fundingPnl + (cursor.residual || 0)) * 1e6) / 1e6;
   const closes = fresh.filter((f) => Number(f.closedPnl || 0) !== 0).length;
@@ -196,7 +196,8 @@ async function main() {
         const risk = labelled.risk || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
         const tech = technique || labelled.technique || 'discretionary';
         const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
-        const netPnl = Number(f.closedPnl) - Number(f.fee || 0); // expectancy must be net of fees, not gross
+        // expectancy must be net of ALL fees (exchange + builder), not gross
+        const netPnl = Number(f.closedPnl) - Number(f.fee || 0) - Number(f.builderFee || 0);
         execFileSync('uv', ['run', '--no-project', 'python3', path.join(__dirname, 'memory.py'),
           'record', '--coin', String(f.coin), '--technique', String(tech),
           '--regime', regimes[f.coin] || 'unknown', '--side', side,
