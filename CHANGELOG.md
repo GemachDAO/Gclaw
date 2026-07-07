@@ -4,6 +4,29 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-07-07
+
+### Added
+
+- **Harness grader** (`evals/harness_grade.py`) — one honest letter grade for the whole
+  harness, synthesizing the evals + live state. Severity is a hard floor, not a weight: a
+  broken JUDGE / cost model / feature caps the grade outright, and missing data
+  (a skipped eval, event calibration n=0) scores UNGRADED/STALE and caps the ceiling —
+  never a default pass. Every run appends to `harness_grades.jsonl` for trend/regression.
+  Each eval gained an additive `--json` line (run.py output unchanged). First live grade: B.
+- **`forge.py revalidate`** — re-runs every registered proven pair through the current gate
+  and drops the ones that no longer clear it. Run once: 36 of 37 pairs were noise certified
+  under the old gate; only 1 survived.
+- **Multiple-comparisons cap** (`AUTOPROVE_MAX_PER_TECH`) — bounds the proven pairs a
+  technique may hold to its strongest few by edge_score, so it can't sprawl across a dozen
+  markets on look-elsewhere luck.
+
+### Fixed
+
+- **Metabolism froze.** `metabolism.py tick` (the GMAC heartbeat burn) was only ever called
+  from the interactive `/gclaw` skill, never the cron, so the unattended agent's survival
+  accounting silently stopped. It now runs deterministically each heartbeat.
+
 ## [4.3.2] - 2026-07-07
 
 ### Fixed
