@@ -4,6 +4,28 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-07-07
+
+### Added
+
+- **Harness grader v2 — the LLM decision-quality judge** (`evals/decision_quality.py`). Grades
+  the agent's JUDGMENT (was each cycle's manage / author-or-hold / bet-or-skip / veto reasoned
+  soundly from grounded premises) — not hindsight profit. Kept honest: every checkable claim is
+  verified deterministically first and a contradiction is a FORCED_FAIL that caps the axis at F
+  with no LLM consulted; the LLM only grades the inference on a pre-verified block; every PASS
+  must quote a report substring or lose its credit; too many ungrounded citations or a failed
+  monotonicity smoke test returns LOW_CONFIDENCE, never a guess. Verdicts cached. Wired into the
+  grader as the 10%-weight Decision-Quality dimension (off unless `--with-judge`; LOW-CONFIDENCE
+  → UNGRADED ceiling cap). First live: **A** (mean 2.75/3, 98% grounding, 0 forced-fails).
+- **Per-cycle context archiving** — the heartbeat now archives each active cycle's briefing +
+  report to `~/.gclaw/cycles/` (bounded to 240) so decisions are graded on what was knowable
+  then, not hindsight.
+
+### Fixed
+
+- A `--quick` grader run no longer false-fires the regression banner (a STALE/skipped eval is
+  not a FAIL).
+
 ## [4.4.0] - 2026-07-07
 
 ### Added
