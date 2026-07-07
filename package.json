@@ -1,6 +1,6 @@
 {
   "name": "gclaw-skill-tests",
-  "version": "4.3.0",
+  "version": "4.3.1",
   "private": true,
   "description": "Dev/test tooling for the Gclaw skill's node scripts. The scripts are CommonJS and depend on ethers + the GDEX SDK resolved from ~/gdex-skill at runtime. vitest + ethers are installed here (predict.js's tested keccak path needs ethers); the GDEX SDK is not \u2014 scripts that need it load it tolerantly and their tested functions are pure.",
   "scripts": {

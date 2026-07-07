@@ -175,7 +175,10 @@ async function main() {
     settled = true;
     const closers = fresh.filter((x) => Number(x.closedPnl || 0) !== 0);
     const regimes = fetchRegimes([...new Set(closers.map((f) => f.coin))]);
-    const openRisk = readJson(path.join(GCLAW_HOME, 'open_risk.json'), {});
+    // Real per-trade risk lives in the forge's pending.json (written on open, keyed by
+    // coin: {ref, technique, regime, risk_usd}). open_risk.json was dead — nothing wrote
+    // it — so every R-multiple fell back to a 1.5%-of-notional ESTIMATE (assune-d39/ir5).
+    const pending = readJson(path.join(GCLAW_HOME, 'forge', 'pending.json'), {});
     // Auto-attribute each closing fill to its technique's author (royalty) AND
     // record the outcome to the trade-memory (technique x regime -> R) so the agent
     // learns which techniques actually work in which conditions.
@@ -188,13 +191,12 @@ async function main() {
         technique = JSON.parse(out.toString()).technique || '';
       } catch { /* attribution is best-effort */ }
       try {
-        // open_risk.json entry may be a bare risk number or {risk, technique} the
-        // agent labelled at entry. Fall back to "discretionary" (a learnable bucket).
-        const orec = openRisk[f.coin];
-        const labelled = orec && typeof orec === 'object' ? orec : { risk: orec };
+        const prec = pending[f.coin] || {};
         const notional = Math.abs(Number(f.sz || 0)) * Number(f.px || 0);
-        const risk = labelled.risk || notional * 0.015 || 0.25; // sized risk, else 1.5%-stop estimate
-        const tech = technique || labelled.technique || 'discretionary';
+        // Real sized risk from the forge; fall back to a 1.5%-stop estimate for a manual
+        // close with no pending record. Fall back to "discretionary" (a learnable bucket).
+        const risk = Number(prec.risk_usd) || notional * 0.015 || 0.25;
+        const tech = technique || prec.technique || 'discretionary';
         const side = String(f.dir || '').includes('Short') ? 'short' : 'long';
         // expectancy must be net of ALL fees (exchange + builder), not gross
         const netPnl = Number(f.closedPnl) - Number(f.fee || 0) - Number(f.builderFee || 0);
