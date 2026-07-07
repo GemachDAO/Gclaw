@@ -202,11 +202,25 @@ else
   BRIEF="$(uv run --no-project python3 "$SKILL_DIR/scripts/briefing.py" 2>>"$LOG" || true)"
   FULL_PROMPT="$PROMPT"
   [[ -n "$BRIEF" ]] && FULL_PROMPT="$PROMPT"$'\n\n'"$BRIEF"
+  # Archive this active cycle's context (the briefing the model actually saw) + its report so
+  # the decision-quality grader grades the judgment on what was knowable THEN, not hindsight.
+  # Best-effort; the report is captured to a file then appended to the LOG so the log format is
+  # unchanged. Prune to the most recent 240 cycles (~10 days hourly) to stay bounded.
+  CYCLE_DIR="$GCLAW_HOME/cycles"; mkdir -p "$CYCLE_DIR" 2>/dev/null || true
+  CYCLE_BASE="$CYCLE_DIR/$(ts | tr -d ':')"
+  printf '%s' "$BRIEF" >"$CYCLE_BASE.brief.txt" 2>/dev/null || true
+  REPORT_FILE="$CYCLE_BASE.report.txt"
+  # shellcheck disable=SC2012  # ls -t ordering is what we want; filenames are our own ts-based
+  ls -1t "$CYCLE_DIR"/*.report.txt 2>/dev/null | tail -n +241 | while read -r _old; do
+    rm -f "$_old" "${_old%.report.txt}.brief.txt" 2>/dev/null || true
+  done
   if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
-      --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
+      --model "$MODEL" --disallowedTools $DENY >"$REPORT_FILE" 2>&1; then
+    cat "$REPORT_FILE" >>"$LOG"
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
   else
     rc=$?; CYCLE_RC=$rc  # capture BEFORE any other command (a command substitution would reset $?)
+    cat "$REPORT_FILE" >>"$LOG"
     if [[ "$rc" -eq 124 ]]; then
       echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
     else
