@@ -128,6 +128,7 @@ def _maker_entry() -> bool:
 
 
 WARMUP = 50  # bars before EMA-50 / intel features are valid
+INTEL_WINDOW = 120  # feature lookback = intel.js's candles(…,121).slice(0,-1); mirror it exactly
 
 # signal.py sandbox.
 ALLOWED_IMPORTS = {"math", "statistics"}
@@ -572,7 +573,13 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
     Returns:
         A feature dict to merge into the bar's price-derived features.
     """
-    closes = [c["c"] for c in candles[: i + 1]]
+    # intel.js coinIntel builds every feature from a FIXED window — candles(coin,'1h',121)
+    # minus the forming bar = 120 closed bars — never the whole history. Mirror that here so
+    # the backtest scores on the same distribution the live path serves (assune-d39.7): an
+    # expanding window skews e50/rsi/atr vs live, and pstdev under-reads realized_vol vs its
+    # sample stdev. Both are train/serve skew — a backtest-proven, live-dead vector.
+    closes = [c["c"] for c in candles[: i + 1]][-INTEL_WINDOW:]
+    window_candles = candles[: i + 1][-INTEL_WINDOW:]
     last = candles[i]
     e9, e21, e50 = _ema(closes[-40:], 9), _ema(closes[-60:], 21), _ema(closes, 50)
     ema_stack = (1 if e9 > e21 else -1) + (1 if e21 > e50 else -1)
@@ -587,8 +594,8 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "ema_stack": ema_stack,
         "ema_slope_pct": ((e9 - e50) / e50) * 100 if e50 else 0.0,
         "rsi": round(_wilder_rsi(closes) * 10) / 10,
-        "atr_pct": round(_wilder_atr_pct(candles[: i + 1]) * 100) / 100,
-        "realized_vol_pct": round(statistics.pstdev(rets24) * 100 * 100) / 100 if rets24 else 0.0,
+        "atr_pct": round(_wilder_atr_pct(window_candles) * 100) / 100,
+        "realized_vol_pct": round(statistics.stdev(rets24) * 100 * 100) / 100 if len(rets24) > 1 else 0.0,
         "bb_z": round(bb_z * 100) / 100,
         "flow_pressure": round(flow * 100) / 100,
         "efficiency": round(efficiency * 100) / 100,
