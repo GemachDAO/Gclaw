@@ -3,11 +3,11 @@
  * model_select.js — pick the heartbeat model by how much judgment the cycle needs.
  *
  * Opus reasoning is ~5x the cost of Sonnet, and most heartbeats are "flat, nothing
- * to do." So escalate to Opus ONLY when the decision actually matters:
- *   - a position is open (exit / management calls are where money is won or lost), or
- *   - a live, non-chop setup is present (a real entry to weigh).
- * Otherwise Sonnet handles the routine cycle cheaply. Prints just the model name so
- * the heartbeat can use it inline; an explicit GCLAW_MODEL always wins (manual override).
+ * to do." Origination is forge-only, so the LLM does not open on setups it sees — it
+ * needs Opus ONLY when a position is open (exit / management calls are where money is
+ * won or lost). A flat book is the Scientist's research cycle and runs on Sonnet.
+ * Prints just the model name so the heartbeat can use it inline; an explicit
+ * GCLAW_MODEL always wins (manual override).
  *
  *   node model_select.js            # prints "opus" or "sonnet" (+ reason on stderr)
  *
@@ -15,14 +15,11 @@
  */
 'use strict';
 
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
-const readJson = (p, d) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return d; } };
-
+// GCLAW_HOME is read from the environment by the hl_perp.js child (inherited via execFileSync),
+// so it is intentionally not referenced here — position state is the only input this needs.
 function positionCount() {
   try {
     const out = execFileSync('node', [path.join(__dirname, 'hl_perp.js'), 'status', '--cache'],
@@ -31,27 +28,23 @@ function positionCount() {
   } catch { return 0; }
 }
 
-// A coin worth Opus: tradeable (not chop) AND showing a real, actionable edge —
-// an RSI extreme, a stretched mean-reversion band, a crowded funding book, or a
-// clean trend with momentum behind it.
-function liveSetup(intel) {
-  return Object.values(intel || {}).some((f) => f && f.tradeable && (
-    f.rsi <= 30 || f.rsi >= 70
-    || Math.abs(f.bb_z) >= 1.5
-    || Math.abs(f.funding_z) >= 1.5
-    || (Math.abs(f.ema_stack) === 2 && Math.abs(f.ema_slope_pct) >= 1)
-  ));
-}
+// Escalating to Opus on a raw market dislocation was the bug behind 442/442 Opus
+// cycles (assune-d39.10): with ~18 coins scanned, some coin always showed an RSI
+// extreme or a stretched band, so the "live setup" trigger fired every hour and the
+// Sonnet idle path never once ran. But origination is forge-only now — the LLM does
+// NOT open on a setup it sees, so a raw dislocation is not actionable work for it.
+// The LLM needs Opus only when there is a POSITION to manage (where exits win/lose
+// money); a flat book is the Scientist's research cycle, which runs fine on Sonnet
+// (and the fixed backtest JUDGE rigorously validates whatever it authors). If the
+// forge opened this cycle, that shows up as an open position below.
 
 // "active" = the cycle needs real judgment: a position to manage or a live setup.
 // Drives BOTH the model (Opus when active) and the cadence (run hourly when active,
 // stretch when idle). Ignores GCLAW_MODEL so a forced model doesn't disable cadence.
 function activity() {
-  const intel = readJson(path.join(GCLAW_HOME, 'intel.json'), {}).intel || {};
   const positions = positionCount();
   if (positions > 0) return { active: true, reason: `${positions} open position(s) to manage` };
-  if (liveSetup(intel)) return { active: true, reason: 'live non-chop setup to weigh' };
-  return { active: false, reason: 'flat + no live setup — routine cycle' };
+  return { active: false, reason: 'flat book — Scientist research cycle (Sonnet)' };
 }
 
 function main() {
