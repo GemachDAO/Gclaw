@@ -210,10 +210,15 @@ else
   CYCLE_BASE="$CYCLE_DIR/$(ts | tr -d ':')"
   printf '%s' "$BRIEF" >"$CYCLE_BASE.brief.txt" 2>/dev/null || true
   REPORT_FILE="$CYCLE_BASE.report.txt"
-  # shellcheck disable=SC2012  # ls -t ordering is what we want; filenames are our own ts-based
-  ls -1t "$CYCLE_DIR"/*.report.txt 2>/dev/null | tail -n +241 | while read -r _old; do
-    rm -f "$_old" "${_old%.report.txt}.brief.txt" 2>/dev/null || true
-  done
+  # Prune to the most recent 240 cycles. MUST be pipefail/set -e safe: with no matches the
+  # glob is literal and ls exits non-zero, which under `set -euo pipefail` would kill the
+  # whole heartbeat before the LLM cycle even runs. compgen-guard it and swallow any failure.
+  if compgen -G "$CYCLE_DIR/*.report.txt" >/dev/null 2>&1; then
+    # shellcheck disable=SC2012  # ls -t ordering is what we want; filenames are our own ts-based
+    ls -1t "$CYCLE_DIR"/*.report.txt 2>/dev/null | tail -n +241 | while read -r _old; do
+      rm -f "$_old" "${_old%.report.txt}.brief.txt" 2>/dev/null || true
+    done || true
+  fi
   if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
       --model "$MODEL" --disallowedTools $DENY >"$REPORT_FILE" 2>&1; then
     cat "$REPORT_FILE" >>"$LOG"

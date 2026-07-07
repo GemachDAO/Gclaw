@@ -4,6 +4,15 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.1] - 2026-07-07
+
+### Fixed
+
+- **Regression in v4.5.0's per-cycle archiving.** The prune step (`ls *.report.txt | tail`)
+  exited non-zero when no archives existed yet, and under the heartbeat's `set -euo pipefail`
+  that killed the whole heartbeat before the LLM cycle ran — so active cycles skipped their
+  LLM run *and* the post-cycle riskguard/dashboard. compgen-guarded and failure-swallowed.
+
 ## [4.5.0] - 2026-07-07
 
 ### Added
