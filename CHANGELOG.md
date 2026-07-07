@@ -4,6 +4,16 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.1] - 2026-07-07
+
+### Fixed
+
+- **Honest R-multiple attribution.** `autosettle` read per-trade risk from `open_risk.json`,
+  which nothing writes anymore, so every trade's R-multiple fell back to a 1.5%-of-notional
+  estimate. It now reads the real `risk_usd` the forge records in `pending.json` on open.
+  This sharpens the regime-conditional memory expectancy — and therefore the bootstrap-CI
+  the (now significance-gated) JUDGE keys on. (assune-ir5)
+
 ## [4.3.0] - 2026-07-07
 
 Harness red-team release: the backtest JUDGE was certifying noise as edge, so the agent
