@@ -218,6 +218,30 @@ def score_hygiene(tb: dict[str, Any] | None) -> dict[str, Any]:
                 f"{tb['critical_fails']} critical, {tb['warns']} warn")
 
 
+def score_decision_quality(with_judge: bool) -> dict[str, Any]:
+    """The one LLM-judged dimension (v2). Off unless --with-judge; LOW-CONF -> UNGRADED cap.
+
+    Never crashes the grader: the optional judge is best-effort, so any failure degrades to
+    UNGRADED (a ceiling cap), never a fabricated grade and never an exception.
+    """
+    if not with_judge:
+        return _dim("Decision-Quality (LLM judge)", 10, "SKIPPED",
+                    "not run — pass --with-judge (LLM-graded, costs tokens/time)", "opt-out")
+    try:
+        import decision_quality as dq
+        r = dq.grade_decision_quality()
+    except Exception as exc:
+        return _dim("Decision-Quality (LLM judge)", 10, "UNGRADED", f"judge errored: {exc}", "error")
+    if r.get("confidence") == "low":
+        return _dim("Decision-Quality (LLM judge)", 10, "UNGRADED",
+                    r.get("low_confidence_reason") or "low confidence", "LOW-CONF")
+    d = _dim("Decision-Quality (LLM judge)", 10, r["grade"],
+             f"graded {r['n_cycles']} active cycle(s), mean {r.get('mean_score')}/3",
+             f"grounding {r.get('grounding_rate')}, {r.get('forced_fails', 0)} forced-fail")
+    d["dq"] = r
+    return d
+
+
 # ── Aggregation: two-pass, floors dominate the arithmetic ──────────────────────
 
 
@@ -231,8 +255,9 @@ def aggregate(dims: list[dict[str, Any]], prev: dict[str, Any] | None) -> dict[s
         if d["floor"] and d["grade"] in ("F", "STALE"):
             tier = "F" if d["name"].startswith("JUDGE") else "D" if "Cost" in d["name"] else "C"
             caps.append((CAP_SCORE[tier], f"{d['name']} = {d['grade']} (floor)"))
-    if any(d["name"].startswith("Event-Desk") and d["grade"] == "UNGRADED" for d in dims):
-        caps.append((CAP_SCORE["Bplus"], "event calibration UNGRADED"))
+    for d in dims:  # any dimension we tried but couldn't grade caps the ceiling — never a free pass
+        if d["grade"] == "UNGRADED":
+            caps.append((CAP_SCORE["Bplus"], f"{d['name']} UNGRADED"))
 
     regression = None
     if prev:
@@ -240,7 +265,10 @@ def aggregate(dims: list[dict[str, Any]], prev: dict[str, Any] | None) -> dict[s
             if not d["floor"]:
                 continue
             pg = next((x for x in prev.get("dimensions", []) if x["name"] == d["name"]), None)
-            if pg and POINTS.get(pg.get("grade")) not in (None, 0) and d["grade"] in ("F", "STALE"):
+            # A genuine regression is a floor dim that WAS passing and is now an actual FAIL.
+            # STALE means "not measured this run" (e.g. --quick skipped it) — that already caps
+            # the grade, but it is not a regression, so it must not fire the banner.
+            if pg and POINTS.get(pg.get("grade")) not in (None, 0) and d["grade"] == "F":
                 regression = f"{d['name']} regressed {pg['grade']} -> {d['grade']}"
                 caps.append((CAP_SCORE["D"], "regression on a floor dimension"))
 
@@ -347,6 +375,7 @@ def render_text(dims: list[dict[str, Any]], agg: dict[str, Any], risks: list[dic
 def main() -> int:
     quick = "--quick" in sys.argv
     as_json = "--json" in sys.argv
+    with_judge = "--with-judge" in sys.argv
     modules = ("judge_power", "cost_truth", "feature_parity", "tool_budget")
     evals = {m: run_eval(m, quick) for m in modules}
     fresh = sum(1 for v in evals.values() if v is not None)
@@ -356,6 +385,7 @@ def main() -> int:
         score_judge(evals["judge_power"]), score_cost(evals["cost_truth"]),
         score_parity(evals["feature_parity"]), score_mc(live), score_live(live),
         score_calibration(live), score_edge(live), score_hygiene(evals["tool_budget"]),
+        score_decision_quality(with_judge),
     ]
     agg = aggregate(dims, prev)
     risks = top_risks(dims, live)
