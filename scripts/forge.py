@@ -35,7 +35,7 @@ import statistics
 import subprocess
 import sys
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -454,6 +454,9 @@ INTEL_KEYS = (
     "ema_slope_pct",
     "efficiency",
     "flow_pressure",
+    "is_rth",
+    "session",
+    "mins_to_open",
     "premium",
     "btc_corr",
     "oi_delta",
@@ -618,6 +621,42 @@ def _classify_regime(efficiency: float, ema_stack: int) -> str:
     return "range"
 
 
+def _session_at(ms: float) -> dict[str, Any]:
+    """US-equity session features for the bar closing at epoch-ms ``ms``.
+
+    Derives the Eastern wall clock from the federal DST rule (2nd Sunday of March 07:00
+    UTC → 1st Sunday of November 06:00 UTC = EDT), with NO tz database, so intel.js and
+    this agree bar-for-bar (train/serve parity). The closed-cash-market window is where
+    xyz stock perps drift untethered of their underlying and revert — the edge this feeds.
+
+    Returns is_rth (0/1), session ('rth'|'pre'|'post'|'closed'), mins_to_open (int).
+    """
+    dt = datetime.fromtimestamp(ms / 1000, UTC)
+    mar = datetime(dt.year, 3, 8, 7, tzinfo=UTC)
+    dst_start = mar + timedelta(days=(6 - mar.weekday()) % 7)
+    nov = datetime(dt.year, 11, 1, 6, tzinfo=UTC)
+    dst_end = nov + timedelta(days=(6 - nov.weekday()) % 7)
+    et = dt + timedelta(hours=-4 if dst_start <= dt < dst_end else -5)
+    weekday = et.weekday() < 5
+    minutes = et.hour * 60 + et.minute
+    open_m, close_m = 9 * 60 + 30, 16 * 60
+    if weekday and open_m <= minutes < close_m:
+        session = "rth"
+    elif weekday and 4 * 60 <= minutes < open_m:
+        session = "pre"
+    elif weekday and close_m <= minutes < 20 * 60:
+        session = "post"
+    else:
+        session = "closed"
+    if session == "rth":
+        mins_to_open = 0
+    elif weekday and minutes < open_m:
+        mins_to_open = open_m - minutes
+    else:
+        mins_to_open = 24 * 60 - minutes + open_m
+    return {"is_rth": 1 if session == "rth" else 0, "session": session, "mins_to_open": mins_to_open}
+
+
 def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any]:
     """Reconstruct the price-derived intel.js feature vector at bar ``i``.
 
@@ -666,6 +705,7 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "regime": _classify_regime(efficiency, ema_stack),
         "mark": last["c"],
         "prevDayPx": candles[i - 24]["c"] if i >= 24 else closes[0],
+        **_session_at(last["t"]),
     }
 
 

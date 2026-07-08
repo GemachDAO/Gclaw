@@ -129,6 +129,33 @@ function classifyRegime(f) {
   return 'range';
 }
 
+// US-equity session for the bar closing at epoch-ms `ms`. Federal DST rule, no tz
+// database, so forge.py _session_at agrees bar-for-bar (train/serve parity). Feeds the
+// closed-cash-market reversion edge on xyz stock perps. Note getUTCDay() is Sun=0.
+function sessionAt(ms) {
+  const dt = new Date(ms);
+  const y = dt.getUTCFullYear();
+  const mar = new Date(Date.UTC(y, 2, 8, 7));
+  const dstStart = new Date(mar.getTime() + ((7 - mar.getUTCDay()) % 7) * 86400000);
+  const nov = new Date(Date.UTC(y, 10, 1, 6));
+  const dstEnd = new Date(nov.getTime() + ((7 - nov.getUTCDay()) % 7) * 86400000);
+  const et = new Date(ms + (dt >= dstStart && dt < dstEnd ? -4 : -5) * 3600000);
+  const day = et.getUTCDay();
+  const weekday = day >= 1 && day <= 5;
+  const minutes = et.getUTCHours() * 60 + et.getUTCMinutes();
+  const openM = 570; const closeM = 960; // 09:30, 16:00 ET
+  let session;
+  if (weekday && minutes >= openM && minutes < closeM) session = 'rth';
+  else if (weekday && minutes >= 240 && minutes < openM) session = 'pre';
+  else if (weekday && minutes >= closeM && minutes < 1200) session = 'post';
+  else session = 'closed';
+  let mins_to_open;
+  if (session === 'rth') mins_to_open = 0;
+  else if (weekday && minutes < openM) mins_to_open = openM - minutes;
+  else mins_to_open = 1440 - minutes + openM;
+  return { is_rth: session === 'rth' ? 1 : 0, session, mins_to_open };
+}
+
 async function coinIntel(coin, ctx, btcReturns) {
   // Drop the last (currently-forming) candle — its OHLC mutates intra-hour, so
   // every indicator built on it would jitter and the "close" isn't a real close.
@@ -155,6 +182,7 @@ async function coinIntel(coin, ctx, btcReturns) {
     realized_vol_pct: Math.round(stdev(returns(closes.slice(-24))) * 100 * 100) / 100,
     bb_z: Math.round(bb_z * 100) / 100,
     rel_volume_z: Math.round(rel_volume_z * 100) / 100,
+    ...sessionAt(last.t),
     ...fz,
     funding_z: Math.round(fz.funding_z * 100) / 100,
     open_interest: ctx ? Number(ctx.openInterest) : null,
@@ -291,7 +319,7 @@ async function main() {
 // Pure functions are exported for unit testing; main() runs only as a CLI.
 module.exports = {
   mean, stdev, sma, ema, rsi, atrPct, efficiencyRatio, correlation, returns,
-  classifyRegime, coinIntel, scan, pickLiquid,
+  classifyRegime, coinIntel, scan, pickLiquid, sessionAt,
 };
 
 if (require.main === module) {
