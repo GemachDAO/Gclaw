@@ -86,9 +86,10 @@ maker (~1.5bp), so the round trip the edge must beat is ~3bp, not ~15bp.
   with the stop STILL atomically attached — a single `hl_create_order` action carrying
   `price + tpPrice + slPrice + isMarket`, so the entry is NEVER naked — and the backtest
   charges maker entry. One env var flips both, so the cost model can never diverge from
-  the fill. Builder (`xyz:`) coins always stay taker: their attached SL is not armed as a
-  resting order (assune-ehh), so a resting entry there would fill naked; the executor
-  gates maker off for them.
+  the fill. Builder (`xyz:`) coins always stay taker: whether a resting maker-limit entry's
+  SL arms on that dex at async fill is unverified, so the executor gates maker off for them.
+  (Their market opens DO arm a resting SL — verified live; the earlier "naked xyz" was a
+  dex-blind order read, assune-ehh, since fixed.)
 - **Scientist prompt biased toward the right setups** (`dna/HEARTBEAT.md` §4b): author
   FEWER, BIGGER, higher-conviction setups that fire rarely and hold long enough that the
   move dwarfs the round trip — not high-frequency scalps that die to fees.

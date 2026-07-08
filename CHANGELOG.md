@@ -4,6 +4,26 @@ All notable changes to the gclaw skill are documented here. The format is based 
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-07-08
+
+### Fixed
+
+- **xyz builder-dex positions were flattened as "naked" though their stop was resting all
+  along** (assune-ehh). riskguard reads open orders via `hl_perp.js` status, which called the
+  HL `openOrders` endpoint with no `dex` — so it only ever saw the **main dex**. A protective
+  stop resting on the xyz builder dex was invisible, so every xyz position read as naked and
+  riskguard flattened it on sight for a guaranteed loss. The order read now queries `openOrders`
+  **per-dex** (main + each builder dex) and merges, mirroring how positions are already read.
+  Verified live: a test xyz:BB open's SL/TP rest on the xyz dex and are now seen; riskguard
+  computes real risk (0.2%), no flatten. The "attached SL isn't armed resting on xyz" comments
+  were a misdiagnosis of this dex-blind read and are corrected.
+
+### Changed
+
+- **xyz origination enabled** (`GCLAW_ALLOW_XYZ_OPEN=1`). With the naked-flatten fixed, the
+  forge can trade builder markets again — unblocking the one revalidation-surviving proven pair,
+  `deviation-revert / xyz:BB`. The toggle is kept as a kill-switch for the thin builder book.
+
 ## [4.5.1] - 2026-07-07
 
 ### Fixed
