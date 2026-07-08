@@ -869,7 +869,7 @@ def trade_return(
     return raw - round_trip_cost(stop_hit=False)
 
 
-def score_window(
+def _window_trades(
     candles: list[dict[str, float]],
     fn: Callable[[dict[str, Any]], Any],
     coin: str,
@@ -877,14 +877,15 @@ def score_window(
     hi: int,
     horizon: int = HORIZON,
     funding_ctx: dict[str, list[float]] | None = None,
-) -> dict[str, Any]:
-    """Run the signal across bars [lo, hi) and summarise the trades.
+) -> list[dict[str, Any]]:
+    """Per-trade records over bars [lo, hi): ``{r, long, hold}``.
 
-    ``features_at`` (live=None here) reconstructs the full price-derived intel feature
-    vector per bar, and — when ``funding_ctx`` is supplied — replays real funding_z, so
-    arsenal AND funding/carry signals actually fire instead of seeing defaults.
+    score_window summarises these; the pooled JUDGE (assune-2ol.2) reuses the raw records
+    across the universe for coin-demeaned significance. features_at reconstructs the intel
+    vector per bar and replays funding_z when funding_ctx is supplied, so arsenal AND
+    funding/carry signals fire instead of seeing defaults.
     """
-    rets: list[float] = []
+    trades: list[dict[str, Any]] = []
     for i in range(lo, hi):
         decision = call_signal(fn, features_at(candles, i, coin, funding_ctx=funding_ctx))
         if not decision or decision["action"] == "flat":
@@ -895,8 +896,22 @@ def score_window(
         hold = _hold_bars(decision, horizon, len(candles) - 1 - i)
         if hold < 1:
             continue
-        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, hold))
-    return summarise(rets)
+        is_long = decision["action"] == "long"
+        trades.append({"r": trade_return(candles, i, is_long, stop_pct, hold), "long": is_long, "hold": hold})
+    return trades
+
+
+def score_window(
+    candles: list[dict[str, float]],
+    fn: Callable[[dict[str, Any]], Any],
+    coin: str,
+    lo: int,
+    hi: int,
+    horizon: int = HORIZON,
+    funding_ctx: dict[str, list[float]] | None = None,
+) -> dict[str, Any]:
+    """Run the signal across bars [lo, hi) and summarise the trades."""
+    return summarise([t["r"] for t in _window_trades(candles, fn, coin, lo, hi, horizon, funding_ctx)])
 
 
 def summarise(rets: list[float]) -> dict[str, Any]:
@@ -969,6 +984,75 @@ def backtest(tid: str, coin: str, interval: str, limit: int) -> dict[str, Any]:
         return _backtest_with(load_signal(tid), coin, interval, limit, tid)
     except ValueError as exc:
         die(str(exc))
+
+
+def _bh_fdr(pvals: list[float], alpha: float = 0.10) -> list[bool]:
+    """Benjamini-Hochberg reject mask controlling the false-discovery rate at ``alpha``.
+
+    The single-coin gate never corrected for the author picking the coin, so ~1-in-20 noise
+    signals graduated by look-elsewhere luck. Deciding a batch of (technique, universe) tests
+    under BH keeps the *expected* fraction of false 'proven's at alpha (assune-2ol.2).
+    """
+    m = len(pvals)
+    if not m:
+        return []
+    order = sorted(range(m), key=lambda k: pvals[k])
+    max_rank = 0
+    for rank, k in enumerate(order, 1):
+        if pvals[k] <= rank / m * alpha:
+            max_rank = rank
+    reject = [False] * m
+    for rank, k in enumerate(order, 1):
+        reject[k] = rank <= max_rank
+    return reject
+
+
+def pooled_stats(
+    fn: Callable[[dict[str, Any]], Any], interval: str, limit: int, tid: str | None = None
+) -> dict[str, Any]:
+    """Cross-universe pooled OOS significance for a signal (assune-2ol.2, diagnostic).
+
+    Runs the signal out-of-sample on every universe coin and pools the trades, so a real but
+    single-coin-starved edge accrues a testable sample instead of dying at n<MIN_OOS_SAMPLE.
+    Reports the RAW pooled CI and a COIN-DEMEANED CI — each trade minus that coin's passive
+    directional drift over the window — which strips the flatter of a coin that merely
+    trended, attacking both death modes (starvation + cherry-pick) at once. Does NOT gate;
+    it is the observable that must show the numbers before the gate ever moves.
+    """
+    horizon = horizon_for(tid)
+    per_coin: list[dict[str, Any]] = []
+    raw: list[float] = []
+    excess: list[float] = []
+    for coin in _scan_universe():
+        try:
+            candles = get_candles(coin, interval, limit)
+        except (RuntimeError, ValueError):
+            continue
+        if len(candles) < WARMUP + horizon + 60:
+            continue
+        fctx = _funding_context(get_funding(coin, interval, limit))
+        last = len(candles) - horizon
+        split = WARMUP + int((last - WARMUP) * IS_FRACTION)
+        trades = _window_trades(candles, fn, coin, split, last, horizon, fctx)
+        if not trades:
+            continue
+        oos = candles[split:last]
+        bars = [oos[k]["c"] / oos[k - 1]["c"] - 1 for k in range(1, len(oos))]
+        drift = statistics.fmean(bars) if bars else 0.0
+        rs = [t["r"] for t in trades]
+        raw.extend(rs)
+        excess.extend(t["r"] - (1 if t["long"] else -1) * drift * t["hold"] for t in trades)
+        per_coin.append({"coin": coin, "n": len(rs), "expectancy": round(statistics.fmean(rs), 6)})
+    return {
+        "per_coin": per_coin,
+        "pooled_n": len(raw),
+        "pooled_expectancy": round(statistics.fmean(raw), 6) if raw else 0.0,
+        "pooled_ci_lo": memory._bootstrap_ci(raw)[0],
+        "pooled_pvalue": memory._bootstrap_pvalue(raw),
+        "demeaned_expectancy": round(statistics.fmean(excess), 6) if excess else 0.0,
+        "demeaned_ci_lo": memory._bootstrap_ci(excess)[0],
+        "demeaned_pvalue": memory._bootstrap_pvalue(excess),
+    }
 
 
 # ── Style loadout ────────────────────────────────────────────────────────────
@@ -1057,6 +1141,23 @@ def cmd_prove(args: argparse.Namespace) -> dict[str, Any]:
     }
     save_technique(tech)
     return {"ok": True, "id": args.id, "proven": card["proven"], "card": card}
+
+
+def cmd_pooled(args: argparse.Namespace) -> dict[str, Any]:
+    """Diagnostic (assune-2ol.2): pooled cross-universe significance vs the single-coin gate.
+
+    Prints how a technique scores when its OOS trades are pooled across the whole universe
+    (raw + coin-demeaned) beside the current single-coin verdict, so you can see how many
+    graveyard techniques survive honest pooling BEFORE the gate is ever changed. Non-gating.
+    """
+    tid = slugify(args.id)
+    pooled = pooled_stats(load_signal(tid), args.interval, args.limit, tid)
+    single = None
+    try:
+        single = _backtest_with(load_signal(tid), args.coin, args.interval, args.limit, tid)["out_of_sample"]
+    except ValueError:
+        single = None
+    return {"ok": True, "id": tid, "single_coin_oos": single, "pooled": pooled}
 
 
 def cmd_adopt(args: argparse.Namespace) -> dict[str, Any]:
@@ -2711,6 +2812,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
     ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
     ap.set_defaults(fn=cmd_autoprove)
+
+    pl = sub.add_parser("pooled", help="diagnostic: pooled cross-universe significance vs single-coin")
+    pl.add_argument("id")
+    pl.add_argument("--coin", default="BTC")
+    pl.add_argument("--interval", default="1h")
+    pl.add_argument("--limit", type=int, default=500)
+    pl.set_defaults(fn=cmd_pooled)
     sub.add_parser(
         "revalidate", help="re-run registered proven pairs through the current gate; drop failures"
     ).set_defaults(fn=cmd_revalidate)

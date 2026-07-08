@@ -155,6 +155,20 @@ def _bootstrap_ci(rs: list[float], iters: int = 2000) -> tuple[float, float]:
     return (round(means[int(0.025 * iters)], 3), round(means[int(0.975 * iters)], 3))
 
 
+def _bootstrap_pvalue(rs: list[float], iters: int = 2000) -> float:
+    """One-sided bootstrap p-value for H0: mean(rs) <= 0 (fraction of resample means <= 0).
+
+    Same data-seeded RNG as ``_bootstrap_ci`` so a technique's p-value is reproducible; used
+    for the Benjamini-Hochberg batch correction on pooled significance (forge assune-2ol.2).
+    """
+    if len(rs) < 3:
+        return 1.0
+    rng = random.Random(hash(tuple(round(r, 4) for r in rs)) & 0xFFFFFFFF)
+    n = len(rs)
+    hits = sum(1 for _ in range(iters) if sum(rs[int(rng.random() * n)] for _ in range(n)) / n <= 0)
+    return hits / iters
+
+
 def _stats(rows: list[dict]) -> dict:
     if not rows:
         return {"trades": 0}
