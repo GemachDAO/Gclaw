@@ -141,6 +141,9 @@ async function coinIntel(coin, ctx, btcReturns) {
   const bb_z = sd20 ? (closes[closes.length - 1] - sma(closes, 20)) / sd20 : 0;
   const last = c1[c1.length - 1];
   const flow_pressure = last.h > last.l ? ((last.c - last.l) / (last.h - last.l) - 0.5) * 2 : 0; // -1..+1
+  const vols20 = c1.map((k) => k.v).slice(-20);
+  const vsd = stdev(vols20);
+  const rel_volume_z = vsd ? (vols20[vols20.length - 1] - mean(vols20)) / vsd : 0; // conviction of the bar
   const fz = await fundingZ(coin);
   const f = {
     coin,
@@ -151,6 +154,7 @@ async function coinIntel(coin, ctx, btcReturns) {
     atr_pct: Math.round(atrPct(c1) * 100) / 100,
     realized_vol_pct: Math.round(stdev(returns(closes.slice(-24))) * 100 * 100) / 100,
     bb_z: Math.round(bb_z * 100) / 100,
+    rel_volume_z: Math.round(rel_volume_z * 100) / 100,
     ...fz,
     funding_z: Math.round(fz.funding_z * 100) / 100,
     open_interest: ctx ? Number(ctx.openInterest) : null,

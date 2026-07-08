@@ -42,6 +42,7 @@ TOLERANCE = {
     "realized_vol_pct": 0.02,
     "efficiency": 0.02,
     "bb_z": 0.02,
+    "rel_volume_z": 0.02,
 }
 
 
@@ -59,6 +60,9 @@ def intel_ref(candles: list[dict[str, float]], i: int) -> dict[str, Any]:
     sd20 = statistics.stdev(win20) if len(win20) > 1 else 0.0
     bb_z = (closes[-1] - statistics.fmean(win20)) / sd20 if sd20 else 0.0
     rets24 = [closes[k] / closes[k - 1] - 1 for k in range(max(1, len(closes) - 23), len(closes))]
+    vols20 = [c["v"] for c in wc][-20:]
+    vsd = statistics.stdev(vols20) if len(vols20) > 1 else 0.0
+    rel_volume_z = (vols20[-1] - statistics.fmean(vols20)) / vsd if vsd else 0.0
     return {
         "ema_stack": (1 if e9 > e21 else -1) + (1 if e21 > e50 else -1),
         "rsi": round(forge._wilder_rsi(closes) * 10) / 10,
@@ -66,6 +70,7 @@ def intel_ref(candles: list[dict[str, float]], i: int) -> dict[str, Any]:
         "realized_vol_pct": round(statistics.stdev(rets24) * 100 * 100) / 100 if len(rets24) > 1 else 0.0,
         "efficiency": round(forge._efficiency_ratio(closes) * 100) / 100,
         "bb_z": round(bb_z * 100) / 100,
+        "rel_volume_z": round(rel_volume_z * 100) / 100,
     }
 
 

@@ -449,6 +449,7 @@ INTEL_KEYS = (
     "rsi",
     "atr_pct",
     "realized_vol_pct",
+    "rel_volume_z",
     "ema_stack",
     "ema_slope_pct",
     "efficiency",
@@ -649,6 +650,9 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
     flow = ((last["c"] - last["l"]) / span - 0.5) * 2 if span > 0 else 0.0
     rets24 = [closes[k] / closes[k - 1] - 1 for k in range(max(1, len(closes) - 23), len(closes))]
     efficiency = _efficiency_ratio(closes)
+    vols20 = [c["v"] for c in window_candles][-20:]
+    vsd = statistics.stdev(vols20) if len(vols20) > 1 else 0.0
+    rel_volume_z = (vols20[-1] - statistics.fmean(vols20)) / vsd if vsd else 0.0
     return {
         "ema_stack": ema_stack,
         "ema_slope_pct": ((e9 - e50) / e50) * 100 if e50 else 0.0,
@@ -656,6 +660,7 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "atr_pct": round(_wilder_atr_pct(window_candles) * 100) / 100,
         "realized_vol_pct": round(statistics.stdev(rets24) * 100 * 100) / 100 if len(rets24) > 1 else 0.0,
         "bb_z": round(bb_z * 100) / 100,
+        "rel_volume_z": round(rel_volume_z * 100) / 100,
         "flow_pressure": round(flow * 100) / 100,
         "efficiency": round(efficiency * 100) / 100,
         "regime": _classify_regime(efficiency, ema_stack),
