@@ -59,6 +59,18 @@ async function candles(coin, interval, limit) {
   }));
 }
 
+// Historical funding series for backtest replay. fundingHistory returns hourly
+// {time, fundingRate, premium} rows — the same data intel.js fundingZ reads live,
+// but as a REPLAYABLE series so the forge JUDGE can test the funding/carry axis
+// instead of feeding it None (assune funding-replay).
+async function fundingSeries(coin, interval, limit) {
+  const step = INTERVAL_MS[interval] || 3600000;
+  const now = Date.now();
+  const from = now - step * (limit + 2);
+  const raw = await info({ type: 'fundingHistory', coin, startTime: from, endTime: now });
+  return (raw || []).map((h) => ({ t: h.time, rate: Number(h.fundingRate), premium: Number(h.premium) }));
+}
+
 // Coins are bare on the default dex (BTC) and dex-prefixed on builder dexes
 // (xyz:SPCX). Builder-dex contexts live under a per-dex metaAndAssetCtxs query,
 // so fetch the default plus every referenced dex and merge by name.
@@ -105,8 +117,11 @@ async function main() {
   } else if (cmd === 'features') {
     const coins = String(args.coins || 'BTC,ETH,SOL').split(',').map((s) => s.trim()).filter(Boolean);
     process.stdout.write(JSON.stringify({ ok: true, features: await features(coins) }) + '\n');
+  } else if (cmd === 'funding') {
+    const data = await fundingSeries(args.coin || 'BTC', args.interval || '1h', Number(args.limit || 500));
+    process.stdout.write(JSON.stringify({ ok: true, coin: args.coin || 'BTC', funding: data }) + '\n');
   } else {
-    die(`unknown command '${cmd}'. Use: candles | features`);
+    die(`unknown command '${cmd}'. Use: candles | features | funding`);
   }
 }
 

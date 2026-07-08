@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import bisect
 import hashlib
 import json
 import math
@@ -382,6 +383,58 @@ def get_candles(coin: str, interval: str, limit: int) -> list[dict[str, float]]:
     ]
 
 
+# 14-day (hourly) lookback for the funding z-score — mirrors intel.js fundingZ so the
+# JUDGE measures the funding/carry axis exactly as it is seen live (train/serve parity).
+FUNDING_WINDOW = 14 * 24
+
+
+def get_funding(coin: str, interval: str, limit: int) -> list[dict[str, float]]:
+    """Historical funding series ``[{t, rate, premium}]`` for backtest replay, or [] on failure.
+
+    The forge backtest fed funding=None, so every funding/carry technique died at OOS n=0.
+    This replays the real series so those techniques become measurable (assune funding-replay).
+    """
+    try:
+        return run_node(["funding", "--coin", coin, "--interval", interval, "--limit", str(limit)]).get(
+            "funding", []
+        )
+    except (RuntimeError, KeyError, ValueError):
+        return []
+
+
+def _funding_context(series: list[dict[str, float]]) -> dict[str, list[float]] | None:
+    """Precompute time-sorted (t, rate, prem) arrays once for O(log n) per-bar replay lookups."""
+    if not series:
+        return None
+    s = sorted(series, key=lambda r: r["t"])
+    return {
+        "t": [float(r["t"]) for r in s],
+        "rate": [float(r.get("rate") or 0) for r in s],
+        "prem": [float(r.get("premium") or 0) for r in s],
+    }
+
+
+def _funding_at(ctx: dict[str, list[float]] | None, t: float) -> tuple[float | None, float, float | None]:
+    """Replay funding at bar time ``t``: (funding_rate, funding_z, premium).
+
+    ``funding_z`` z-scores the rate against its trailing FUNDING_WINDOW using SAMPLE stdev and
+    the ``<5 rows -> 0`` guard, exactly as intel.js fundingZ does live. Returns (None, 0.0, None)
+    when no funding row precedes ``t`` (a robust signal treats a None rate as neutral).
+    """
+    if not ctx:
+        return None, 0.0, None
+    idx = bisect.bisect_right(ctx["t"], t) - 1
+    if idx < 0:
+        return None, 0.0, None
+    rate, prem = ctx["rate"][idx], ctx["prem"][idx]
+    window = ctx["rate"][max(0, idx - FUNDING_WINDOW + 1) : idx + 1]
+    if len(window) < 5:
+        return rate, 0.0, prem
+    sd = statistics.stdev(window)
+    z = (rate - statistics.fmean(window)) / sd if sd else 0.0
+    return rate, z, prem
+
+
 def get_live_features(coins: list[str]) -> dict[str, Any]:
     return run_node(["features", "--coins", ",".join(coins)])["features"]
 
@@ -437,7 +490,8 @@ def _scan_universe() -> tuple[str, ...]:
 
 
 def features_at(
-    candles: list[dict[str, float]], i: int, coin: str, live: dict[str, Any] | None = None
+    candles: list[dict[str, float]], i: int, coin: str, live: dict[str, Any] | None = None,
+    funding_ctx: dict[str, list[float]] | None = None,
 ) -> dict[str, Any]:
     """Build the feature dict the signal sees at bar ``i`` (price-derived).
 
@@ -483,10 +537,14 @@ def features_at(
         # Backtest: reconstruct the price-derived intel.js feature vector so the
         # arsenal signals actually fire (doc 02 §"Cross-cutting" 3). Without this,
         # ema_stack/efficiency/bb_z/rsi/flow stayed at defaults and every signal
-        # returned "flat", so "proven" was meaningless. Funding/OI/premium stay
-        # None (live-only, no historical series here) — neither surviving technique
-        # (momentum-stack, stop-hunt-revert) reads them, so this is exact for them.
+        # returned "flat", so "proven" was meaningless.
         f.update(_intel_features_at(candles, i))
+        # Funding/premium are replayed from the historical series when provided, so the
+        # funding/carry axis is measurable OOS with the SAME funding_z live sees (parity).
+        if funding_ctx is not None:
+            rate, fz, prem = _funding_at(funding_ctx, candles[i]["t"])
+            if rate is not None:
+                f["funding"], f["funding_z"], f["premium"] = rate, fz, prem
     return f
 
 
@@ -758,16 +816,17 @@ def score_window(
     lo: int,
     hi: int,
     horizon: int = HORIZON,
+    funding_ctx: dict[str, list[float]] | None = None,
 ) -> dict[str, Any]:
     """Run the signal across bars [lo, hi) and summarise the trades.
 
-    ``features_at`` (live=None here) now reconstructs the full price-derived intel
-    feature vector per bar, so arsenal signals reading ema_stack/efficiency/bb_z/
-    rsi/flow actually fire instead of seeing defaults.
+    ``features_at`` (live=None here) reconstructs the full price-derived intel feature
+    vector per bar, and — when ``funding_ctx`` is supplied — replays real funding_z, so
+    arsenal AND funding/carry signals actually fire instead of seeing defaults.
     """
     rets: list[float] = []
     for i in range(lo, hi):
-        decision = call_signal(fn, features_at(candles, i, coin))
+        decision = call_signal(fn, features_at(candles, i, coin, funding_ctx=funding_ctx))
         if not decision or decision["action"] == "flat":
             continue
         stop_pct = float(decision.get("stop_pct") or 0)
@@ -819,10 +878,11 @@ def _backtest_with(
     candles = get_candles(coin, interval, limit)
     if len(candles) < WARMUP + horizon + 60:
         raise ValueError(f"not enough candles ({len(candles)}) — widen --limit or --interval")
+    funding_ctx = _funding_context(get_funding(coin, interval, limit))
     last = len(candles) - horizon
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
-    is_stats = score_window(candles, fn, coin, WARMUP, split, horizon)
-    oos_stats = score_window(candles, fn, coin, split, last, horizon)
+    is_stats = score_window(candles, fn, coin, WARMUP, split, horizon, funding_ctx)
+    oos_stats = score_window(candles, fn, coin, split, last, horizon, funding_ctx)
     proven = (
         oos_stats["n"] >= MIN_OOS_SAMPLE
         and oos_stats["ci_lo"] > 0  # OOS edge is bootstrap-significant, not a lucky point estimate
