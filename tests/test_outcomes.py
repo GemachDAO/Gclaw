@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -454,3 +455,118 @@ def test_gate_still_refuses_no_edge_sports_side() -> None:
         "#1731", prob=0.83, stake=8.0, sides=sides, open_coins=set(), n_open=0
     )
     assert v["placed"] is False and "margin" in v["skipped"]
+
+
+# ── Vol-model probability (crypto-price binaries) ─────────────────────────────
+#
+# ``model_prob`` is the pure lognormal digital P(S_T > K); ``side_model_prob`` wires it
+# to a side + injected intel and flips for the No side, failing closed to None on any
+# unmodelable/non-price input so the desk falls back to the LLM's probability.
+
+
+def test_model_prob_atm_near_half() -> None:
+    # Spot == strike → the digital sits just under 0.5 (the 0.5 sigma^2 t convexity term).
+    p = outcomes.model_prob(spot=100.0, strike=100.0, t=1.0, sigma=0.02)
+    assert p == pytest.approx(0.5, abs=0.02)
+
+
+def test_model_prob_deep_in_the_money_tends_to_one() -> None:
+    p = outcomes.model_prob(spot=200.0, strike=100.0, t=0.01, sigma=0.5)
+    assert p is not None and p > 0.99
+
+
+def test_model_prob_deep_out_of_the_money_tends_to_zero() -> None:
+    p = outcomes.model_prob(spot=50.0, strike=100.0, t=0.01, sigma=0.5)
+    assert p is not None and p < 0.01
+
+
+def test_model_prob_higher_vol_widens_toward_half() -> None:
+    # Same in-the-money side: raising vol pulls the digital back toward 0.5 (less certain).
+    low = outcomes.model_prob(spot=120.0, strike=100.0, t=1.0, sigma=0.10)
+    high = outcomes.model_prob(spot=120.0, strike=100.0, t=1.0, sigma=0.50)
+    assert low is not None and high is not None
+    assert low > high > 0.5
+    assert abs(high - 0.5) < abs(low - 0.5)
+
+
+def test_model_prob_none_on_degenerate_inputs() -> None:
+    assert outcomes.model_prob(spot=100.0, strike=100.0, t=0.0, sigma=0.2) is None  # expired
+    assert outcomes.model_prob(spot=100.0, strike=100.0, t=1.0, sigma=0.0) is None  # no vol
+    assert outcomes.model_prob(spot=0.0, strike=100.0, t=1.0, sigma=0.2) is None  # no spot
+    assert outcomes.model_prob(spot=100.0, strike=0.0, t=1.0, sigma=0.2) is None  # no strike
+
+
+# A future-dated crypto-price Yes side + the intel the desk would read for its underlying.
+_FUTURE_CRYPTO_YES = {
+    "outcomeId": 720,
+    "name": "Recurring",
+    "side": "Yes",
+    "coin": "#7200",
+    "price": 0.55,
+    "volumeUsd": 150000.0,
+    "category": "crypto-price",
+    "resolution": {"underlying": "BTC", "targetPrice": 60000, "expiry": "20280101-0000", "period": "1d"},
+}
+_INTEL_ITM = {"BTC": {"price": 200000.0, "realized_vol_pct": 0.5}}  # spot >> strike → Yes likely
+_NOW = datetime(2026, 7, 8, tzinfo=UTC)
+
+
+def test_side_model_prob_prices_crypto_yes_side() -> None:
+    p = outcomes.side_model_prob(_FUTURE_CRYPTO_YES, now=_NOW, intel=_INTEL_ITM)
+    assert p is not None and 0.5 < p <= 1.0  # spot 90k above 60k strike → Yes favored
+
+
+def test_side_model_prob_inverts_for_no_side() -> None:
+    no_side = {**_FUTURE_CRYPTO_YES, "side": "No", "coin": "#7201"}
+    p_yes = outcomes.side_model_prob(_FUTURE_CRYPTO_YES, now=_NOW, intel=_INTEL_ITM)
+    p_no = outcomes.side_model_prob(no_side, now=_NOW, intel=_INTEL_ITM)
+    assert p_yes is not None and p_no is not None
+    assert p_no == pytest.approx(1.0 - p_yes)
+
+
+def test_side_model_prob_none_for_non_price_market() -> None:
+    # A non-price market is left untouched — the LLM still supplies its probability.
+    assert outcomes.side_model_prob(_SPORTS_SIDE, now=_NOW, intel=_INTEL_ITM) is None
+    assert outcomes.side_model_prob(_MACRO_SIDE, now=_NOW, intel=_INTEL_ITM) is None
+
+
+def test_side_model_prob_fails_closed_on_missing_intel() -> None:
+    # Crypto side but no intel reading for the underlying → None (fall back to the LLM).
+    assert outcomes.side_model_prob(_FUTURE_CRYPTO_YES, now=_NOW, intel={}) is None
+
+
+def test_side_model_prob_none_when_expired() -> None:
+    # now past the expiry → t <= 0 → unmodelable → None.
+    past_now = datetime(2100, 1, 2, tzinfo=UTC)
+    assert outcomes.side_model_prob(_FUTURE_CRYPTO_YES, now=past_now, intel=_INTEL_ITM) is None
+
+
+def test_side_model_prob_none_on_unknown_side_label() -> None:
+    weird = {**_FUTURE_CRYPTO_YES, "side": "Maybe"}
+    assert outcomes.side_model_prob(weird, now=_NOW, intel=_INTEL_ITM) is None
+
+
+def test_cmd_bet_uses_model_prob_for_eligible_crypto_side(gclaw_home: Path, monkeypatch) -> None:
+    # The desk substitutes the vol-model prob for the LLM's on an eligible crypto side and
+    # records it (shadow) with prob_source=model — the LLM's --prob becomes informational.
+    monkeypatch.delenv("GCLAW_OUTCOMES_LIVE", raising=False)
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: [_FUTURE_CRYPTO_YES])
+    monkeypatch.setattr(outcomes, "load_intel", lambda: _INTEL_ITM)
+    monkeypatch.setattr(
+        outcomes, "_place_live_order", lambda *_a, **_k: pytest.fail("shadow-only: no order")
+    )
+    res = outcomes.cmd_bet(_args(coin="#7200", prob=0.10, stake=8.0))  # LLM prob would fail the gate
+    assert res["placed"] is True and res["shadow"] is True
+    ticket = res["ticket"]
+    assert ticket["prob_source"] == "model"
+    assert ticket["llm_prob"] == pytest.approx(0.10)
+    assert ticket["prob"] == pytest.approx(ticket["model_prob"]) and ticket["model_prob"] > 0.55
+
+
+def test_cmd_bet_keeps_llm_prob_for_non_price_side(gclaw_home: Path, monkeypatch) -> None:
+    monkeypatch.delenv("GCLAW_OUTCOMES_LIVE", raising=False)
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: SIDES)
+    monkeypatch.setattr(outcomes, "load_intel", lambda: _INTEL_ITM)
+    res = outcomes.cmd_bet(_args())  # sports #1731, no category → LLM prob kept
+    assert res["ticket"]["prob_source"] == "llm"
+    assert res["ticket"]["prob"] == pytest.approx(0.92) and "model_prob" not in res["ticket"]

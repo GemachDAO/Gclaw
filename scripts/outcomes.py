@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 from datetime import UTC, datetime
@@ -176,6 +177,114 @@ def _place_live_order(side: dict[str, Any], stake: float) -> dict[str, Any]:
             "--market",
         ]
     )
+
+
+# ── Vol-model probability (crypto-price binaries) ────────────────────────────
+#
+# Gives the desk a DETERMINISTIC probability for a dated crypto price threshold so
+# calibration can accrue in shadow without the LLM having to invent one. It is a
+# probability SOURCE, not a gate: the value still flows through evaluate_bet and the
+# same live/arm gates (nothing here touches live_mode or DIVERGENCE_MARGIN). Fails
+# closed to None on any missing/degenerate input, so the desk falls back to the LLM
+# probability and never fabricates a bet.
+
+
+def load_intel() -> dict[str, Any]:
+    """The latest intel.js scan's per-coin feature map (spot + realized vol), or {}.
+
+    Reads ``$GCLAW_HOME/intel.json`` — the same scan the rest of the desk reads (forge,
+    briefing). Returns the inner ``intel`` map ``{COIN: {price, realized_vol_pct, ...}}``;
+    an unreadable or malformed file yields ``{}`` so callers can fail closed.
+    """
+    try:
+        d = json.loads((home() / "intel.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return d.get("intel", d) or {}
+
+
+def _parse_expiry(expiry: str) -> datetime | None:
+    """Parse an HL price-binary expiry ``YYYYMMDD-HHMM`` (UTC) into a datetime, or None."""
+    try:
+        return datetime.strptime(expiry, "%Y%m%d-%H%M").replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
+
+
+def model_prob(spot: float, strike: float, t: float, sigma: float) -> float | None:
+    """Lognormal (Black-Scholes-style) digital: P(S_T > K) under a driftless GBM.
+
+    Prices the probability a driftless geometric-Brownian underlying finishes above the
+    strike using the closed-form digital-call value N(d2) with zero drift (r = 0, no
+    funding tilt): d2 = (ln(S/K) - 0.5 sigma^2 t) / (sigma sqrt(t)). The normal CDF is
+    computed from ``math.erf`` — gclaw is stdlib-only (no numpy/scipy). ``sigma`` and
+    ``t`` must share a time unit (both per-hour + hours, or both annual + years); the
+    ``0.5 sigma^2 t`` convexity term nudges an at-the-money digital just under 0.5.
+
+    Args:
+        spot: Underlying spot price S (> 0).
+        strike: Strike / target price K (> 0).
+        t: Time to expiry, in the same time unit as ``sigma`` (> 0).
+        sigma: Realized volatility per unit time, as a fraction (e.g. 0.0047 = 0.47%/hr).
+
+    Returns:
+        P(S_T > K) in (0, 1), or None if any input is non-positive (unmodelable — the
+        desk then falls back to the LLM's probability rather than fabricating a bet).
+    """
+    if spot <= 0 or strike <= 0 or t <= 0 or sigma <= 0:
+        return None
+    vol = sigma * math.sqrt(t)
+    d2 = (math.log(spot / strike) - 0.5 * vol * vol) / vol
+    return 0.5 * (1.0 + math.erf(d2 / math.sqrt(2.0)))
+
+
+def side_model_prob(
+    side: dict[str, Any] | None,
+    now: datetime | None = None,
+    intel: dict[str, Any] | None = None,
+) -> float | None:
+    """Deterministic model probability that THIS crypto-price side resolves true.
+
+    Prices only a crypto-price binary with a fully resolvable (underlying, targetPrice,
+    expiry) AND a live intel reading (spot + realized_vol_pct) for that underlying;
+    everything else (macro, sports, unmodelable, expired, missing intel) returns None so
+    the desk falls back to the LLM's own probability — never a fabricated bet. HL price
+    binaries carry no explicit comparator, so by their published convention the "Yes"
+    side resolves true when spot ends ABOVE the target and "No" below; an unknown side
+    label fails closed to None. ``realized_vol_pct`` is intel.js's stdev of the last 24
+    hourly returns in percent, so it is scaled by hours-to-expiry (sqrt-time).
+
+    Args:
+        side: A tradeable-side row (carries category, side, resolution).
+        now: Reference time (defaults to ``datetime.now(UTC)``); injectable for tests.
+        intel: Pre-loaded intel map; loaded from disk via ``load_intel`` when omitted.
+
+    Returns:
+        P(this side resolves true) in (0, 1), or None when the side is unmodelable.
+    """
+    if not side or side.get("category") != "crypto-price":
+        return None
+    res = side.get("resolution") or {}
+    underlying, strike, expiry = res.get("underlying"), res.get("targetPrice"), res.get("expiry")
+    if not underlying or strike is None or not expiry:
+        return None
+    expiry_dt = _parse_expiry(expiry)
+    if expiry_dt is None:
+        return None
+    feed = (load_intel() if intel is None else intel).get(underlying) or {}
+    spot, rv = feed.get("price"), feed.get("realized_vol_pct")
+    if spot is None or rv is None:
+        return None
+    t_hours = (expiry_dt - (now or datetime.now(UTC))).total_seconds() / 3600.0
+    p_above = model_prob(float(spot), float(strike), t_hours, float(rv) / 100.0)
+    if p_above is None:
+        return None
+    label = str(side.get("side", "")).strip().lower()
+    if label == "yes":
+        return p_above
+    if label == "no":
+        return 1.0 - p_above
+    return None
 
 
 # ── Calibration ledger ───────────────────────────────────────────────────────
@@ -338,12 +447,15 @@ def _new_ticket(
 
 
 def cmd_bet(args: argparse.Namespace) -> dict[str, Any]:
-    """The gated primitive: validate an LLM-proposed bet, then record (shadow) or place (live).
+    """The gated primitive: validate a proposed bet, then record (shadow) or place (live).
 
-    The gate owns all risk. On a pass: in shadow mode (default) the ticket is recorded
-    with shadow:true and NO order is placed; in live mode the order goes through
-    hl_outcomes.js first, then the ticket is recorded with shadow:false. A gate
-    rejection or a live-order failure is a clean skip, never a crash.
+    The gate owns all risk. For an eligible crypto-price side the desk substitutes its
+    deterministic vol-model probability (``side_model_prob``) for the LLM's — so a
+    fabricated LLM prob can never force a bet the model rejects; every other market
+    keeps the LLM's prob unchanged. On a pass: in shadow mode (default) the ticket is
+    recorded with shadow:true and NO order is placed; in live mode the order goes through
+    hl_outcomes.js first, then the ticket is recorded with shadow:false. A gate rejection
+    or a live-order failure is a clean skip, never a crash.
     """
     try:
         sides = fetch_sides()
@@ -351,9 +463,12 @@ def cmd_bet(args: argparse.Namespace) -> dict[str, Any]:
         return _gate_skip(f"could not fetch markets ({exc})")
     led = load_ledger()
     open_tickets = [t for t in led["tickets"] if not t.get("resolved")]
+    side_row = next((s for s in sides if s.get("coin") == args.coin), None)
+    model_p = side_model_prob(side_row)
+    prob = model_p if model_p is not None else float(args.prob)
     verdict = evaluate_bet(
         args.coin,
-        float(args.prob),
+        prob,
         float(args.stake),
         sides,
         {t["coin"] for t in open_tickets},
@@ -366,7 +481,11 @@ def cmd_bet(args: argparse.Namespace) -> dict[str, Any]:
     # passing bet (modest edge, or armed-but-not-yet-proven) records shadow so calibration
     # accrues without risking capital (assune-d39.8).
     go_live = live_mode() and edge >= DIVERGENCE_MARGIN
-    ticket = _new_ticket(side, float(args.prob), float(args.stake), edge, args.reason or "", not go_live)
+    ticket = _new_ticket(side, prob, float(args.stake), edge, args.reason or "", not go_live)
+    ticket["prob_source"] = "model" if model_p is not None else "llm"
+    if model_p is not None:
+        ticket["model_prob"] = round(model_p, 6)
+        ticket["llm_prob"] = round(float(args.prob), 6)
     if go_live:
         try:
             ticket["order"] = _place_live_order(side, float(args.stake))
