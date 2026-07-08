@@ -28,3 +28,8 @@ mutants/
 assets/generated/*-shot.png
 assets/generated/*-ticker*.png
 assets/generated/dashboard-preview.html
+
+# eval data fixtures — real fills (personal) + regenerable candle blobs; not source
+evals/fixtures/*
+# ...but the decision-quality monotonicity fixtures ARE source (committed, hand-written)
+!evals/fixtures/dq_*.txt

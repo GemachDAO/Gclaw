@@ -17,6 +17,7 @@ transparent: one JSONL line per trade at $GCLAW_HOME/memory.jsonl.
     memory.py expectancy --technique stock-meanrev [--regime range]
     memory.py query --regime range          # rank techniques for this regime
     memory.py summary                        # per (technique,regime) table (for the swarm)
+    memory.py techniques                     # per-technique LIVE edge + live_proven flag
 """
 
 from __future__ import annotations
@@ -42,6 +43,13 @@ def load() -> list[dict]:
     if not p.exists():
         return []
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+
+
+# A technique is LIVE-proven only with a real bootstrap edge over at least this many
+# settled closes. `edge_real` (CI lower bound > 0) already requires >= 3 samples, so
+# this is the same floor stated explicitly — the one honest bar reputation.py and
+# evolve.py both gate on, in place of the loose EWMA fitness counter in style.json.
+LIVE_PROVEN_MIN_TRADES = 3
 
 
 def _read_json(path: Path, default):
@@ -216,6 +224,36 @@ def summary(_args: argparse.Namespace) -> dict:
     return {"ok": True, "table": table}
 
 
+def techniques(_args: argparse.Namespace) -> dict:
+    """Per-technique LIVE edge pooled across all regimes — the honest 'is it proven?' table.
+
+    Pools every settled close for a technique (regime-agnostic) and runs the same
+    bootstrap-CI ``edge_real`` gate the forge trusts for sizing. ``live_proven`` is True
+    only when the whole 95% CI sits above zero on >= LIVE_PROVEN_MIN_TRADES closes — the
+    non-fakeable signal reputation.py and evolve.py gate on, instead of the loose EWMA
+    fitness counter in style.json (which overstates edge from recency alone).
+    """
+    by_tech: dict[str, list[dict]] = {}
+    for row in load():
+        by_tech.setdefault(row.get("technique", "?"), []).append(row)
+    out = []
+    for t, rs in by_tech.items():
+        s = _stats(rs)
+        out.append(
+            {
+                "technique": t,
+                "trades": s["trades"],
+                "expectancy_r": s.get("expectancy_r", 0.0),
+                "pnl_usd": s.get("pnl_usd", 0.0),
+                "edge_real": s.get("edge_real", False),
+                "live_proven": bool(s.get("edge_real"))
+                and s["trades"] >= LIVE_PROVEN_MIN_TRADES,
+            }
+        )
+    out.sort(key=lambda e: (e["live_proven"], e["expectancy_r"]), reverse=True)
+    return {"ok": True, "techniques": out}
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="trade-memory + regime-conditional expectancy")
     sub = p.add_subparsers(dest="command", required=True)
@@ -232,6 +270,7 @@ def main() -> int:
     q = sub.add_parser("query")
     q.add_argument("--regime", required=True)
     sub.add_parser("summary")
+    sub.add_parser("techniques")
     sub.add_parser("swarm")
     args = p.parse_args()
     fn = {
@@ -239,6 +278,7 @@ def main() -> int:
         "expectancy": expectancy,
         "query": query,
         "summary": summary,
+        "techniques": techniques,
         "swarm": swarm,
     }[args.command]
     print(json.dumps(fn(args), indent=2))

@@ -40,7 +40,11 @@ def _state(**overrides: object) -> dict[str, object]:
             },
             "evolution": {
                 "self_authored_techniques": 6,
+                # LIVE-proven set (bootstrap CI > 0 on settled fills) — the single source
+                # of truth the dashboard reads, not style.json's loose EWMA counter.
+                "proven_edge_techniques": ["stop-hunt-revert", "stock-meanrev"],
                 "proven_edge_count": 2,
+                "backtest_proven_count": 3,
                 "children": 0,
             },
             "event_calibration": {"n": 0, "brier": None, "no_skill_baseline": None},
@@ -118,9 +122,10 @@ def test_hero_is_proven_edge_not_goodwill_or_equity():
 
 
 def test_proven_edge_counts_only_live_proven_techniques():
-    proven = dashboard.proven_edge(_state()["style"])
+    proven = dashboard.proven_edge(_state())
     ids = {p["id"] for p in proven}
-    assert ids == {"stop-hunt-revert", "stock-meanrev"}  # vol-momentum is -EV, excluded
+    # Only the reputation scorecard's LIVE-proven set counts — vol-momentum is excluded.
+    assert ids == {"stop-hunt-revert", "stock-meanrev"}
 
 
 def test_hero_shows_the_proven_count():
@@ -165,7 +170,7 @@ def test_track_record_falls_back_to_journal_settles():
 
 
 def test_breed_gate_reflects_the_real_reproduction_rule():
-    proven = dashboard.proven_edge(_state()["style"])
+    proven = dashboard.proven_edge(_state())
     gate = dashboard.breed_gate(_state(), proven)
     assert gate["proven"] == 2
     assert gate["have_edges"] is True
@@ -177,7 +182,7 @@ def test_breed_gate_reflects_the_real_reproduction_rule():
 def test_breed_gate_locks_without_a_new_edge_since_last_birth():
     state = _state()
     state["metabolism"]["last_replicate_edge_count"] = 2
-    proven = dashboard.proven_edge(state["style"])
+    proven = dashboard.proven_edge(state)
     gate = dashboard.breed_gate(state, proven)
     assert gate["have_new"] is False
     assert gate["ready"] is False
@@ -186,7 +191,8 @@ def test_breed_gate_locks_without_a_new_edge_since_last_birth():
 def test_breed_gate_locks_below_min_edges():
     state = _state()
     state["style"] = {"adopted": [{"id": "a", "e": 0.1, "trades": 5}]}  # only 1 proven
-    proven = dashboard.proven_edge(state["style"])
+    state["reputation"]["evolution"]["proven_edge_techniques"] = ["a"]  # only 1 live-proven
+    proven = dashboard.proven_edge(state)
     gate = dashboard.breed_gate(state, proven)
     assert gate["proven"] == 1
     assert gate["have_edges"] is False
@@ -208,14 +214,14 @@ def test_calibration_renders_brier_when_present():
 
 
 def test_proven_dna_marks_proven_and_bleeding_pairs():
-    dna = dashboard.proven_dna(_state()["style"])
+    dna = dashboard.proven_dna(_state())
     by_id = {d["id"]: d for d in dna}
-    assert by_id["stop-hunt-revert"]["proven"] is True
-    assert by_id["vol-momentum"]["proven"] is False  # negative expectancy
+    assert by_id["stop-hunt-revert"]["proven"] is True  # in the live-proven set
+    assert by_id["vol-momentum"]["proven"] is False  # not live-proven
 
 
 def test_lineage_graph_buckets_by_stage():
-    graph = dashboard.lineage_graph(_state(), dashboard.proven_edge(_state()["style"]))
+    graph = dashboard.lineage_graph(_state(), dashboard.proven_edge(_state()))
     # only proven techniques land in PROVEN; inherited is empty (no children yet)
     assert any(p["id"] == "stop-hunt-revert" for p in graph["proven"])
     assert graph["inherited"] == []

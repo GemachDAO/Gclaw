@@ -38,6 +38,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import memory
+
 # Risk caps (mirror dna/TRADING_STRATEGY.md — enforced, never bypassable).
 # Leverage is EARNED: the cap rises with goodwill, the metric won from profitable
 # trades. A young agent trades small and careful; it unlocks more rope as it
@@ -70,6 +72,10 @@ SCAN_UNIVERSE = (
 
 # Evidence gate.
 MIN_OOS_SAMPLE = 20
+# The in-sample leg must also rest on real support, not 1-2 lucky bars: without an
+# IS floor, `is_stats["expectancy"] > 0` gives the "both windows agree" framing false
+# weight (a single IS winner satisfies it). Pairs with the OOS bootstrap-CI gate below.
+MIN_IS_SAMPLE = 10
 # Live-bootstrap window: a technique keeps earning bounded half-size probes until it has
 # this many real closes, so a genuine edge can accumulate a statistically-meaningful
 # sample before the edge_real (full bootstrap CI > 0) gate benches it. The old window was
@@ -78,6 +84,11 @@ MIN_OOS_SAMPLE = 20
 # trades to recover: a sibling of the cold-start-forever death spiral (commit a7650dd).
 # 12 matches the fitness loop's own "fair sample before pruning" bar (FITNESS_PRUNE_N).
 MIN_LIVE_SAMPLE = 12
+# Cold-start is for STILL-BOOTSTRAPPING, not LOSING. Once a probe has this many real
+# closes and its interim mean R is negative, bench it instead of trading blind up to
+# MIN_LIVE_SAMPLE — the old window kept opening real half-size trades even after memory
+# already showed a losing point estimate at n=3 (assune-d39.2).
+COLD_BENCH_N = 5
 IS_FRACTION = 0.6
 HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
 # Per-technique hold horizon (bars, 1h candles). doc 02 §1: momentum-stack's thin
@@ -95,6 +106,12 @@ HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
 #   taker: 0.045%/side fee + ~3bp slippage into the book/cascade -> ~7.5bp
 TAKER_FEE = 0.00075  # taker fee (4.5bp) + realistic slippage (3bp) per side
 MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting order
+# GDEX builder fee, applied by the managed backend on EVERY fill (both legs) and never
+# surfaced to local code — so it was silently missing from the JUDGE's cost floor and the
+# settlement ledger. Empirically 4.96bp/side across 204 real fills (evals/cost_truth.py);
+# modelled at 5bp. Omitting it understated true round-trip cost by ~40% (15bp vs 25bp),
+# graduating techniques that are live-negative once the real cost is charged.
+BUILDER_FEE = 0.0005  # builder fee per side (both entry and exit)
 
 
 # Backtest execution mode must MATCH the live executor (hl_perp.js), and it does: BOTH
@@ -103,14 +120,16 @@ MAKER_FEE = 0.00015  # maker fee (1.5bp), no slippage — you are the resting or
 # posts a resting maker limit with the stop STILL atomically attached (one hl_create_order
 # action, never naked) on the default dex, and the backtest charges maker entry. The single
 # env var keeps the cost assumption from ever diverging from how fills actually happen.
-# Builder (xyz) coins always stay taker: their attached SL is not armed as a resting order
-# (assune-ehh), so a resting entry there would fill naked — hl_perp.js gates maker off for them.
+# Builder (xyz) coins always stay taker: whether a resting maker-limit entry's SL arms on
+# that dex at async fill is unverified — hl_perp.js gates maker off for them. (Their market
+# opens DO arm a resting SL; that path is verified — the old "naked xyz" was a dex-blind read.)
 def _maker_entry() -> bool:
     """True when entries are modelled as resting maker limits (assune-4yt), else taker."""
     return os.environ.get("GCLAW_FORGE_MAKER_ENTRY") == "1"
 
 
 WARMUP = 50  # bars before EMA-50 / intel features are valid
+INTEL_WINDOW = 120  # feature lookback = intel.js's candles(…,121).slice(0,-1); mirror it exactly
 
 # signal.py sandbox.
 ALLOWED_IMPORTS = {"math", "statistics"}
@@ -555,7 +574,13 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
     Returns:
         A feature dict to merge into the bar's price-derived features.
     """
-    closes = [c["c"] for c in candles[: i + 1]]
+    # intel.js coinIntel builds every feature from a FIXED window — candles(coin,'1h',121)
+    # minus the forming bar = 120 closed bars — never the whole history. Mirror that here so
+    # the backtest scores on the same distribution the live path serves (assune-d39.7): an
+    # expanding window skews e50/rsi/atr vs live, and pstdev under-reads realized_vol vs its
+    # sample stdev. Both are train/serve skew — a backtest-proven, live-dead vector.
+    closes = [c["c"] for c in candles[: i + 1]][-INTEL_WINDOW:]
+    window_candles = candles[: i + 1][-INTEL_WINDOW:]
     last = candles[i]
     e9, e21, e50 = _ema(closes[-40:], 9), _ema(closes[-60:], 21), _ema(closes, 50)
     ema_stack = (1 if e9 > e21 else -1) + (1 if e21 > e50 else -1)
@@ -570,8 +595,8 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "ema_stack": ema_stack,
         "ema_slope_pct": ((e9 - e50) / e50) * 100 if e50 else 0.0,
         "rsi": round(_wilder_rsi(closes) * 10) / 10,
-        "atr_pct": round(_wilder_atr_pct(candles[: i + 1]) * 100) / 100,
-        "realized_vol_pct": round(statistics.pstdev(rets24) * 100 * 100) / 100 if rets24 else 0.0,
+        "atr_pct": round(_wilder_atr_pct(window_candles) * 100) / 100,
+        "realized_vol_pct": round(statistics.stdev(rets24) * 100 * 100) / 100 if len(rets24) > 1 else 0.0,
         "bb_z": round(bb_z * 100) / 100,
         "flow_pressure": round(flow * 100) / 100,
         "efficiency": round(efficiency * 100) / 100,
@@ -702,9 +727,10 @@ def round_trip_cost(stop_hit: bool) -> float:
         The round-trip cost fraction to subtract from the trade's raw return.
     """
     fill_cost = MAKER_FEE if _maker_entry() else TAKER_FEE
-    entry_cost = fill_cost
+    # Every leg also pays the builder fee (applied by the managed backend on all fills).
+    entry_cost = fill_cost + BUILDER_FEE
     # A stop is always a taker/trigger fill; a clean TP/time exit fills like the entry.
-    exit_cost = TAKER_FEE if stop_hit else fill_cost
+    exit_cost = (TAKER_FEE if stop_hit else fill_cost) + BUILDER_FEE
     return entry_cost + exit_cost
 
 
@@ -752,8 +778,15 @@ def score_window(
 
 
 def summarise(rets: list[float]) -> dict[str, Any]:
+    """Summarise a window of trade returns, incl. a bootstrap CI lower bound.
+
+    ``ci_lo`` is the 95% bootstrap CI lower bound on mean R (``memory._bootstrap_ci``,
+    the SAME significance test the live edge_real gate uses). The JUDGE requires
+    ``ci_lo > 0`` so a technique graduates only on a statistically real OOS edge,
+    not a positive point estimate that is indistinguishable from luck.
+    """
     if not rets:
-        return {"n": 0, "winrate": 0.0, "expectancy": 0.0, "total": 0.0, "max_dd": 0.0}
+        return {"n": 0, "winrate": 0.0, "expectancy": 0.0, "ci_lo": 0.0, "total": 0.0, "max_dd": 0.0}
     equity, peak, max_dd = 0.0, 0.0, 0.0
     for r in rets:
         equity += r
@@ -764,6 +797,7 @@ def summarise(rets: list[float]) -> dict[str, Any]:
         "n": len(rets),
         "winrate": round(wins / len(rets), 4),
         "expectancy": round(statistics.fmean(rets), 6),
+        "ci_lo": memory._bootstrap_ci(rets)[0],
         "total": round(equity, 6),
         "max_dd": round(max_dd, 6),
     }
@@ -791,7 +825,8 @@ def _backtest_with(
     oos_stats = score_window(candles, fn, coin, split, last, horizon)
     proven = (
         oos_stats["n"] >= MIN_OOS_SAMPLE
-        and oos_stats["expectancy"] > 0
+        and oos_stats["ci_lo"] > 0  # OOS edge is bootstrap-significant, not a lucky point estimate
+        and is_stats["n"] >= MIN_IS_SAMPLE
         and is_stats["expectancy"] > 0
     )
     return {
@@ -1031,6 +1066,32 @@ PROVEN_MARKETS_FILE = "proven_markets.json"
 AUTOPROVE_BUDGET = 6  # backtests per heartbeat — bounded cost
 AUTOPROVE_COOLDOWN_H = 12.0  # don't re-attempt a failing (technique, coin) for this long
 AUTOPROVE_LIMIT = 1000  # candles per backtest (matches `prove`)
+# Multiple-comparisons control: even with the per-test significance gate, sweeping ONE
+# technique across the whole universe still "proves" on some coins by look-elsewhere luck
+# (family-wise 1-(1-alpha)^C over C coins — the residual in judge_power's 28% line). Cap the
+# proven pairs a technique may hold to its strongest few by edge_score, so it can't sprawl
+# across a dozen markets on noise (trend-pullback was registered on 13 coins).
+AUTOPROVE_MAX_PER_TECH = int(os.environ.get("GCLAW_AUTOPROVE_MAX_PER_TECH") or 3)
+
+
+def _cap_proven_pairs(pairs: list[dict[str, Any]], cap: int) -> list[dict[str, Any]]:
+    """Keep at most ``cap`` proven pairs per technique — the strongest by edge_score.
+
+    edge_score (expectancy x sqrt(oos_n)) is the same confidence-weighted rank the fitness
+    loop uses, so the cap keeps a technique's best-evidenced markets and drops the
+    look-elsewhere tail.
+    """
+    by_tech: dict[str, list[dict[str, Any]]] = {}
+    for p in pairs:
+        by_tech.setdefault(p["technique"], []).append(p)
+    kept: list[dict[str, Any]] = []
+    for tech_pairs in by_tech.values():
+        tech_pairs.sort(
+            key=lambda p: float(p.get("expectancy", 0)) * math.sqrt(max(1, int(p.get("oos_n", 0)))),
+            reverse=True,
+        )
+        kept.extend(tech_pairs[:cap])
+    return kept
 
 
 def _proven_markets_path() -> Path:
@@ -1110,9 +1171,58 @@ def cmd_autoprove(args: argparse.Namespace) -> dict[str, Any]:
             )
             proved.append(f"{tid}@{coin}")
     reg["attempts"] = attempts
+    reg["pairs"] = _cap_proven_pairs(reg["pairs"], AUTOPROVE_MAX_PER_TECH)
     _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
     _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
     return {"ok": True, "tried": tried, "newly_proven": proved, "proven_markets": len(reg["pairs"])}
+
+
+def cmd_revalidate(_args: argparse.Namespace) -> dict[str, Any]:
+    """Re-run every registered proven pair through the CURRENT gate and drop the ones that
+    no longer clear it, then apply the per-technique cap.
+
+    A one-time cleanup after tightening the JUDGE: the existing pairs were certified under
+    the old significance-free gate (positive OOS mean only), so many are look-elsewhere
+    noise that the bootstrap-CI gate now rejects.
+    """
+    reg = load_proven_markets()
+    original = reg.get("pairs", [])
+    survivors: list[dict[str, Any]] = []
+    dropped_by_gate: list[dict[str, str]] = []
+    for p in original:
+        tid, coin, interval = p["technique"], p["coin"], p.get("interval", "1h")
+        try:
+            card = _backtest_with(load_signal(tid), coin, interval, AUTOPROVE_LIMIT, tid)
+        except (ValueError, OSError, KeyError):
+            dropped_by_gate.append({"technique": tid, "coin": coin, "reason": "thin/bad data"})
+            continue
+        if card.get("proven"):
+            survivors.append(
+                {
+                    "technique": tid,
+                    "coin": coin,
+                    "interval": interval,
+                    "oos_n": card["out_of_sample"]["n"],
+                    "expectancy": round(card["out_of_sample"]["expectancy"], 6),
+                    "at": now_iso(),
+                }
+            )
+        else:
+            dropped_by_gate.append(
+                {"technique": tid, "coin": coin, "reason": "fails significance gate"}
+            )
+    capped = _cap_proven_pairs(survivors, AUTOPROVE_MAX_PER_TECH)
+    reg["pairs"] = capped
+    _proven_markets_path().parent.mkdir(parents=True, exist_ok=True)
+    _proven_markets_path().write_text(json.dumps(reg, indent=2) + "\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "before": len(original),
+        "survived_gate": len(survivors),
+        "after_cap": len(capped),
+        "dropped_by_gate": len(dropped_by_gate),
+        "dropped_by_cap": len(survivors) - len(capped),
+    }
 
 
 def cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
@@ -1740,7 +1850,14 @@ MAX_OPEN_POSITIONS = 3  # cap concurrent positions to bound concentration
 
 
 def circuit_breaker(equity: float, n_positions: int) -> dict[str, Any]:
-    """Update the equity high-water mark and decide whether new entries are allowed."""
+    """Update the equity high-water mark and decide whether new entries are allowed.
+
+    Shares the SAME drawdown invariant as riskguard.js (which is the enforcer that
+    flattens the book on a trip): a bad equity read is inert, the HWM rise is 20%-capped
+    per read, and a trip fires at MAX_DRAWDOWN_PCT. The two must stay byte-identical on
+    these rules or one re-poisons what the other corrects (assune-xde) — riskguard.js was
+    missing the bad-read guard until it was added there.
+    """
     path = gclaw_home() / "breaker.json"
     state = {}
     try:
@@ -2222,10 +2339,11 @@ def _gate_intents(
     for i in intents:
         if not (i["proven"] and i["notional"] >= MIN_NOTIONAL):
             continue
-        # xyz builder-dex opens land NAKED — managed custody does not arm the attached
-        # SL trigger as a resting order there, so riskguard flattens them on sight for a
-        # guaranteed loss (assune-opy). Gate xyz out of auto-origination until that SL
-        # attachment is verified; flip GCLAW_ALLOW_XYZ_OPEN=1 once it is fixed.
+        # xyz builder-dex opens used to be flattened on sight as "naked" — but the stop was
+        # there all along, resting on the xyz dex; riskguard just read open orders on the
+        # main dex only and never saw it (assune-ehh, fixed in hl_perp.js allOpenOrders,
+        # verified live). GCLAW_ALLOW_XYZ_OPEN stays as a kill-switch for the thin builder
+        # book; default-on. When off, xyz intents are skipped.
         if ":" in i["coin"] and not allow_xyz:
             continue
         if i["confidence"] < conv_floor:
@@ -2247,7 +2365,11 @@ def _gate_intents(
         # Widening the window lets a real edge accumulate the trades that flip edge_real,
         # while the CI gate still governs full-size sizing so noise never graduates.
         is_cold = i.get("edge_trades_mem", 0) < MIN_LIVE_SAMPLE
-        cold_ok = is_cold and _cold_start_ok(i, conv_floor)
+        # Once a fair interim sample has accrued and the live point estimate is negative,
+        # the probe is LOSING, not bootstrapping — bench it rather than keep risking capital
+        # blind to the mounting loss until MIN_LIVE_SAMPLE (assune-d39.2).
+        interim_losing = i.get("edge_trades_mem", 0) >= COLD_BENCH_N and i.get("edge_exp_mem", 0.0) < 0
+        cold_ok = is_cold and not interim_losing and _cold_start_ok(i, conv_floor)
         if not (ok or cold_ok):
             continue
         i["edge_real"] = ok
@@ -2320,6 +2442,7 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         intent["regime"] = regime
         intent["edge_real_mem"] = ok
         intent["edge_trades_mem"] = int((st or {}).get("trades", 0) or 0)
+        intent["edge_exp_mem"] = float((st or {}).get("expectancy_r", 0) or 0)
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
@@ -2456,6 +2579,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap = sub.add_parser("autoprove", help="backtest the arsenal across the liquid universe")
     ap.add_argument("--budget", type=int, default=None, help="max backtests this run")
     ap.set_defaults(fn=cmd_autoprove)
+    sub.add_parser(
+        "revalidate", help="re-run registered proven pairs through the current gate; drop failures"
+    ).set_defaults(fn=cmd_revalidate)
 
     au = sub.add_parser(
         "author", help="propose a signal body; validate+backtest+adopt-if-proven (never executes)"

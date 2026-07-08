@@ -80,14 +80,14 @@ def test_rule_a_reject_low_volume_side_present_in_board() -> None:
     assert "volume" in v["skipped"] and "floor" in v["skipped"]
 
 
-def test_rule_b_reject_when_edge_below_margin() -> None:
-    v = _bet("#1731", prob=0.85, stake=8.0)  # edge 0.05 < 0.08
+def test_rule_b_reject_when_edge_below_shadow_margin() -> None:
+    v = _bet("#1731", prob=0.82, stake=8.0)  # edge 0.02 < 0.03 shadow margin → clean skip
     assert v["placed"] is False and "margin" in v["skipped"]
 
 
-def test_rule_b_edge_exactly_at_margin_accepts() -> None:
-    v = _bet("#1731", prob=0.88, stake=8.0)  # edge 0.08 == margin → accept (>=)
-    assert v.get("side")
+def test_rule_b_edge_at_shadow_margin_accepts_for_recording() -> None:
+    v = _bet("#1731", prob=0.85, stake=8.0)  # edge 0.05 >= 0.03 → accepted (recorded, maybe shadow)
+    assert v.get("side") and v["edge"] == pytest.approx(0.05)
 
 
 def test_rule_c_reject_longshot_below_floor() -> None:
@@ -202,6 +202,46 @@ def test_live_mode_calls_order_then_records_not_shadow(gclaw_home: Path, monkeyp
     assert placed == {"coin": "#1731", "stake": 8.0}
     led = json.loads((gclaw_home / "calibration.json").read_text())
     assert led["tickets"][0]["shadow"] is False and led["tickets"][0]["order"]["ok"]
+
+
+def test_middle_band_records_shadow_never_orders(gclaw_home: Path, monkeypatch) -> None:
+    """A bet clearing the shadow bar but not the live margin records shadow, no order —
+    the calibration-accrual path that the single 0.08 gate used to make unreachable."""
+    monkeypatch.setenv("GCLAW_OUTCOMES_LIVE", "1")  # armed, but edge below the live margin
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: SIDES)
+    monkeypatch.setattr(
+        outcomes, "_place_live_order", lambda *_a, **_k: pytest.fail("no order below live margin")
+    )
+    res = outcomes.cmd_bet(_args(prob=0.85))  # edge 0.05: in [0.03, 0.08)
+    assert res["placed"] is True and res["shadow"] is True
+    led = json.loads((gclaw_home / "calibration.json").read_text())
+    assert led["tickets"][0]["shadow"] is True
+
+
+def test_live_flag_without_proven_calibration_stays_shadow(gclaw_home: Path, monkeypatch) -> None:
+    """Arming the env flag alone does NOT place a live order — live_mode requires the desk's
+    resolved Brier to beat baseline first (assune-d39.8: no bare-env live)."""
+    monkeypatch.setenv("GCLAW_OUTCOMES_LIVE", "1")
+    monkeypatch.setattr(outcomes, "fetch_sides", lambda min_vol=outcomes.MIN_VOLUME: SIDES)
+    monkeypatch.setattr(
+        outcomes, "_place_live_order", lambda *_a, **_k: pytest.fail("uncalibrated desk must not order")
+    )
+    res = outcomes.cmd_bet(_args(prob=0.92))  # strong edge 0.12, but no calibration yet
+    assert res["placed"] is True and res["shadow"] is True
+
+
+def test_live_mode_gates_on_proven_calibration(gclaw_home: Path, monkeypatch) -> None:
+    """live_mode() unit: armed + resolved Brier < baseline → live; missing/worse → shadow."""
+    monkeypatch.setenv("GCLAW_OUTCOMES_LIVE", "1")
+    assert outcomes.live_mode() is False  # no ledger yet
+    proven = [
+        {"price": 0.8, "prob": 0.95, "shadow": True, "resolved": True, "outcome": 1, "brier": 0.0025}
+        for _ in range(outcomes.LIVE_MIN_RESOLVED)
+    ]
+    outcomes.save_ledger({"tickets": proven})
+    assert outcomes.live_mode() is True  # Brier 0.0025 < baseline 0.16
+    monkeypatch.delenv("GCLAW_OUTCOMES_LIVE")
+    assert outcomes.live_mode() is False  # disarmed → never live regardless of calibration
 
 
 def test_gate_rejection_records_nothing(gclaw_home: Path, monkeypatch) -> None:

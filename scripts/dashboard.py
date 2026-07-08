@@ -40,7 +40,6 @@ from typing import Any
 IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"  # ERC-8004 on Base
 GITHUB_URL = "https://github.com/GemachDAO/Gclaw"
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROVEN_MIN_TRADES = 3  # a technique is live-proven at >= this many closes w/ positive e
 REPLICATE_MIN_EDGE = 2  # proven-edge techniques required to breed (mirrors evolve.py)
 
 
@@ -598,14 +597,19 @@ def _svg_inline(p: Path) -> str:
 # Pure data-shaping — small functions that turn the state dict into the exact
 # values each render section needs. No I/O; unit-testable.
 # --------------------------------------------------------------------------- #
-def proven_edge(style: dict[str, Any]) -> list[dict[str, Any]]:
-    """Adopted techniques with REAL live edge (>= PROVEN_MIN_TRADES closes, positive
-    expectancy) — the inheritable DNA the fitness signal counts (mirrors evolve.py)."""
-    return [
-        e
-        for e in style.get("adopted", [])
-        if int(e.get("trades", 0) or 0) >= PROVEN_MIN_TRADES and float(e.get("e", 0.0) or 0) > 0
-    ]
+def live_proven_ids(state: dict[str, Any]) -> set[str]:
+    """The LIVE-proven technique ids from the reputation scorecard — the single source of
+    truth (memory.py bootstrap-CI ``edge_real`` via reputation.py), NOT style.json's loose
+    EWMA fitness counter. Keeps the helix, the breed gate, and evolve.py in agreement."""
+    evo = (state.get("reputation") or {}).get("evolution") or {}
+    return set(evo.get("proven_edge_techniques") or [])
+
+
+def proven_edge(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Adopted techniques with REAL live edge (bootstrap CI > 0 over settled fills) — the
+    inheritable DNA the reproduction gate breeds on (mirrors evolve.py, same source)."""
+    proven_ids = live_proven_ids(state)
+    return [e for e in state.get("style", {}).get("adopted", []) if e.get("id") in proven_ids]
 
 
 def breed_gate(state: dict[str, Any], proven: list[dict[str, Any]]) -> dict[str, Any]:
@@ -686,21 +690,22 @@ def author_events(state: dict[str, Any], limit: int = 8) -> list[dict[str, Any]]
     return events
 
 
-def proven_dna(style: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every adopted technique as a base pair for the helix — id, live expectancy,
-    trades, weight, and whether it is proven. Fed to the 3D strand as real DNA."""
+def proven_dna(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every adopted technique as a base pair for the helix — id, fitness expectancy,
+    trades, weight, and whether it is LIVE-proven. The ``e``/``trades``/``weight`` shown
+    are the style.json fitness signal; the ``proven`` flag comes from the strict live-edge
+    set (reputation scorecard), so the helix can't badge an unproven technique as proven."""
+    proven_ids = live_proven_ids(state)
     out = []
-    for e in style.get("adopted", []):
+    for e in state.get("style", {}).get("adopted", []):
         tid = e.get("id") if isinstance(e, dict) else e
-        exp = float(e.get("e", 0.0) or 0.0)
-        trades = int(e.get("trades", 0) or 0)
         out.append(
             {
                 "id": tid,
-                "e": round(exp, 4),
-                "trades": trades,
+                "e": round(float(e.get("e", 0.0) or 0.0), 4),
+                "trades": int(e.get("trades", 0) or 0),
                 "weight": round(float(e.get("weight", 1.0) or 1.0), 3),
-                "proven": trades >= PROVEN_MIN_TRADES and exp > 0,
+                "proven": tid in proven_ids,
             }
         )
     return out
@@ -1071,7 +1076,7 @@ def techniques_html(state: dict[str, Any]) -> str:
     adopted = state["style"].get("adopted", [])
     if not adopted:
         return el("p", "No techniques yet — the arsenal is installed at birth.", cls="muted")
-    proven_ids = {p["id"] for p in proven_edge(state["style"])}
+    proven_ids = {p["id"] for p in proven_edge(state)}
     rows = []
     for e in sorted(adopted, key=lambda x: -float(x.get("weight", 1.0) or 1.0)):
         tid = str(e.get("id"))
@@ -1287,7 +1292,7 @@ def dna_script(state: dict[str, Any], proven: list[dict[str, Any]]) -> str:
     """The 3D proven-DNA strand + the lineage graph + the shareable card data — all
     fed REAL proven-edge DNA (not a hash). Reuses the existing Three.js engine."""
     g = state["genome"]
-    dna = proven_dna(state["style"])
+    dna = proven_dna(state)
     active = len(state["positions"].get("positions") or []) > 0
     graph = lineage_graph(state, proven)
     persona = state["persona"] or {}
@@ -1642,7 +1647,7 @@ def render(state: dict[str, Any]) -> str:
     """
     g = state["genome"]
     name = state["metabolism"].get("name") or g["species"]
-    proven = proven_edge(state["style"])
+    proven = proven_edge(state)
     gate = breed_gate(state, proven)
 
     glance = hero_html(state, proven, gate) + vitals_html(state, gate) + track_record_html(state)
@@ -1729,6 +1734,18 @@ def cmd_render(args: argparse.Namespace) -> None:
     print(f"dashboard → {out}")
 
 
+def cmd_refresh(_: argparse.Namespace) -> None:
+    """Reconcile positions.json to live venue truth without rendering the page.
+
+    The metabolism status card reads positions.json; the full render only rewrites it
+    at end-of-cycle, so a position that closed mid-cycle lingers as a phantom until the
+    next render. Running this early (right after autosettle) keeps the card honest.
+    """
+    h = home()
+    refresh_positions(h)
+    print(f"positions → {h / 'positions.json'}")
+
+
 def cmd_serve(args: argparse.Namespace) -> None:
     import functools
     import http.server
@@ -1749,11 +1766,12 @@ def main() -> int:
     p_render.add_argument(
         "--no-live", action="store_true", help="skip the live HL positions refresh"
     )
+    sub.add_parser("refresh", help="reconcile positions.json to live venue truth (no render)")
     p_serve = sub.add_parser("serve")
     p_serve.add_argument("--out")
     p_serve.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
-    {"render": cmd_render, "serve": cmd_serve}[args.command](args)
+    {"render": cmd_render, "refresh": cmd_refresh, "serve": cmd_serve}[args.command](args)
     return 0
 
 

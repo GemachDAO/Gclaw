@@ -66,6 +66,9 @@ def gather() -> dict:
         # the learned per-(technique, regime) edge — the raw material for authoring.
         "style": _read_json(h / "forge" / "style.json", {}),
         "regime_stats": _read_json(h / "forge" / "regime_stats.json", {}),
+        # Reverse-engineering desk: forensic patterns decomposed from skill-proven
+        # on-chain wallets (decompose.py), the raw material the Scientist clones from.
+        "winner_intel": _read_json(h / "forge" / "winner_intel.json", {}),
         # Event desk (Book A): the top-by-volume tradeable outcome-market sides and the
         # agent's open tickets + proven calibration — the raw material for an event read.
         "outcomes": _run_json(
@@ -145,6 +148,38 @@ def _money(x: object) -> str:
         return f"${x}"
 
 
+def _reverse_engineering_desk(wi: dict) -> list[str]:
+    """Render the winner-forensics desk — what skill-proven wallets actually do.
+
+    The Scientist reverse-engineers a repeatable component from these patterns
+    rather than inventing from its own losing book. Defensive: returns a single
+    "no feed" line when the artifact is missing or empty, never raises.
+
+    Args:
+        wi: parsed winner_intel.json (may be empty).
+
+    Returns:
+        Markdown lines for the briefing (empty-feed handled inline).
+    """
+    if not wi or not wi.get("desk_text"):
+        return ["", "**Reverse-engineering desk:** no winner feed yet (run winners.js + decompose.py)."]
+    universe = wi.get("universe") or {}
+    lines = ["", "### Reverse-engineering desk (what skill-proven wallets do)"]
+    lines.append(str(wi.get("desk_text")).strip())
+    feats = [f for f in (wi.get("aggregate_features") or []) if f.get("confidence") in ("HIGH", "MED")]
+    for f in feats[:4]:
+        lines.append(
+            f"  · {f.get('description')} "
+            f"(prevalence {f.get('prevalence')}, {f.get('support_wallets')} wallets, {f.get('confidence')})"
+        )
+    if universe.get("survivors_n") is not None:
+        lines.append(
+            f"  _universe: {universe.get('survivors_n')} clonable of {universe.get('board_n', '?')} "
+            f"screened · generated {str(wi.get('generated_at', ''))[:19]}_"
+        )
+    return lines
+
+
 def render_briefing(d: dict) -> str:
     """Render the gathered state into a compact markdown briefing. Pure + defensive: never
     raises on partial/missing data, since a crash here would blind the cycle."""
@@ -218,6 +253,7 @@ def render_briefing(d: dict) -> str:
             f"expectancy {_money(econ.get('expectancy'))}/trade · {econ.get('verdict', '')}"
         )
     out += _scientist_board(d.get("style") or {}, d.get("regime_stats") or {}, intel)
+    out += _reverse_engineering_desk(d.get("winner_intel") or {})
     out += _event_desk_board(d.get("outcomes") or {}, d.get("calibration") or {}, intel)
     out += [
         "",
@@ -229,6 +265,9 @@ def render_briefing(d: dict) -> str:
         "busywork — no hypothesis, no technique. Decide from the above; it is complete.**",
     ]
     return "\n".join(out)
+
+
+COVER_MIN_N = 5  # min trades before a positive regime edge counts as real coverage (not n=1 noise)
 
 
 def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
@@ -252,8 +291,14 @@ def _scientist_board(style: dict, regime_stats: dict, intel: dict) -> list[str]:
     live_regimes = {
         f.get("regime") for f in intel.values() if f and f.get("regime") not in (None, "chop")
     }
+    # A regime counts as COVERED only if a technique shows a positive edge on a real sample:
+    # n=1 "edges" (the sole trade a rare regime like trend_up ever saw) are noise, and
+    # treating them as coverage hid genuine gaps from the scientist (assune-d39.5).
     covered = {
-        rg for stats in regime_stats.values() for rg, s in stats.items() if _f(s.get("e")) > 0
+        rg
+        for stats in regime_stats.values()
+        for rg, s in stats.items()
+        if _f(s.get("e")) > 0 and _f(s.get("n")) >= COVER_MIN_N
     }
     gaps = sorted(live_regimes - covered)
     if gaps:

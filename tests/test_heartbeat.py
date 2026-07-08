@@ -26,9 +26,11 @@ def test_deterministic_steps_run_in_order():
     # Settle realized PnL BEFORE the dashboard renders it; the arsenal is seeded before
     # intel scans; riskguard enforces AFTER the cycle opens anything; predict resolves
     # before it opens; the dashboard render is the terminal artifact.
-    seq = ["autosettle.js", "blend.py", "intel.js", "riskguard.js", "predict.js", "dashboard.py"]
-    positions = [HEARTBEAT.index(s) for s in seq]
-    assert positions == sorted(positions), f"heartbeat steps out of order: {seq}"
+    # (An early `dashboard.py refresh` reconciles the position cache, so the terminal
+    # render is the LAST dashboard.py occurrence, not the first.)
+    seq = ["autosettle.js", "blend.py", "intel.js", "riskguard.js", "predict.js"]
+    positions = [HEARTBEAT.index(s) for s in seq] + [HEARTBEAT.rindex("dashboard.py")]
+    assert positions == sorted(positions), f"heartbeat steps out of order: {seq + ['dashboard.py render']}"
 
 
 def test_safety_guards_are_wired():
@@ -139,7 +141,8 @@ def test_heartbeat_runs_periodic_discovery(gclaw_home):
     # The loop must actually invoke discovery (throttled), or newcomers never get
     # folded into the peer graph the leaderboard crawls.
     assert "--discover" in HEARTBEAT
-    assert HEARTBEAT.index("--discover") < HEARTBEAT.index("dashboard.py")  # before the beacon
+    # discovery must precede the terminal render (its beacon) — rindex skips the early reconcile
+    assert HEARTBEAT.index("--discover") < HEARTBEAT.rindex("dashboard.py")
 
 
 def test_status_cache_keeps_cadence_hermetic(gclaw_home):

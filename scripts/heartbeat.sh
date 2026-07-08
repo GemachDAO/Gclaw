@@ -16,6 +16,17 @@ MODEL="${GCLAW_MODEL:-sonnet}"
 SKILL_DIR="${GCLAW_SKILL_DIR:-$HOME/.claude/skills/gclaw}"
 mkdir -p "$GCLAW_HOME"
 
+# Size-based log rotation (assune-old): heartbeat.log and predict_bot.log are append-only
+# and were never rotated. Roll to a single prior generation when past the cap, checked once
+# per run. Done here (hourly, deterministic) rather than in the 2-min predict cron, so no
+# writer holds an fd on the file being rotated.
+MAX_LOG_BYTES="${GCLAW_MAX_LOG_BYTES:-10485760}" # 10 MiB
+for _lf in "$LOG" "$GCLAW_HOME/predict_bot.log"; do
+  if [[ -f "$_lf" && "$(stat -c%s "$_lf" 2>/dev/null || echo 0)" -gt "$MAX_LOG_BYTES" ]]; then
+    mv -f "$_lf" "$_lf.1" 2>/dev/null || true
+  fi
+done
+
 # cron has a minimal PATH; ensure node + user bins resolve. Adjust if needed.
 NODE_DIR="$(command -v node 2>/dev/null || true)"; NODE_DIR="${NODE_DIR%/node}"
 # cron's bare env has no nvm on PATH, so fall back to the newest nvm node bin.
@@ -44,11 +55,11 @@ PROMPT='/gclaw
 Run exactly one heartbeat now, then stop. You do NOT pick or open trades — origination is forge-only and the disciplined trade for this cycle was ALREADY placed deterministically before you ran (proven, regime-matched, edge_real-gated, sized by sizing.py, atomic TP/SL). Your intelligence has THREE jobs instead, in priority order:
 
   1. MANAGE open risk (only if positioned): move stops toward break-even on winners, honor stops on losers, close any position whose thesis invalidated. Use close / cancel / update_order only.
-  2. SCIENTIST — invent and improve the strategies the engine runs. This is your MAIN job when the book is flat. The briefing lists your adopted techniques, their fitness weights, and which regimes are under-served or losing. When — and ONLY when — you have a genuine, specific hypothesis for an edge (not busywork), express it as code and let the backtest judge it:
+  2. SCIENTIST — invent and improve the strategies the engine runs. This is your MAIN job when the book is flat. The briefing lists your adopted techniques, their fitness weights, and which regimes are under-served or losing. PREFER reverse-engineering over invention: the "Reverse-engineering desk" in the briefing shows what skill-proven on-chain wallets actually DO (their direction bias, coin/hour concentration, entry timing, and hold-time / sizing asymmetry). When it carries a real pattern, form your hypothesis by encoding a repeatable COMPONENT of it (a mechanical entry filter, an exit/hold rule, a coin/hour selector) — not by copying positions. When — and ONLY when — you have a genuine, specific hypothesis for an edge (from the desk or from a losing regime), express it as code and let the backtest judge it:
        - New technique: write a signal.py body (pure stdlib; def signal(features) -> {"action":"long|short|flat","confidence":0..1,"leverage":1..3,"stop_pct":>0,"reason":str}; features include regime/rsi/atr_pct/bb_z/ema_stack/efficiency/flow_pressure/ret1/ret4/ret24/funding_z) to a temp file, then run:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/forge.py author --name <slug> --signal-file <path> --claim "<the edge in one line>" --coin <BTC|ETH|SOL>
        - Improve an existing one: forge.py fork <id> --name <slug>, then edit + forge.py author the improved body.
      The deterministic walk-forward backtest is the JUDGE — it adopts your technique ONLY if it clears out-of-sample edge net of fees. You never declare a technique works; you never adopt by hand. Authoring NEVER opens a trade. Author at most ONE technique this cycle.
-  3. EVENT ANALYST (Book A, zero-fee defined risk) — read the "Event desk" board in the briefing. For any market where YOUR calibrated probability for a side diverges from its implied price past the margin, place ONE defined-risk ticket:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/outcomes.py bet --coin "#<id>" --prob <your 0..1> --stake <usd> --reason "<the event read>"  . The GATE owns sizing and risk — you supply ONLY the probability and the read; it enforces the volume floor, the divergence margin, the favorite-longshot guard (never bet a longshot), the stake/ticket caps, and no double-down, and it is SHADOW-MODE (records calibration, places no real order) until the calibration proves out. A rejected bet is a clean skip, not an error. Never bet a longshot; never place more than one ticket per cycle.
+  3. EVENT ANALYST (Book A, zero-fee defined risk) — read the "Event desk" board in the briefing. For any market where YOUR calibrated probability for a side diverges from its implied price past the margin, place ONE defined-risk ticket:  uv run --no-project python3 ~/.claude/skills/gclaw/scripts/outcomes.py bet --coin "#<id>" --prob <your 0..1> --stake <usd> --reason "<the event read>"  . The GATE owns sizing and risk — you supply ONLY the probability and the read; it enforces the volume floor, the divergence margin, the favorite-longshot guard (never bet a longshot), the stake/ticket caps, and no double-down. It records every passing bet to the calibration ledger and places NO real order until calibration proves out (resolved Brier beats the no-skill baseline) AND the desk is armed — currently DISARMED, so shadow-only regardless. A rejected bet is a clean skip, not an error. Never bet a longshot; never place more than one ticket per cycle.
   4. VETO + SETTLE: veto the next forge open if you see a reason it cannot model (event inside the hold horizon, venue/credential blocker, smart-money leaning hard against it, correlated-book risk) by writing {"veto": true, "reason": "..."} to ~/.gclaw/forge/veto.json. Then settle realized PnL into the metabolism.
 
 Hard rules: you may NOT open a discretionary trade (no hl_perp.js open, no MCP perp-open), and you may NOT run forge.py run --execute yourself (origination already ran). Obey the survival mode and the risk caps in TRADING_STRATEGY.md. End with a one-paragraph report: mode, balance, goodwill, what you managed/vetoed, and any technique you authored and its backtest verdict.'
@@ -56,6 +67,14 @@ Hard rules: you may NOT open a discretionary trade (no hl_perp.js open, no MCP p
 echo "===== $(ts) heartbeat start (model=$MODEL) =====" >>"$LOG"
 cd "$HOME"
 
+# Metabolism: charge one heartbeat — the living-agent burn (GMAC decrements each cycle,
+# the survival clock the whole organism runs on). tick was only ever called from the
+# interactive /gclaw skill (SKILL.md), never the cron, so the unattended agent's GMAC
+# accounting silently froze. Run it here, deterministically, every cycle. The burn does
+# NOT force unprofitable trading (audit assune-d39 ruled that out) — it just keeps the
+# survival economics honest. Hibernate mode self-skips the charge.
+[[ -f "$SKILL_DIR/scripts/metabolism.py" ]] &&
+  echo "$(ts) metabolism: $(uv run --no-project python3 "$SKILL_DIR/scripts/metabolism.py" tick 2>&1 | tr '\n' ' ' | tail -c 160)" >>"$LOG" || true
 # Auto-fund: convert any ETH sent to Arbitrum into USDC + deposit to HL.
 [[ -f "$SKILL_DIR/scripts/autofund.js" ]] &&
   echo "$(ts) autofund: $(node "$SKILL_DIR/scripts/autofund.js" run 2>&1)" >>"$LOG" || true
@@ -66,6 +85,11 @@ cd "$HOME"
 # Deterministic auto-settle: book realized PnL from any closes (TP/SL/trail) before the agent decides.
 [[ -f "$SKILL_DIR/scripts/autosettle.js" ]] &&
   echo "$(ts) autosettle: $(node "$SKILL_DIR/scripts/autosettle.js" run 2>&1)" >>"$LOG" || true
+# Reconcile the position cache to live venue truth right after settlement, BEFORE the
+# metabolism status card renders it — otherwise a position that closed mid-cycle lingers
+# in positions.json (only rewritten at end-of-cycle render) and the card shows a phantom.
+[[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
+  echo "$(ts) reconcile: $(uv run --no-project python3 "$SKILL_DIR/scripts/dashboard.py" refresh 2>&1 | tr '\n' ' ' | tail -c 120)" >>"$LOG" || true
 # Event-desk settlement (Book A): detect any outcome ticket whose side resolved (mid
 # settled to 0/1), score its Brier into the calibration ledger, and settle realized PnL
 # for LIVE tickets. Idempotent (resolved tickets are skipped), so it runs every cycle
@@ -101,6 +125,17 @@ cd "$HOME"
 [[ -f "$SKILL_DIR/scripts/forge.py" ]] &&
   echo "$(ts) autoprove: $(uv run --no-project python3 "$SKILL_DIR/scripts/forge.py" autoprove 2>&1 | tr '\n' ' ' | tail -c 200)" >>"$LOG" || true
 
+# Reverse-engineering desk: pull skill-proven on-chain wallets (curated watchlist +
+# board survivors) and decompose them into size-invariant forensic patterns the
+# Scientist reverse-engineers from. Read-only (SDK reads, no trade surface). Budgeted
+# on a cooldown — the winner set changes slowly and the pulls are heavy.
+WINNERS_INTERVAL_H="${GCLAW_WINNERS_INTERVAL_H:-6}"; NOW="${NOW:-$(date +%s)}"
+LAST_WINNERS="$(cat "$GCLAW_HOME/last_winners" 2>/dev/null || echo 0)"
+if [[ -f "$SKILL_DIR/scripts/winners.js" && $((NOW - LAST_WINNERS)) -ge $((WINNERS_INTERVAL_H * 3600)) ]]; then
+  echo "$(ts) winners: $(timeout 240 node "$SKILL_DIR/scripts/winners.js" pull 2>&1 >/dev/null | tail -c 180)" >>"$LOG"
+  date +%s >"$GCLAW_HOME/last_winners"
+fi
+
 # Deterministic disciplined OPEN — the ONLY origination path. The forge's own gate
 # (proven + regime-matched edge_real or bounded cold-start + conviction floor +
 # cooldown + breaker) decides; sizing.py sizes it; TP/SL are atomic. The forge sets
@@ -134,11 +169,12 @@ rm -f "$GCLAW_HOME/forge/veto.json"
 # only every GCLAW_FLAT_INTERVAL_H hours (default 4) on Sonnet — the deterministic
 # steps still run hourly, but we don't burn the LLM (and your plan allowance) on
 # "nothing to do" cycles. An explicit GCLAW_MODEL overrides the model, not the cadence.
-ACTIVE="active"; FLAT_INTERVAL_H="${GCLAW_FLAT_INTERVAL_H:-4}"
+ACTIVE="active"; FLAT_INTERVAL_H="${GCLAW_FLAT_INTERVAL_H:-4}"; CYCLE_RC=0
 [[ -f "$SKILL_DIR/scripts/model_select.js" ]] && ACTIVE="$(node "$SKILL_DIR/scripts/model_select.js" active 2>>"$LOG" || echo active)"
 LAST_CYCLE="$(cat "$GCLAW_HOME/last_cycle" 2>/dev/null || echo 0)"; NOW="$(date +%s)"
 if [[ "$ACTIVE" == "idle" && $((NOW - LAST_CYCLE)) -lt $((FLAT_INTERVAL_H * 3600)) ]]; then
   echo "$(ts) cycle skipped: idle (flat, no setup) — last LLM cycle $(((NOW - LAST_CYCLE) / 60))m ago < ${FLAT_INTERVAL_H}h" >>"$LOG"
+  CYCLE_RC=skip
 else
   [[ -f "$SKILL_DIR/scripts/model_select.js" ]] &&
     MODEL="$(node "$SKILL_DIR/scripts/model_select.js" model 2>>"$LOG" || echo "$MODEL")"
@@ -166,11 +202,30 @@ else
   BRIEF="$(uv run --no-project python3 "$SKILL_DIR/scripts/briefing.py" 2>>"$LOG" || true)"
   FULL_PROMPT="$PROMPT"
   [[ -n "$BRIEF" ]] && FULL_PROMPT="$PROMPT"$'\n\n'"$BRIEF"
+  # Archive this active cycle's context (the briefing the model actually saw) + its report so
+  # the decision-quality grader grades the judgment on what was knowable THEN, not hindsight.
+  # Best-effort; the report is captured to a file then appended to the LOG so the log format is
+  # unchanged. Prune to the most recent 240 cycles (~10 days hourly) to stay bounded.
+  CYCLE_DIR="$GCLAW_HOME/cycles"; mkdir -p "$CYCLE_DIR" 2>/dev/null || true
+  CYCLE_BASE="$CYCLE_DIR/$(ts | tr -d ':')"
+  printf '%s' "$BRIEF" >"$CYCLE_BASE.brief.txt" 2>/dev/null || true
+  REPORT_FILE="$CYCLE_BASE.report.txt"
+  # Prune to the most recent 240 cycles. MUST be pipefail/set -e safe: with no matches the
+  # glob is literal and ls exits non-zero, which under `set -euo pipefail` would kill the
+  # whole heartbeat before the LLM cycle even runs. compgen-guard it and swallow any failure.
+  if compgen -G "$CYCLE_DIR/*.report.txt" >/dev/null 2>&1; then
+    # shellcheck disable=SC2012  # ls -t ordering is what we want; filenames are our own ts-based
+    ls -1t "$CYCLE_DIR"/*.report.txt 2>/dev/null | tail -n +241 | while read -r _old; do
+      rm -f "$_old" "${_old%.report.txt}.brief.txt" 2>/dev/null || true
+    done || true
+  fi
   if printf '%s' "$FULL_PROMPT" | timeout "$CYCLE_TIMEOUT" claude --print --permission-mode bypassPermissions \
-      --model "$MODEL" --disallowedTools $DENY >>"$LOG" 2>&1; then
+      --model "$MODEL" --disallowedTools $DENY >"$REPORT_FILE" 2>&1; then
+    cat "$REPORT_FILE" >>"$LOG"
     echo "===== $(ts) heartbeat ok =====" >>"$LOG"; date +%s >"$GCLAW_HOME/last_cycle"
   else
-    rc=$?  # capture BEFORE any other command (a command substitution would reset $?)
+    rc=$?; CYCLE_RC=$rc  # capture BEFORE any other command (a command substitution would reset $?)
+    cat "$REPORT_FILE" >>"$LOG"
     if [[ "$rc" -eq 124 ]]; then
       echo "===== $(ts) cycle timed out (>${CYCLE_TIMEOUT}s) — deterministic steps ran; retry next cycle =====" >>"$LOG"
     else
@@ -212,6 +267,12 @@ fi
 # IPFS, anchors the predictions root onchain, and recomputes the leaderboards.
 [[ -f "$SKILL_DIR/scripts/dashboard.py" ]] &&
   "$SKILL_DIR/scripts/dashboard.py" render >>"$LOG" 2>&1 || true
+
+# Observability: append one structured trace record (mode, equity, open risk, model, rc)
+# to cycles.jsonl so a bad cycle is root-causeable, not just grep-able in the prose log.
+# Runs LAST, after the render refreshed positions.json, so the snapshot is current.
+[[ -f "$SKILL_DIR/scripts/cycle_trace.py" ]] &&
+  echo "$(ts) trace: $(uv run --no-project python3 "$SKILL_DIR/scripts/cycle_trace.py" record --model "$MODEL" --active "$ACTIVE" --rc "$CYCLE_RC" 2>&1 | tail -c 120)" >>"$LOG" || true
 
 # Health alerts (best-effort): notify on red conditions (hibernate, low gas,
 # tripped breaker, low funds) when GCLAW_ALERT_WEBHOOK is set. No-ops otherwise.
