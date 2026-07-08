@@ -92,11 +92,26 @@ MIN_LIVE_SAMPLE = 12
 COLD_BENCH_N = 5
 IS_FRACTION = 0.6
 HORIZON = 4  # default bars held per backtest trade (mean-reversion holds short)
+MAX_HOLD = 48  # cap on an author-specified hold, so a signal can't model an unbounded position
 # Per-technique hold horizon (bars, 1h candles). doc 02 §1: momentum-stack's thin
 # trend-continuation edge only clears the round-trip fee at a ~24h hold; at the old
 # 4h hold it churns a sub-fee edge into a loss. Mean-reversion (stop-hunt-revert)
-# wants the snap-back fast and decays to negative by 8-12h, so it stays short.
+# wants the snap-back fast and decays to negative by 8-12h, so it stays short. A signal
+# may override per-decision with a ``hold_bars`` output (assune-2ol.8) — the fixed 4-bar
+# force-close made every momentum hypothesis look edgeless (a JUDGE false negative).
 HORIZON_BY_TECHNIQUE = {"momentum-stack": 24, "stop-hunt-revert": 4}
+
+
+def _hold_bars(decision: dict[str, Any], default: int, room: int) -> int:
+    """Author-controlled hold (bars): the signal's ``hold_bars`` clamped to [1, MAX_HOLD]
+    and to the ``room`` of candles left ahead; falls back to ``default`` when unset."""
+    hb = decision.get("hold_bars")
+    if hb is None:
+        return min(default, room)
+    try:
+        return max(1, min(MAX_HOLD, int(hb), room))
+    except (TypeError, ValueError):
+        return min(default, room)
 # Per-side execution cost model (doc 02 §"Cross-cutting" 3). HL charges a MAKER rebate
 # tier vs a TAKER fee; a resting limit that adds liquidity fills maker, a market/trigger
 # order that crosses the book fills taker and eats slippage. Modelling both — instead of
@@ -689,7 +704,7 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
     flow = ((last["c"] - last["l"]) / span - 0.5) * 2 if span > 0 else 0.0
     rets24 = [closes[k] / closes[k - 1] - 1 for k in range(max(1, len(closes) - 23), len(closes))]
     efficiency = _efficiency_ratio(closes)
-    vols20 = [c["v"] for c in window_candles][-20:]
+    vols20 = [c.get("v", 0.0) for c in window_candles][-20:]
     vsd = statistics.stdev(vols20) if len(vols20) > 1 else 0.0
     rel_volume_z = (vols20[-1] - statistics.fmean(vols20)) / vsd if vsd else 0.0
     return {
@@ -705,7 +720,7 @@ def _intel_features_at(candles: list[dict[str, float]], i: int) -> dict[str, Any
         "regime": _classify_regime(efficiency, ema_stack),
         "mark": last["c"],
         "prevDayPx": candles[i - 24]["c"] if i >= 24 else closes[0],
-        **_session_at(last["t"]),
+        **_session_at(last.get("t", 0)),
     }
 
 
@@ -877,7 +892,10 @@ def score_window(
         stop_pct = float(decision.get("stop_pct") or 0)
         if stop_pct <= 0:
             continue
-        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, horizon))
+        hold = _hold_bars(decision, horizon, len(candles) - 1 - i)
+        if hold < 1:
+            continue
+        rets.append(trade_return(candles, i, decision["action"] == "long", stop_pct, hold))
     return summarise(rets)
 
 

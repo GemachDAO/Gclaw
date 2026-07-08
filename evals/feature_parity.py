@@ -60,7 +60,7 @@ def intel_ref(candles: list[dict[str, float]], i: int) -> dict[str, Any]:
     sd20 = statistics.stdev(win20) if len(win20) > 1 else 0.0
     bb_z = (closes[-1] - statistics.fmean(win20)) / sd20 if sd20 else 0.0
     rets24 = [closes[k] / closes[k - 1] - 1 for k in range(max(1, len(closes) - 23), len(closes))]
-    vols20 = [c["v"] for c in wc][-20:]
+    vols20 = [c.get("v", 0.0) for c in wc][-20:]
     vsd = statistics.stdev(vols20) if len(vols20) > 1 else 0.0
     rel_volume_z = (vols20[-1] - statistics.fmean(vols20)) / vsd if vsd else 0.0
     return {
