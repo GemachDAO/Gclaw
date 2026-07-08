@@ -22,7 +22,8 @@
  *
  * Entry fill type follows GCLAW_FORGE_MAKER_ENTRY (assune-4yt): unset → taker market
  * (default); =1 → resting maker limit with the stop atomically attached, on the default
- * dex only (builder xyz: coins stay taker — their attached SL is not armed resting).
+ * dex only (builder xyz: coins stay taker — resting-limit SL arming on that dex is untested;
+ * their market opens DO arm a resting SL, verified).
  */
 'use strict';
 
@@ -133,6 +134,21 @@ async function builderDexes(skill) {
   return [...set];
 }
 
+// Open orders across default AND every builder dex. The HL `openOrders` endpoint (and the
+// SDK's getHlOpenOrders that wraps it) defaults to the MAIN dex — it takes an optional `dex`
+// param but the SDK never passes one. So a protective stop resting on the xyz builder dex is
+// INVISIBLE, which made riskguard read every xyz position as NAKED and flatten it on sight
+// (assune-ehh — the stop was there all along, just on a dex nobody queried). Query each dex
+// explicitly and merge, exactly like fullState does for positions.
+async function allOpenOrders(skill, managed) {
+  const dexes = await builderDexes(skill).catch(() => []);
+  const results = await Promise.all([
+    hlInfo({ type: 'openOrders', user: managed }),
+    ...dexes.map((dex) => hlInfo({ type: 'openOrders', user: managed, dex })),
+  ]);
+  return results.flatMap((r) => (Array.isArray(r) ? r : []));
+}
+
 // True equity + positions across default AND every builder dex. Builder/HIP-3
 // positions (xyz:NVDA, …) live under their own dex, not `default`. The bundled
 // "…StateAll" endpoint is stale (omits xyz), so query each dex explicitly via the
@@ -190,9 +206,10 @@ function roundSig(value, sig = 5) {
 
 // Maker-entry mode (assune-4yt): when GCLAW_FORGE_MAKER_ENTRY=1 the forge models the
 // entry as a resting maker limit, so the live executor must POST one too or the cost
-// model diverges from reality. Only the default dex is eligible: on the xyz builder dex
-// the attached SL trigger is not armed as a resting order (assune-ehh), so a resting
-// entry there would fill naked — builder coins always stay taker.
+// model diverges from reality. Only the default dex is eligible: whether a resting maker
+// limit's attached SL arms on the xyz builder dex at async fill is unverified, so builder
+// coins always stay taker. (Their MARKET opens do arm a resting SL — that path is verified;
+// the earlier "naked xyz" was a dex-blind order read, assune-ehh, since fixed.)
 function makerEntryEnabled(coin) {
   return process.env.GCLAW_FORGE_MAKER_ENTRY === '1' && !coin.includes(':');
 }
@@ -277,7 +294,7 @@ async function cmdStatus(wallet) {
   const [fullR, spotR, ordersR] = await Promise.allSettled([
     fullState(skill, wallet.managed),
     skill.getHlSpotState(wallet.managed),
-    skill.getHlOpenOrders(wallet.managed),
+    allOpenOrders(skill, wallet.managed),
   ]);
   const full = fullR.status === 'fulfilled' ? fullR.value : { accountValue: 0, positions: [], withdrawable: 0 };
   const spot = spotR.status === 'fulfilled' ? spotR.value : { balances: [] };

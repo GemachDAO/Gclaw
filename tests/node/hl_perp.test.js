@@ -174,8 +174,8 @@ describe('coin normalization + sig rounding (entry-path helpers)', () => {
 // executor must POST a resting maker limit — with the stop STILL atomically attached —
 // so the executor matches the maker cost the forge backtest models. The order builder is
 // network-free, so we drive it directly and assert the maker/taker + no-naked-entry
-// contract. Builder (xyz) coins always stay taker: their attached SL is not armed as a
-// resting order (assune-ehh), so a resting entry there would fill naked.
+// contract. Builder (xyz) coins always stay taker: whether a resting maker-limit entry's SL
+// arms on that dex at async fill is unverified (their market opens DO arm a resting SL).
 describe('maker-first limit entries: order construction (assune-4yt)', () => {
   const { makerEntryEnabled, makerLimitPrice, buildOpenOrder } = loadScript('hl_perp.js');
   const savedFlag = process.env.GCLAW_FORGE_MAKER_ENTRY;
@@ -205,7 +205,7 @@ describe('maker-first limit entries: order construction (assune-4yt)', () => {
     expect(o.maker).toBe(true);
   });
 
-  test('flag on but builder (xyz) coin stays taker — its attached SL is not armed resting', () => {
+  test('flag on but builder (xyz) coin stays taker — resting-limit SL arming there unverified', () => {
     process.env.GCLAW_FORGE_MAKER_ENTRY = '1';
     expect(makerEntryEnabled('xyz:NVDA')).toBe(false);
     const o = buildOpenOrder({ coin: 'xyz:NVDA', isLong: true, mark: 120, notionalTarget: 30, slPct: 2, tpPct: 3, szDecimals: 2 });

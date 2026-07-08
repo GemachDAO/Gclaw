@@ -120,8 +120,9 @@ BUILDER_FEE = 0.0005  # builder fee per side (both entry and exit)
 # posts a resting maker limit with the stop STILL atomically attached (one hl_create_order
 # action, never naked) on the default dex, and the backtest charges maker entry. The single
 # env var keeps the cost assumption from ever diverging from how fills actually happen.
-# Builder (xyz) coins always stay taker: their attached SL is not armed as a resting order
-# (assune-ehh), so a resting entry there would fill naked — hl_perp.js gates maker off for them.
+# Builder (xyz) coins always stay taker: whether a resting maker-limit entry's SL arms on
+# that dex at async fill is unverified — hl_perp.js gates maker off for them. (Their market
+# opens DO arm a resting SL; that path is verified — the old "naked xyz" was a dex-blind read.)
 def _maker_entry() -> bool:
     """True when entries are modelled as resting maker limits (assune-4yt), else taker."""
     return os.environ.get("GCLAW_FORGE_MAKER_ENTRY") == "1"
@@ -2338,10 +2339,11 @@ def _gate_intents(
     for i in intents:
         if not (i["proven"] and i["notional"] >= MIN_NOTIONAL):
             continue
-        # xyz builder-dex opens land NAKED — managed custody does not arm the attached
-        # SL trigger as a resting order there, so riskguard flattens them on sight for a
-        # guaranteed loss (assune-opy). Gate xyz out of auto-origination until that SL
-        # attachment is verified; flip GCLAW_ALLOW_XYZ_OPEN=1 once it is fixed.
+        # xyz builder-dex opens used to be flattened on sight as "naked" — but the stop was
+        # there all along, resting on the xyz dex; riskguard just read open orders on the
+        # main dex only and never saw it (assune-ehh, fixed in hl_perp.js allOpenOrders,
+        # verified live). GCLAW_ALLOW_XYZ_OPEN stays as a kill-switch for the thin builder
+        # book; default-on. When off, xyz intents are skipped.
         if ":" in i["coin"] and not allow_xyz:
             continue
         if i["confidence"] < conv_floor:
