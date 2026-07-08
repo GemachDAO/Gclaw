@@ -2455,6 +2455,13 @@ def _gate_intents(
             continue
         if _cooling(i["coin"]):
             continue
+        # Edgeability allocator (assune-2ol.5): a cell whose live CI is entirely below zero
+        # on a fair sample is a PROVEN loser — not a bootstrapping probe. Never re-open it;
+        # the scarce sample budget belongs in cells where a small account has an edge, not
+        # bleeding into a major/regime the memory graph already disproved.
+        ci_hi = i.get("edge_ci_hi_mem")
+        if i.get("edge_trades_mem", 0) >= COLD_BENCH_N and ci_hi is not None and ci_hi < 0:
+            continue
         # Reuse the per-coin memory read stashed by cmd_run (cmd_run sets edge_real_mem
         # so the gate never re-queries memory.py per intent).
         ok = (
@@ -2548,6 +2555,8 @@ def cmd_run(args: argparse.Namespace) -> dict[str, Any]:
         intent["edge_real_mem"] = ok
         intent["edge_trades_mem"] = int((st or {}).get("trades", 0) or 0)
         intent["edge_exp_mem"] = float((st or {}).get("expectancy_r", 0) or 0)
+        ci95 = (st or {}).get("ci95")
+        intent["edge_ci_hi_mem"] = float(ci95[1]) if ci95 else None
         intents.append(intent)
     intents.sort(key=lambda x: x["confidence"], reverse=True)
     breaker = circuit_breaker(equity, acct.get("positions", 0))
