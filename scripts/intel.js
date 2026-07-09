@@ -213,6 +213,54 @@ function applyOiDelta(out) {
   try { fs.writeFileSync(p, JSON.stringify(next)); } catch { /* cache is best-effort */ }
 }
 
+// Cross-venue funding: HL's predictedFundings carries the next funding on HL/Binance/Bybit.
+// Normalise each to an hourly rate (venues differ: HL 1h, Binance/Bybit 4-8h) and return the
+// HL-minus-peers spread per coin — a rich carry/dislocation sense (assune-2ol.14). Live-only
+// (HL serves no history), so it is RECORDED forward for future replay but not yet an
+// INTEL_KEYS signal feature (that would be train/serve skew, the exact trap #1 fixed).
+async function venueSpreads() {
+  const raw = await info({ type: 'predictedFundings' }).catch(() => null);
+  const out = {};
+  if (!Array.isArray(raw)) return out;
+  for (const [coin, venues] of raw) {
+    if (!Array.isArray(venues)) continue;
+    let hl = null; const peers = [];
+    for (const [venue, d] of venues) {
+      if (!d || d.fundingRate == null) continue;
+      const hourly = Number(d.fundingRate) / (Number(d.fundingIntervalHours) || 1);
+      if (venue === 'HlPerp') hl = hourly; else peers.push(hourly);
+    }
+    if (hl != null && peers.length) out[coin] = Math.round((hl - mean(peers)) * 1e8) / 1e8;
+  }
+  return out;
+}
+
+// Forward-record a compact alt-data snapshot per scan. HL serves no history for
+// predictedFundings, so recording the cross-venue spread + funding + key senses NOW is the
+// only way to make these axes backtestable LATER (the same pattern that let #1 replay funding
+// history). Also seeds the xyz funding-carry soak (assune-2ol.4). Best-effort, size-bounded.
+function recordSeries(intel) {
+  const t = Date.now();
+  const rows = [];
+  for (const [coin, f] of Object.entries(intel)) {
+    if (!f) continue;
+    rows.push(JSON.stringify({
+      t, coin, price: f.price, funding_now: f.funding_now, funding_z: f.funding_z,
+      funding_venue_spread: f.funding_venue_spread ?? null, rel_volume_z: f.rel_volume_z,
+      open_interest: f.open_interest, regime: f.regime,
+    }));
+  }
+  if (!rows.length) return;
+  const p = path.join(GCLAW_HOME, 'intel_series.jsonl');
+  try {
+    fs.appendFileSync(p, rows.join('\n') + '\n');
+    if (fs.statSync(p).size > 25 * 1024 * 1024) {
+      const lines = fs.readFileSync(p, 'utf8').trim().split('\n');
+      fs.writeFileSync(p, lines.slice(-200000).join('\n') + '\n');
+    }
+  } catch { /* series is best-effort — never break the scan */ }
+}
+
 async function scan(coins) {
   // Pull asset context for the default dex AND each builder dex present in the scan
   // (xyz:NVDA lives under the `xyz` dex), so stock/commodity markets get OI + premium
@@ -232,8 +280,14 @@ async function scan(coins) {
   const btc = (await candles('BTC', '1h', CORR_WINDOW + 25)).slice(0, -1); // closed bars only
   const btcReturns = returns(btc.map((k) => k.c)).slice(-CORR_WINDOW);
   // Scan every market concurrently so the full universe reads as fast as one coin.
-  const entries = await Promise.all(coins.map(async (c) => [c, await coinIntel(c, ctxByName.get(c), btcReturns)]));
+  const [entries, spreads] = await Promise.all([
+    Promise.all(coins.map(async (c) => [c, await coinIntel(c, ctxByName.get(c), btcReturns)])),
+    venueSpreads(),
+  ]);
   const out = Object.fromEntries(entries);
+  for (const [coin, f] of Object.entries(out)) {
+    if (f && spreads[coin] !== undefined) f.funding_venue_spread = spreads[coin];
+  }
   applyOiDelta(out);
   return out;
 }
@@ -308,6 +362,7 @@ async function main() {
     : (await discoverUniverse()) || STATIC_UNIVERSE;
   fs.mkdirSync(GCLAW_HOME, { recursive: true });
   const intel = await scan(coins);
+  if (cmd === 'scan') recordSeries(intel);  // forward-record alt-data for future replay
   if (cmd === 'regime') {
     const out = Object.fromEntries(Object.entries(intel).map(([k, v]) => [k, v ? { regime: v.regime, efficiency: v.efficiency, tradeable: v.tradeable } : null]));
     process.stdout.write(JSON.stringify({ ok: true, universe: coins, regimes: out }) + '\n');
