@@ -172,6 +172,18 @@ def _reverse_engineering_desk(wi: dict) -> list[str]:
             f"  · {f.get('description')} "
             f"(prevalence {f.get('prevalence')}, {f.get('support_wallets')} wallets, {f.get('confidence')})"
         )
+    # Encodable ENTRY CONDITIONS per admitted wallet (assune-2ol.11): the feature vector the
+    # winner enters under, so the Scientist authors the trigger instead of guessing.
+    for s in wi.get("scorecards") or []:
+        ec = s.get("entry_context") or {}
+        for side in ("long", "short"):
+            d = ec.get(side) or {}
+            if d.get("n"):
+                lines.append(
+                    f"  · {str(s.get('address', ''))[:8]} enters {side.upper()} (n={d['n']}): "
+                    f"rsi~{d.get('median_rsi')}, bb_z~{d.get('median_bb_z')}, "
+                    f"eff~{d.get('median_efficiency')}, regime={d.get('dominant_regime')} → encode this trigger"
+                )
     if universe.get("survivors_n") is not None:
         lines.append(
             f"  _universe: {universe.get('survivors_n')} clonable of {universe.get('board_n', '?')} "

@@ -24,6 +24,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { buildEntryContext } = require('./copy_context.js');
 
 const GDEX_DIR = process.env.GDEX_SKILL_DIR || path.join(os.homedir(), 'gdex-skill');
 const GCLAW_HOME = process.env.GCLAW_HOME || path.join(os.homedir(), '.gclaw');
@@ -122,6 +123,13 @@ async function main() {
   const skill = readClient();
   const intel = await skill.reverseEngineerWinners({ watchlist, max });
   const gated = applyAdmissionGate(intel);
+
+  // Make the desk GENERATIVE (assune-2ol.11): reconstruct each admitted wallet's entry
+  // conditions (median RSI / bb_z / regime per direction) so the scientist authors the
+  // encodable ENTRY PATTERN, not just an address. Only skill-gated wallets are enriched.
+  for (const s of gated.scorecards) {
+    try { s.entry_context = (await buildEntryContext(s.address))?.context ?? null; } catch { s.entry_context = null; }
+  }
 
   fs.mkdirSync(FORGE_DIR, { recursive: true });
   fs.writeFileSync(OUT_PATH, JSON.stringify(gated) + '\n');
