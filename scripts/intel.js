@@ -187,6 +187,7 @@ async function coinIntel(coin, ctx, btcReturns) {
     funding_z: Math.round(fz.funding_z * 100) / 100,
     open_interest: ctx ? Number(ctx.openInterest) : null,
     premium: ctx ? Number(ctx.premium) : null,
+    book_skew: _bookSkew(ctx),
     btc_corr: coin === 'BTC' ? 1 : Math.round(correlation(returns(closes).slice(-CORR_WINDOW), btcReturns) * 100) / 100,
     flow_pressure: Math.round(flow_pressure * 100) / 100,
   };
@@ -247,7 +248,7 @@ function recordSeries(intel) {
     rows.push(JSON.stringify({
       t, coin, price: f.price, funding_now: f.funding_now, funding_z: f.funding_z,
       funding_venue_spread: f.funding_venue_spread ?? null, rel_volume_z: f.rel_volume_z,
-      open_interest: f.open_interest, regime: f.regime,
+      book_skew: f.book_skew ?? null, open_interest: f.open_interest, regime: f.regime,
     }));
   }
   if (!rows.length) return;
@@ -317,6 +318,18 @@ function _spread(ctx) {
   const mid = Number(ctx && ctx.midPx) || 0;
   const px = ctx && Array.isArray(ctx.impactPxs) ? ctx.impactPxs.map(Number) : null;
   return px && px.length === 2 && mid ? (px[1] - px[0]) / mid : Infinity;
+}
+
+// Book skew from the impact prices around mid (assune-2ol.15): (ask-mid) - (mid-bid),
+// normalised. >0 => the buy side is costlier to cross (adverse to a fresh long), <0 =>
+// the sell side is. An execution-timing SENSE the LLM can read to avoid crossing into a
+// lopsided book — kept out of INTEL_KEYS (live-only, not proven alpha); enforcing it as a
+// gate veto needs the A/B-vs-realized-slippage the committee called for (baking data first).
+function _bookSkew(ctx) {
+  const mid = Number(ctx && ctx.midPx) || 0;
+  const px = ctx && Array.isArray(ctx.impactPxs) ? ctx.impactPxs.map(Number) : null;
+  if (!px || px.length !== 2 || !mid) return null;
+  return Math.round(((px[1] + px[0] - 2 * mid) / mid) * 1e6) / 1e6;
 }
 
 function pickLiquid(univ, ctxs) {
