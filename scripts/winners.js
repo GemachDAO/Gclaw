@@ -32,6 +32,34 @@ const OUT_PATH = path.join(FORGE_DIR, 'winner_intel.json');
 const WATCHLIST_PATH = path.join(FORGE_DIR, 'watchlist.json');
 const DEFAULT_MAX = 12;
 
+// Copy-trade skill-admission gate (assune-2ol.7): the desk must reverse-engineer only from
+// wallets whose edge is SKILL — a fair sample, positive expectancy, no luck flag, and the
+// clean flat-to-flat reconstruction. Without it the cohort admitted a net-loser (n=4,
+// expectancy<0, luck_flag=true) beside two luck-flagged wallets, so the scientist cloned
+// noise. NOTE: the SDK's decompose() aggregates features across ALL pulled wallets and does
+// not attach per-feature wallet addresses, so gclaw can only gate the scorecards here and
+// clear the pattern set when zero wallets pass; a pre-aggregation filter is the SDK follow-up.
+const ADMIT = { minTrades: 20, method: 'flat_to_flat' };
+
+function admitScorecard(s) {
+  return Number(s.n_trades) >= ADMIT.minTrades
+    && Number(s.expectancy) > 0
+    && s.luck_flag !== true
+    && s.method === ADMIT.method;
+}
+
+function applyAdmissionGate(intel) {
+  const cards = (intel && intel.scorecards) || [];
+  const admitted = cards.filter(admitScorecard);
+  const rejected = cards.filter((s) => !admitScorecard(s)).map((s) => s.address);
+  return {
+    ...intel,
+    scorecards: admitted,
+    aggregate_features: admitted.length ? (intel.aggregate_features || []) : [],
+    admission: { pulled: cards.length, admitted: admitted.length, rejected, gate: ADMIT },
+  };
+}
+
 /**
  * Load the curated watchlist of HL wallet addresses, if present.
  *
@@ -93,20 +121,25 @@ async function main() {
   const watchlist = loadWatchlist();
   const skill = readClient();
   const intel = await skill.reverseEngineerWinners({ watchlist, max });
+  const gated = applyAdmissionGate(intel);
 
   fs.mkdirSync(FORGE_DIR, { recursive: true });
-  fs.writeFileSync(OUT_PATH, JSON.stringify(intel) + '\n');
-  const u = (intel && intel.universe) || {};
+  fs.writeFileSync(OUT_PATH, JSON.stringify(gated) + '\n');
+  const a = gated.admission;
   process.stderr.write(
-    `winners: watchlist ${watchlist.length} · board ${u.board_n ?? '?'} -> ` +
-      `${u.survivors_n ?? '?'} clonable · ${(intel.aggregate_features || []).length} features; wrote ${OUT_PATH}\n`,
+    `winners: watchlist ${watchlist.length} · pulled ${a.pulled} -> ` +
+      `${a.admitted} admitted (skill-gated) · ${(gated.aggregate_features || []).length} features; wrote ${OUT_PATH}\n`,
   );
   // The HL SDK transport holds a keep-alive socket that keeps the event loop
   // alive after the result resolves; exit explicitly once the artifact is written.
   process.exit(0);
 }
 
-main().catch((err) => {
-  process.stderr.write(`winners: fatal ${err && err.message ? err.message : String(err)}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    process.stderr.write(`winners: fatal ${err && err.message ? err.message : String(err)}\n`);
+    process.exit(1);
+  });
+}
+
+module.exports = { admitScorecard, applyAdmissionGate, ADMIT };
