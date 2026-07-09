@@ -450,6 +450,58 @@ def _funding_at(ctx: dict[str, list[float]] | None, t: float) -> tuple[float | N
     return rate, z, prem
 
 
+RESIDUAL_WINDOW = 60  # bars for the beta fit + residual z-score (assune-2ol.9)
+INDEX_COIN = "xyz:SP500"  # the basket index xyz names are residualised against
+
+
+def _residual_context(coin: str, interval: str, limit: int) -> dict[int, float] | None:
+    """{bar_time -> index_close} for residualising an xyz name against the basket index.
+
+    Only xyz names (not the index itself, not majors) get a context — a robust signal treats
+    residual_z as 0 when absent. Relative strength residualised against xyz:SP500 is market-
+    neutral: the divergence a small account can fade without an index-arb desk competing.
+    """
+    if not coin.startswith("xyz:") or coin == INDEX_COIN:
+        return None
+    try:
+        idx = get_candles(INDEX_COIN, interval, limit)
+    except (RuntimeError, ValueError):
+        return None
+    ctx = {int(c["t"]): float(c["c"]) for c in idx if c.get("c")}
+    return ctx or None
+
+
+def _residual_z_at(ctx: dict[int, float] | None, candles: list[dict[str, float]], i: int) -> float:
+    """Beta-hedged log-price residual z-score of the coin vs the index at bar ``i``.
+
+    Fits beta over a trailing RESIDUAL_WINDOW of ALIGNED (coin, index) log-returns, forms the
+    cointegration spread ln(coin) - beta*ln(index), and z-scores its latest value against the
+    window (sample stdev). |z| large => the name has diverged from its index-implied level (a
+    mean-reversion fade). 0 when the index is unavailable or the aligned window is thin.
+    """
+    if not ctx:
+        return 0.0
+    pairs = [
+        (candles[k]["c"], ctx[int(candles[k]["t"])])
+        for k in range(max(0, i - RESIDUAL_WINDOW + 1), i + 1)
+        if int(candles[k]["t"]) in ctx and ctx[int(candles[k]["t"])] > 0 and candles[k]["c"] > 0
+    ]
+    if len(pairs) < 20:
+        return 0.0
+    name_lr = [math.log(pairs[j][0] / pairs[j - 1][0]) for j in range(1, len(pairs))]
+    idx_lr = [math.log(pairs[j][1] / pairs[j - 1][1]) for j in range(1, len(pairs))]
+    var_idx = statistics.pvariance(idx_lr)
+    if var_idx <= 0:
+        return 0.0
+    mean_n, mean_i = statistics.fmean(name_lr), statistics.fmean(idx_lr)
+    beta = statistics.fmean(
+        [(name_lr[j] - mean_n) * (idx_lr[j] - mean_i) for j in range(len(name_lr))]
+    ) / var_idx
+    spread = [math.log(nc) - beta * math.log(ic) for nc, ic in pairs]
+    sd = statistics.stdev(spread)
+    return round((spread[-1] - statistics.fmean(spread)) / sd, 2) if sd else 0.0
+
+
 def get_live_features(coins: list[str]) -> dict[str, Any]:
     return run_node(["features", "--coins", ",".join(coins)])["features"]
 
@@ -460,6 +512,7 @@ _INTEL: dict[str, Any] | None = None
 INTEL_KEYS = (
     "regime",
     "funding_z",
+    "residual_z",
     "bb_z",
     "rsi",
     "atr_pct",
@@ -510,7 +563,7 @@ def _scan_universe() -> tuple[str, ...]:
 
 def features_at(
     candles: list[dict[str, float]], i: int, coin: str, live: dict[str, Any] | None = None,
-    funding_ctx: dict[str, list[float]] | None = None,
+    funding_ctx: dict[str, list[float]] | None = None, residual_ctx: dict[int, float] | None = None,
 ) -> dict[str, Any]:
     """Build the feature dict the signal sees at bar ``i`` (price-derived).
 
@@ -564,6 +617,10 @@ def features_at(
             rate, fz, prem = _funding_at(funding_ctx, candles[i]["t"])
             if rate is not None:
                 f["funding"], f["funding_z"], f["premium"] = rate, fz, prem
+        # Cross-sectional residual vs the basket index — measurable OOS with the SAME z live
+        # sees, so a market-neutral relative-strength technique can actually be proven.
+        if residual_ctx is not None:
+            f["residual_z"] = _residual_z_at(residual_ctx, candles, i)
     return f
 
 
@@ -877,6 +934,7 @@ def _window_trades(
     hi: int,
     horizon: int = HORIZON,
     funding_ctx: dict[str, list[float]] | None = None,
+    residual_ctx: dict[int, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Per-trade records over bars [lo, hi): ``{r, long, hold}``.
 
@@ -887,7 +945,9 @@ def _window_trades(
     """
     trades: list[dict[str, Any]] = []
     for i in range(lo, hi):
-        decision = call_signal(fn, features_at(candles, i, coin, funding_ctx=funding_ctx))
+        decision = call_signal(
+            fn, features_at(candles, i, coin, funding_ctx=funding_ctx, residual_ctx=residual_ctx)
+        )
         if not decision or decision["action"] == "flat":
             continue
         stop_pct = float(decision.get("stop_pct") or 0)
@@ -909,9 +969,12 @@ def score_window(
     hi: int,
     horizon: int = HORIZON,
     funding_ctx: dict[str, list[float]] | None = None,
+    residual_ctx: dict[int, float] | None = None,
 ) -> dict[str, Any]:
     """Run the signal across bars [lo, hi) and summarise the trades."""
-    return summarise([t["r"] for t in _window_trades(candles, fn, coin, lo, hi, horizon, funding_ctx)])
+    return summarise(
+        [t["r"] for t in _window_trades(candles, fn, coin, lo, hi, horizon, funding_ctx, residual_ctx)]
+    )
 
 
 def summarise(rets: list[float]) -> dict[str, Any]:
@@ -957,10 +1020,11 @@ def _backtest_with(
     if len(candles) < WARMUP + horizon + 60:
         raise ValueError(f"not enough candles ({len(candles)}) — widen --limit or --interval")
     funding_ctx = _funding_context(get_funding(coin, interval, limit))
+    residual_ctx = _residual_context(coin, interval, limit)
     last = len(candles) - horizon
     split = WARMUP + int((last - WARMUP) * IS_FRACTION)
-    is_stats = score_window(candles, fn, coin, WARMUP, split, horizon, funding_ctx)
-    oos_stats = score_window(candles, fn, coin, split, last, horizon, funding_ctx)
+    is_stats = score_window(candles, fn, coin, WARMUP, split, horizon, funding_ctx, residual_ctx)
+    oos_stats = score_window(candles, fn, coin, split, last, horizon, funding_ctx, residual_ctx)
     proven = (
         oos_stats["n"] >= MIN_OOS_SAMPLE
         and oos_stats["ci_lo"] > 0  # OOS edge is bootstrap-significant, not a lucky point estimate
@@ -1031,9 +1095,10 @@ def pooled_stats(
         if len(candles) < WARMUP + horizon + 60:
             continue
         fctx = _funding_context(get_funding(coin, interval, limit))
+        rctx = _residual_context(coin, interval, limit)
         last = len(candles) - horizon
         split = WARMUP + int((last - WARMUP) * IS_FRACTION)
-        trades = _window_trades(candles, fn, coin, split, last, horizon, fctx)
+        trades = _window_trades(candles, fn, coin, split, last, horizon, fctx, rctx)
         if not trades:
             continue
         oos = candles[split:last]

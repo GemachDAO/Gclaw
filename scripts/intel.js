@@ -194,6 +194,7 @@ async function coinIntel(coin, ctx, btcReturns) {
   f.efficiency = Math.round(efficiencyRatio(closes) * 100) / 100;
   f.regime = classifyRegime(f);
   f.tradeable = f.regime !== 'chop';
+  f.__c = c1.map((k) => ({ t: k.t, c: k.c })); // closes for the cross-sectional residual pass; stripped before output
   return f;
 }
 
@@ -248,7 +249,8 @@ function recordSeries(intel) {
     rows.push(JSON.stringify({
       t, coin, price: f.price, funding_now: f.funding_now, funding_z: f.funding_z,
       funding_venue_spread: f.funding_venue_spread ?? null, rel_volume_z: f.rel_volume_z,
-      book_skew: f.book_skew ?? null, open_interest: f.open_interest, regime: f.regime,
+      book_skew: f.book_skew ?? null, residual_z: f.residual_z ?? null, xs_rank: f.xs_rank ?? null,
+      open_interest: f.open_interest, regime: f.regime,
     }));
   }
   if (!rows.length) return;
@@ -260,6 +262,29 @@ function recordSeries(intel) {
       fs.writeFileSync(p, lines.slice(-200000).join('\n') + '\n');
     }
   } catch { /* series is best-effort — never break the scan */ }
+}
+
+const INDEX_COIN = 'xyz:SP500'; // basket index for cross-sectional residualisation
+
+// Cross-sectional relative strength (assune-2ol.9): residualise each xyz name against the
+// xyz:SP500 basket (residual_z, backtestable — see forge._residual_z_at) and rank the
+// divergence across the basket (xs_rank in [0,1], 1 = richest vs index; a live-only fade
+// sense). Strips the private __c closes each coinIntel attached for this pass.
+function crossSectional(out) {
+  const idx = out[INDEX_COIN];
+  const spByTime = new Map();
+  if (idx && Array.isArray(idx.__c)) for (const k of idx.__c) spByTime.set(k.t, k.c);
+  const names = [];
+  for (const [coin, f] of Object.entries(out)) {
+    if (f && coin.startsWith('xyz:') && coin !== INDEX_COIN && spByTime.size && Array.isArray(f.__c)) {
+      f.residual_z = residualZ(f.__c, spByTime);
+      names.push(f);
+    }
+  }
+  const sorted = names.sort((a, b) => a.residual_z - b.residual_z);
+  const n = sorted.length;
+  sorted.forEach((f, i) => { f.xs_rank = n > 1 ? Math.round((i / (n - 1)) * 100) / 100 : 0.5; });
+  for (const f of Object.values(out)) if (f) delete f.__c;
 }
 
 async function scan(coins) {
@@ -289,6 +314,7 @@ async function scan(coins) {
   for (const [coin, f] of Object.entries(out)) {
     if (f && spreads[coin] !== undefined) f.funding_venue_spread = spreads[coin];
   }
+  crossSectional(out);
   applyOiDelta(out);
   return out;
 }
@@ -325,6 +351,32 @@ function _spread(ctx) {
 // the sell side is. An execution-timing SENSE the LLM can read to avoid crossing into a
 // lopsided book — kept out of INTEL_KEYS (live-only, not proven alpha); enforcing it as a
 // gate veto needs the A/B-vs-realized-slippage the committee called for (baking data first).
+// Beta-hedged log-price residual z-score of a name vs the basket index (assune-2ol.9), the
+// live twin of forge._residual_z_at — SAME beta fit + cointegration spread + sample-stdev z,
+// so a cross-sectional technique proven in backtest fires identically live. `nameC`/index are
+// [{t, c}] closes; aligned by timestamp over the trailing window.
+function residualZ(nameC, spByTime, window = 60) {
+  const pairs = [];
+  for (let k = Math.max(0, nameC.length - window); k < nameC.length; k += 1) {
+    const sp = spByTime.get(nameC[k].t);
+    if (sp && sp > 0 && nameC[k].c > 0) pairs.push([nameC[k].c, sp]);
+  }
+  if (pairs.length < 20) return 0;
+  const nameLr = []; const idxLr = [];
+  for (let j = 1; j < pairs.length; j += 1) {
+    nameLr.push(Math.log(pairs[j][0] / pairs[j - 1][0]));
+    idxLr.push(Math.log(pairs[j][1] / pairs[j - 1][1]));
+  }
+  const mn = mean(nameLr); const mi = mean(idxLr);
+  const varIdx = idxLr.reduce((s, x) => s + (x - mi) ** 2, 0) / idxLr.length;
+  if (varIdx <= 0) return 0;
+  const cov = nameLr.reduce((s, x, j) => s + (x - mn) * (idxLr[j] - mi), 0) / nameLr.length;
+  const beta = cov / varIdx;
+  const spread = pairs.map(([nc, ic]) => Math.log(nc) - beta * Math.log(ic));
+  const sd = stdev(spread);
+  return sd ? Math.round((spread[spread.length - 1] - mean(spread)) / sd * 100) / 100 : 0;
+}
+
 function _bookSkew(ctx) {
   const mid = Number(ctx && ctx.midPx) || 0;
   const px = ctx && Array.isArray(ctx.impactPxs) ? ctx.impactPxs.map(Number) : null;
@@ -387,7 +439,7 @@ async function main() {
 // Pure functions are exported for unit testing; main() runs only as a CLI.
 module.exports = {
   mean, stdev, sma, ema, rsi, atrPct, efficiencyRatio, correlation, returns,
-  classifyRegime, coinIntel, scan, pickLiquid, sessionAt,
+  classifyRegime, coinIntel, scan, pickLiquid, sessionAt, residualZ,
 };
 
 if (require.main === module) {
