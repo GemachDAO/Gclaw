@@ -12,7 +12,7 @@ set -euo pipefail
 GCLAW_HOME="${GCLAW_HOME:-$HOME/.gclaw}"
 LOG="$GCLAW_HOME/heartbeat.log"
 LOCK="$GCLAW_HOME/heartbeat.lock"
-MODEL="${GCLAW_MODEL:-sonnet}"
+MODEL="${GCLAW_MODEL:-claude-sonnet-5}"
 SKILL_DIR="${GCLAW_SKILL_DIR:-$HOME/.claude/skills/gclaw}"
 mkdir -p "$GCLAW_HOME"
 

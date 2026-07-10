@@ -38,6 +38,12 @@ function positionCount() {
 // (and the fixed backtest JUDGE rigorously validates whatever it authors). If the
 // forge opened this cycle, that shows up as an open position below.
 
+// Pinned model ids — never the CLI's floating `sonnet`/`opus` aliases, so a CLI update can't
+// silently swap the heartbeat onto a different model. Sonnet 5 for idle research cycles,
+// Opus 4.8 for judgment-heavy active management.
+const SONNET = 'claude-sonnet-5';
+const OPUS = 'claude-opus-4-8';
+
 // "active" = the cycle needs real judgment: a position to manage or a live setup.
 // Drives BOTH the model (Opus when active) and the cadence (run hourly when active,
 // stretch when idle). Ignores GCLAW_MODEL so a forced model doesn't disable cadence.
@@ -51,7 +57,7 @@ function main() {
   const cmd = process.argv[2] || 'model';
   const a = activity();
   if (cmd === 'active') { process.stdout.write(a.active ? 'active' : 'idle'); return; }
-  const model = process.env.GCLAW_MODEL || (a.active ? 'opus' : 'sonnet');
+  const model = process.env.GCLAW_MODEL || (a.active ? OPUS : SONNET);
   process.stderr.write(`model_select: ${model} (${a.reason})\n`);
   process.stdout.write(model);
 }
