@@ -1,0 +1,146 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#060A17;--card:#0e1424;--navy:#152037;--line:rgba(161,165,179,.14);
+--ink:#FFFFFF;--slate:#697083;--slate2:#81899F;--silver:#A1A5B3;--silver2:#D5D9E1;
+--emerald:#49B875;--blue:#61B8FF;--red:#DF2E2E;}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Inter',-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--silver);font-size:12px;line-height:1.55}
+.page{width:210mm;min-height:297mm;padding:20mm 20mm 16mm;position:relative;overflow:hidden;page-break-after:always;background:var(--bg)}
+.page:last-child{page-break-after:auto}
+.eyebrow{color:var(--slate);font-size:9px;letter-spacing:3px;text-transform:uppercase;font-weight:600;margin-bottom:10px}
+h1{font-family:'Inter';font-weight:800;color:var(--ink);letter-spacing:-.5px;line-height:1.05}
+h2{font-weight:800;color:var(--ink);font-size:24px;letter-spacing:-.3px;text-transform:uppercase;margin-bottom:4px}
+h3{font-weight:700;color:var(--ink);font-size:13px;margin-bottom:3px}
+.em{color:var(--emerald)}.wt{color:var(--ink)}.mut{color:var(--slate2)}
+.rule{height:1px;background:var(--line);margin:16px 0}
+.foot{position:absolute;bottom:12mm;left:20mm;right:20mm;display:flex;justify-content:space-between;color:var(--slate);font-size:8.5px;letter-spacing:1px;border-top:1px solid var(--line);padding-top:7px}
+.lion{color:var(--emerald);vertical-align:middle}
+/* cover */
+.cover{padding:0;display:flex;flex-direction:column;justify-content:flex-end;background:var(--bg)}
+.cover .art{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.9}
+.cover .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,10,23,.35) 0%,rgba(6,10,23,.2) 45%,rgba(6,10,23,.92) 100%)}
+.cover .inner{position:relative;padding:20mm}
+.cover h1{font-size:62px}
+.pill{display:inline-block;background:var(--emerald);color:#06210f;font-weight:800;font-size:11px;letter-spacing:1px;padding:3px 10px;border-radius:20px;vertical-align:middle;margin-left:10px}
+.tag{color:var(--silver2);font-size:15px;margin-top:12px;max-width:150mm}
+/* grid + cards */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:15px 16px}
+.card .k{color:var(--slate);font-size:8.5px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.big{font-size:34px;font-weight:800;color:var(--ink);line-height:1}
+.big.em{color:var(--emerald)}
+.sub{color:var(--slate2);font-size:10px;margin-top:4px}
+.list p{margin:9px 0;padding-left:16px;position:relative}
+.list p::before{content:'//';position:absolute;left:0;color:var(--emerald);font-weight:700;font-size:9px;top:2px}
+.step{margin:11px 0}.step h3 .n{color:var(--emerald);font-weight:800;margin-right:8px}
+table{width:100%;border-collapse:collapse;font-size:10px;margin-top:8px}
+th{text-align:left;color:var(--slate);font-size:8px;letter-spacing:1.5px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid rgba(161,165,179,.07);color:var(--silver2)}
+td .em{font-weight:700}
+.quote{border-left:2px solid var(--emerald);padding:4px 0 4px 16px;color:var(--silver2);font-style:italic;margin:14px 0;font-size:13px}
+.shot{width:100%;border:1px solid var(--line);border-radius:8px;margin-top:10px}
+.link{color:var(--blue);text-decoration:none}
+.watermark{position:absolute;right:-40px;bottom:-20px;opacity:.035;color:var(--silver)}
+</style></head><body>
+
+<!-- COVER -->
+<div class="page cover">
+  <div class="art" style="background-image:url('launch-v4.jpg')"></div>
+  <div class="scrim"></div>
+  <div class="inner">
+    <div class="eyebrow" style="color:var(--silver2)">// GEMACH ECOSYSTEM · SELF-EVOLVING TRADING AGENT</div>
+    <h1>GCLAW <span class="pill">v4.0.0</span></h1>
+    <div class="tag"><b class="wt">The Evolution Organism.</b> A self-evolving, onchain trading agent that authors its own strategies, proves them before risking a dollar, and carries a reputation you can verify on Base.</div>
+    <div class="tag mut" style="font-size:11px;margin-top:18px">Field guide &amp; status report · agent #55624 “Zephlith” · July 2026</div>
+  </div>
+</div>
+
+<!-- WHAT IT IS -->
+<div class="page">
+  <div class="eyebrow">// 01 · WHAT IT IS</div>
+  <h2>A creature that survives<br>by getting <span class="em">better</span></h2>
+  <div class="tag mut" style="font-size:13px;margin:10px 0 4px">Most “AI trading agents” make one bet: let a model pick trades and hope it wins. It doesn’t — perps are zero-sum minus fees, and the model loses ~99% of the time. gclaw is built on the opposite idea.</div>
+  <div class="quote">Fitness is <b class="em">proven edge</b>, not profit. Binding survival to a fragile profit signal is exactly what kills these organisms. gclaw survives by proving real, inheritable edge — and lets profit follow.</div>
+  <div class="grid3" style="margin-top:6px">
+    <div class="card"><div class="k">It authors</div><h3 class="em">Its own strategies</h3><div class="sub">The LLM writes real trading code. A deterministic backtest decides which survive.</div></div>
+    <div class="card"><div class="k">It reproduces</div><h3 class="em">On proven DNA</h3><div class="sub">It breeds only when it has tested, inheritable edge — children inherit what works.</div></div>
+    <div class="card"><div class="k">It’s accountable</div><h3 class="em">Reputation = settled PnL</h3><div class="sub">Its ERC-8004 identity on Base carries verifiable performance — honest even when down.</div></div>
+  </div>
+  <div class="rule"></div>
+  <div class="eyebrow">// THE INVERSION</div>
+  <div class="list" style="font-size:12px">
+    <p>The LLM never opens a trade on a hunch. <span class="mut">Origination is deterministic and edge-gated; the model’s job is invention, reading events, and accountability — where it’s actually +EV.</span></p>
+    <p>Every consequential action is enforced in code, behind a shadow / dry-run → armed-live flag. <span class="mut">Safety is deterministic, never advisory.</span></p>
+  </div>
+  <div class="foot"><span>// GCLAW · THE EVOLUTION ORGANISM</span><span>01 / 05</span></div>
+</div>
+
+<!-- HOW IT WORKS -->
+<div class="page">
+  <div class="eyebrow">// 02 · HOW IT WORKS</div>
+  <h2>The loop, every heartbeat</h2>
+  <div class="step"><h3><span class="n">1</span>Perceive &amp; stay disciplined</h3><div class="sub" style="font-size:11px">Reads the market into a regime (trend / range / chop). Sits out chop. Trades only proven, regime-matched edge — never a hunch.</div></div>
+  <div class="step"><h3><span class="n">2</span>The Scientist — invent edge <span class="em">🔬</span></h3><div class="sub" style="font-size:11px">Between trades it authors brand-new techniques (real code). A deterministic, out-of-sample backtest judges each one. Only graduates go live — losers are discarded before a dollar is risked. The model never declares its own win.</div></div>
+  <div class="step"><h3><span class="n">3</span>The Event Desk — bet reasoning <span class="em">🎯</span></h3><div class="sub" style="font-size:11px">On zero-fee outcome markets it reads an event into a calibrated probability and takes a defined-risk bet — the one game where an LLM’s reasoning is a genuine edge. Calibration is scored (Brier) over time.</div></div>
+  <div class="step"><h3><span class="n">4</span>Reproduce on proven edge <span class="em">🧬</span></h3><div class="sub" style="font-size:11px">When it has ≥2 graduated, live-proven techniques (and a new one since its last birth), it becomes breed-ready. Children inherit the proven winners — tested DNA, not luck.</div></div>
+  <div class="step"><h3><span class="n">5</span>Attest onchain <span class="em">🔗</span></h3><div class="sub" style="font-size:11px">Each cycle it publishes a scorecard — settled PnL + proven edge + lineage — to its ERC-8004 card on Base. Re-derivable by anyone. It also renders a living dashboard and tops a proven-edge leaderboard.</div></div>
+  <div class="rule"></div>
+  <div class="eyebrow">// THE THREE BOOKS</div>
+  <table><tr><th>Book</th><th>What</th><th>Who decides</th></tr>
+  <tr><td class="em">A · Event Desk</td><td>zero-fee outcome markets, defined-risk</td><td>LLM reasoning (its real edge)</td></tr>
+  <tr><td class="em">B · Carry Floor</td><td>delta-neutral funding harvest</td><td>deterministic, no LLM</td></tr>
+  <tr><td class="em">C · Slow Trend</td><td>~24h vol-targeted momentum</td><td>the forge (proven techniques)</td></tr></table>
+  <div class="foot"><span>// GCLAW · THE EVOLUTION ORGANISM</span><span>02 / 05</span></div>
+</div>
+
+<!-- STATUS REPORT -->
+<div class="page">
+  <div class="eyebrow">// 03 · STATUS REPORT · #55624 “ZEPHLITH”</div>
+  <h2>How it’s doing</h2>
+  <div class="tag mut" style="font-size:12px;margin:8px 0 14px">Alive, healthy, and disciplined — proving edge, not yet profitable. Every figure below is re-derivable from the chain.</div>
+  <div class="grid3">
+    <div class="card"><div class="k">Fitness · proven edge</div><div class="big em">2</div><div class="sub">techniques graduated · <b class="em">BREED-READY</b></div></div>
+    <div class="card"><div class="k">Self-authored</div><div class="big">6</div><div class="sub">techniques written &amp; adopted</div></div>
+    <div class="card"><div class="k">Status</div><div class="big em">THRIVE</div><div class="sub">348 heartbeats · flat &amp; safe</div></div>
+  </div>
+  <div class="grid3" style="margin-top:12px">
+    <div class="card"><div class="k">Realized track record</div><div class="big" style="color:var(--silver2)">−$39.82</div><div class="sub">52 closes · 19% win · −$0.77/trade · the honest price of learning</div></div>
+    <div class="card"><div class="k">Capital</div><div class="big">$176</div><div class="sub">equity · 0 open positions · GMAC 565/1000</div></div>
+    <div class="card"><div class="k">Proven techniques</div><h3 class="em" style="margin-top:6px">stop-hunt-revert</h3><div class="sub">+0.164 · 9 trades</div><h3 class="em" style="margin-top:6px">stock-meanrev</h3><div class="sub">+0.057 · 3 trades</div></div>
+  </div>
+  <div class="quote" style="margin-top:16px">Latest science, verbatim from a live heartbeat: it diagnosed a logic bug in one of its own techniques, authored a fork to fix it — then the backtest <b>falsified the hypothesis</b> (0-for-16, every fade stopped out). Kept as a draft, not adopted, zero money risked. “One defect fixed, one hypothesis falsified by the judge, no forced trade.”</div>
+  <div class="list" style="font-size:11px">
+    <p><b class="wt">The read:</b> it’s not gambling — it’s proving. It bleeds slowly (mostly heartbeat cost) because it stays out of bad trades. <span class="mut">The bet: proven-edge count climbs and, once a technique confirms live, the −$39.82 stops and reverses. Reproduction and profit follow proven edge, never the reverse.</span></p>
+  </div>
+  <div class="foot"><span>// GCLAW · THE EVOLUTION ORGANISM</span><span>03 / 05</span></div>
+</div>
+
+<!-- WHY DIFFERENT + VERIFY -->
+<div class="page">
+  <div class="eyebrow">// 04 · WHY IT’S DIFFERENT</div>
+  <h2>Honesty is the moat</h2>
+  <div class="grid2">
+    <div class="card"><div class="k">Accountable, not social</div><div class="sub" style="font-size:11px">Almost every agent’s “reputation” is posts and followers. gclaw’s is <b class="em">settled PnL on Base</b> — non-fakeable, re-derivable by anyone. Honest even when it’s down.</div></div>
+    <div class="card"><div class="k">Fixes the graveyard</div><div class="sub" style="font-size:11px">Prior “survival” agents bred on profit — and all their offspring died. gclaw breeds on <b class="em">proven edge</b>, the robust fitness signal they lacked.</div></div>
+    <div class="card"><div class="k">Deterministic safety</div><div class="sub" style="font-size:11px">Sizing, stops, settlement, reproduction, every live gate — enforced in code the model can’t skip. Shadow / dry-run → armed-live flags on every real-money action.</div></div>
+    <div class="card"><div class="k">A mind you can watch</div><div class="sub" style="font-size:11px">A living dashboard, a proven-edge leaderboard read live from Base, and a full Telegram console — you watch it think, prove, and evolve.</div></div>
+  </div>
+  <div class="rule"></div>
+  <div class="eyebrow">// VERIFY IT YOURSELF</div>
+  <table><tr><th>Surface</th><th>Where</th></tr>
+  <tr><td>Release v4.0.0</td><td class="link">github.com/GemachDAO/Gclaw/releases/tag/v4.0.0</td></tr>
+  <tr><td>Onchain identity (ERC-8004)</td><td>Base mainnet · agentId 55624 · IdentityRegistry 0x8004A169…</td></tr>
+  <tr><td>Leaderboard</td><td>ranked by proven edge · reads Base directly · no server</td></tr>
+  <tr><td>Telegram console</td><td>/status · /proven · /pnl · /gate · owner control + live feeds</td></tr></table>
+  <div class="rule"></div>
+  <div style="text-align:center;margin-top:24px">
+    <div class="big em" style="font-size:20px">Still here. Still trading.</div>
+    <div class="sub" style="margin-top:6px">Built on Base · ERC-8004 · powered by the GDEX stack · <span class="lion">//</span>GEMACH</div>
+  </div>
+  <div class="foot"><span>// GCLAW v4.0.0 · BUILT BY GEMACH DAO</span><span>04 / 05</span></div>
+</div>
+
+</body></html>
