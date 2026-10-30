@@ -93,7 +93,11 @@ async function signIn(skill, wallet) {
     nonce,
     signature: sig,
   });
-  await skill.signInWithComputedData({ computedData: payload.computedData, chainId: ETH_CHAIN });
+  await skill.signInWithComputedData(
+    { computedData: payload.computedData, chainId: ETH_CHAIN },
+    // gdex-skill >= 5.2: signs /v1/user + agent requests; older SDKs ignore it.
+    { sessionPrivateKey: kp.sessionPrivateKey },
+  );
   return { apiKey, walletAddress: wallet.control.address, sessionPrivateKey: kp.sessionPrivateKey };
 }
 

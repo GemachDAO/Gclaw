@@ -47,7 +47,11 @@ async function main() {
     const sig = (await wallet.signMessage(SDK.buildGdexSignInMessage(w.address, nonce, kp.sessionKey))).replace(/^0x/, '');
     const payload = SDK.buildGdexSignInComputedData({ apiKey, userId: w.address, sessionKey: kp.sessionKey, nonce, signature: sig });
     try {
-      const resp = await skill.signInWithComputedData({ computedData: payload.computedData, chainId: c.chainId });
+      const resp = await skill.signInWithComputedData(
+        { computedData: payload.computedData, chainId: c.chainId },
+        // gdex-skill >= 5.2: signs /v1/user + agent requests; older SDKs ignore it.
+        { sessionPrivateKey: kp.sessionPrivateKey },
+      );
       managed[c.name] = { chainId: c.chainId, address: resp.address || resp.walletAddress || null, fund: c.fund };
     } catch (e) {
       managed[c.name] = { chainId: c.chainId, address: null, error: e.message, fund: c.fund };
