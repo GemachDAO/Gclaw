@@ -54,7 +54,11 @@ async function signIn(skill, wallet) {
   const nonce = SDK.generateGdexNonce().toString();
   const sig = (await new ethers.Wallet(wallet.pk).signMessage(SDK.buildGdexSignInMessage(wallet.control, nonce, kp.sessionKey))).replace(/^0x/, '');
   const payload = SDK.buildGdexSignInComputedData({ apiKey, userId: wallet.control, sessionKey: kp.sessionKey, nonce, signature: sig });
-  await skill.signInWithComputedData({ computedData: payload.computedData, chainId: ARB_CHAIN });
+  await skill.signInWithComputedData(
+    { computedData: payload.computedData, chainId: ARB_CHAIN },
+    // gdex-skill >= 5.2: signs /v1/user + agent requests; older SDKs ignore it.
+    { sessionPrivateKey: kp.sessionPrivateKey },
+  );
   return { apiKey, walletAddress: wallet.control, sessionPrivateKey: kp.sessionPrivateKey };
 }
 
